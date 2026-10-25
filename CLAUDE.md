@@ -112,4 +112,20 @@ Helpers in `src/lib/helpers.js` (single source: statuses, SLA, case types, `case
 3. **Driver / job card** in the routing app: extra optional columns on `routing_job_cards` (contact no, received-by-other + details, original/delivered asset, swap); 3 photos; reasons Service Denied/Refused Entry, Location not Found, Asset Missing, Incorrect Asset Details; swap only within the **same product family** with warning; complete → asset to POS, out of stock, Assigned/Deployed via `coolerco_asset_movements` (never overwrite `assets_live`); new storage bucket for cases.
 4. Mobile-style tripsheet redesign in the routing app.
 
+---
+
+## 6. ▶ RESUME HERE — work in progress (2026-10-25 evening)
+
+**Building now: Concessionaire portal** (request: "access either via app or on their own link").
+- **Script written, NOT applied yet:** `supabase/coolerco_007_concessionaire_portal.sql`. Next: check column names against the live DB → show Wanda → apply (watch for the Supabase approval prompt; if it times out, don't retry in the same turn).
+- **Design:** no Supabase login for concessionaires. Personal **link + PIN** (PIN stored hashed with `extensions.crypt`; 5 wrong tries = 15 min lock) → 12-hour session token → anon may only call `coolerco_conc_*` functions, which always filter to that concessionaire's stores/cases.
+- **New objects (all additive, `coolerco_` only):** `coolerco_concessionaires` + `coolerco_concessionaire_names` (COM `responsible_ordering_party` spellings → one concessionaire, so name variants can be grouped) · `coolerco_concessionaire_users` · `coolerco_conc_sessions` · `coolerco_case_comments` (COM or CoolerCo cases; visibility internal/concessionaire/customer) · new column `coolerco_cases.com_case_number` · status **"Linked to COM"** + reason `LOGGED_IN_COM`.
+- **Functions:** `coolerco_conc_link_info`, `coolerco_conc_login(link, pin)`, `coolerco_conc_context`, `coolerco_conc_requests(session, waiting|to_log|done|all)`, `coolerco_conc_decide` (accept → Open / reject → Rejected; **first decision wins**, logged in `coolerco_case_events`), `coolerco_conc_link_com` (type the COM case no. → Linked to COM), `coolerco_conc_cases` (their COM cases, open by default, search case/POS/asset), `coolerco_conc_stores`, `coolerco_conc_comments` / `coolerco_conc_add_comment`. Staff only: `coolerco_conc_staff_session(concessionaire)` ("Open as…"), `coolerco_conc_set_pin(user, pin)`.
+- **Front-end still to build:** public route `/c/<link>` (own small bundle like `/p/<token>`): PIN screen → tabs **To approve** (Accept / Reject + reason + comment, "Copy for COM", COM case no. box) · **Our cases** (COM + CoolerCo, search, comments) · **Stores**. Staff page `/concessionaires` under Customers: list, name grouping, users, set PIN, copy link / WhatsApp / QR, **Open as**. Requests page: show comments + COM link. Request photos not shown to concessionaires in v1 (count only).
+- **Data notes:** 26 POS have a different concessionaire in the POS file vs cases; a few stray ROP names (SPAR…, DDS…, SE MANGA) — seed skips RTMA/DDS and names with < 15 rows; review in the staff page.
+
+**Then (agreed order):** COM matching after upload (same store + asset/family + compatible type, ~14 days) · combined COM + CoolerCo cases view · **conversion stats** (portal requests → COM cases) · WhatsApp via Meta Cloud API (after Wanda's Meta setup) · tenant/client structure (Magnum, Tiger Brands) · route QR sheet + bulk send queue · staff Delivery wizard · routing app job card / tripsheet · WMS tables.
+
+**Open questions for Wanda (unanswered):** Magnum second approval for some types? Customers see concessionaire comments? Concessionaires log requests in v1? Several users per concessionaire? Replacement on the customer portal? Auto-link exact COM matches? Match window 14 days? Block or warn on duplicates? Approver sets condition/branding?
+
 **Open risk:** `cases` table has RLS disabled (readable with the anon key incl. contact numbers) — plan a fix with the other apps.
