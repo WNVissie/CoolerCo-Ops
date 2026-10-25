@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import Topbar from '../components/Topbar'
 import DataTable from '../components/DataTable'
@@ -26,6 +26,7 @@ export function whereIs(a) {
 
 export default function Assets() {
   const [params] = useSearchParams()
+  const autoOpened = useRef(false)
   const [rows, setRows] = useState([])
   const [count, setCount] = useState(0)
   const [page, setPage] = useState(0)
@@ -59,6 +60,9 @@ export default function Assets() {
     q = q.order('name').range(page * PS, page * PS + PS - 1)
     const { data, count, error } = await q
     setRows(error ? [] : data || []); setCount(error ? 0 : count || 0); setLoading(false)
+    if (!error && count === 1 && params.get('q') && debounced === params.get('q').trim() && !autoOpened.current) {
+      autoOpened.current = true; setSelected(data[0])
+    }
   }, [debounced, searching, wh, bay, condition, page])
 
   useEffect(() => { load() }, [load])

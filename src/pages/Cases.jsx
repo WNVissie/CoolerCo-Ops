@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { supabase } from '../lib/supabase'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import Topbar from '../components/Topbar'
 import DataTable from '../components/DataTable'
 import Drawer from '../components/Drawer'
@@ -251,6 +252,15 @@ function Mismatch({ asked, got }) {
 
 function CaseDetail({ c, onAsset }) {
   const assets = caseAssets(c)
+  const navigate = useNavigate()
+  // Barcode, local code and product base for each asset on the case — one small call when the drawer opens
+  const [info, setInfo] = useState({})
+  useEffect(() => {
+    const names = [...new Set(assets.map(a => a.asset).filter(Boolean))]
+    if (!names.length) return
+    supabase.from('assets_live').select('name,bar_code,local_code,product_base,product_variant,asset_status,assign_account')
+      .in('name', names).then(({ data }) => setInfo(Object.fromEntries((data || []).map(r => [r.name, r]))))
+  }, [c.case_number])
   return (
     <div>
       <div className="chip-row">
@@ -266,11 +276,14 @@ function CaseDetail({ c, onAsset }) {
           <div key={a.role + a.asset} className="asset-card">
             <div className="asset-card-hd">
               <span className="tag tag-blue">{a.icon} {a.role}</span>
-              <button className="linkish mono" onClick={() => onAsset(a.asset)} title="Show every case for this asset">{a.asset} ↗</button>
+              <button className="linkish mono" onClick={() => navigate(`/assets?q=${encodeURIComponent(a.asset)}`)} title="Open this asset">{a.asset} ↗</button>
+              <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} onClick={() => onAsset(a.asset)} title="Every case for this asset">🔧 All cases</button>
             </div>
             <div className="dl-grid">
+              <Field label="Barcode"><span className="mono">{info[a.asset]?.bar_code}</span></Field>
+              <Field label="Local code"><span className="mono">{info[a.asset]?.local_code}</span></Field>
+              <Field label="Product base">{info[a.asset]?.product_base || a.product_base}</Field>
               <Field label="Condition">{a.condition && <span className={`tag tag-${condColor(a.condition)}`}>{a.condition}</span>}</Field>
-              {a.product_base && <Field label="Product base">{a.product_base}</Field>}
               {a.brand && <Field label="Brand">{a.brand}</Field>}
             </div>
             {a.requested && (a.requested.condition || a.requested.product_base || a.requested.brand) && (
