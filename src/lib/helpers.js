@@ -198,3 +198,10 @@ export const CATS = [
   { key: 'furniture', icon: '🪑', label: 'Furniture', view: 'v_furniture_stock_dashboard' },
   { key: 'office',    icon: '📎', label: 'Office',    view: 'v_office_stock_dashboard' },
 ]
+
+// COM asset_status values seen in assets_live
+export const ASSET_STATUSES = [
+  'Ready to Work', 'To be Branded', 'Waiting for Action', 'To Audit', 'To be Repaired',
+  'To be Refurbished', 'Broken', 'To be Scrapped', 'In Transit', 'Missing', 'Assigned', 'UnAssigned',
+]
+export const AREAS = ['RECEIVING', 'BAU', 'NCD', 'MAIN', 'WORKSHOP']

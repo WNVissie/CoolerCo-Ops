@@ -15,6 +15,7 @@ const NAV = [
 
   { section: 'STOCK & WMS' },
   { to: '/stock',          icon: '🧊', label: 'Asset Stock' },
+  { to: '/stock/check',    icon: '🧭', label: 'Location Check' },
   { href: 'https://smartsparesrtma.netlify.app/', icon: '🔧', label: 'Spares (SmartSpares)', ext: true },
   { divider: true },
   { to: '/wms/receiving',   icon: '📥', label: 'Receiving' },
@@ -24,6 +25,9 @@ const NAV = [
 
   { section: 'CUSTOMERS' },
   { to: '/portal',   icon: '🏪', label: 'POS Lookup' },
+
+  { section: 'ADMIN' },
+  { to: '/setup',    icon: '⚙️', label: 'Setup' },
 ]
 
 export default function Sidebar({ collapsed, setCollapsed, user, onSignOut }) {

@@ -12,6 +12,8 @@ const Scan = lazy(() => import('./pages/Scan'))
 const Picking = lazy(() => import('./pages/Picking'))
 const Routes_ = lazy(() => import('./pages/Routes'))
 const AssetStock = lazy(() => import('./pages/AssetStock'))
+const LocationCheck = lazy(() => import('./pages/LocationCheck'))
+const Setup = lazy(() => import('./pages/Setup'))
 const NewCase = lazy(() => import('./pages/NewCase'))
 const CustomerPortal = lazy(() => import('./pages/CustomerPortal'))
 const Receiving = lazy(() => import('./pages/wms/Receiving'))
@@ -47,6 +49,8 @@ export default function App() {
               <Route path="/picking" element={<Picking />} />
               <Route path="/routes" element={<Routes_ />} />
               <Route path="/stock" element={<AssetStock />} />
+              <Route path="/stock/check" element={<LocationCheck />} />
+              <Route path="/setup" element={<Setup />} />
               <Route path="/wms/receiving" element={<Receiving />} />
               <Route path="/wms/transfers" element={<Transfers />} />
               <Route path="/wms/stocktake" element={<Stocktake />} />

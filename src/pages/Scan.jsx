@@ -23,7 +23,18 @@ export default function Scan() {
   const [msg, setMsg] = useState(null)
   const inputRef = useRef(null)
 
-  useEffect(() => { loadRecent() }, [])
+  const [whs, setWhs] = useState([])
+  const [locs, setLocs] = useState([])
+  const [locId, setLocId] = useState('')
+  const [expected, setExpected] = useState(null)
+
+  useEffect(() => {
+    loadRecent()
+    Promise.all([
+      supabase.from('warehouses').select('id,code,name').eq('warehouse_type', 'regional').in('code', WAREHOUSES),
+      supabase.from('coolerco_wh_locations').select('id,warehouse_code,building,area,label').eq('active', true).order('sort_order'),
+    ]).then(([w, l]) => { setWhs(w.data || []); setLocs(l.data || []) })
+  }, [])
   useEffect(() => { try { wh && localStorage.setItem('cc_scan_wh', wh) } catch { /* ignore */ } }, [wh])
 
   async function loadRecent() {
@@ -51,23 +62,32 @@ export default function Scan() {
     // Suggest the bay from the asset's COM status
     const suggested = bayForStatus(a.asset_status)
     setBay(SCAN_BAYS.some(b => b.key === suggested) ? suggested : 'RED')
+    // Where SHOULD it be? (server-side rule) — pre-select it
+    const { data: chk } = await supabase.from('coolerco_asset_location_check')
+      .select('warehouse_code,expected_location_id,expected_location').eq('name', a.name).maybeSingle()
+    setExpected(chk || null)
+    if (chk?.warehouse_code) setWh(chk.warehouse_code)
+    if (chk?.expected_location_id) setLocId(chk.expected_location_id)
   }
 
   async function save() {
-    if (!asset || !wh || !bay) { setMsg({ type: 'warn', text: 'Choose a warehouse and bay first.' }); return }
+    const whRow = whs.find(w => w.code === wh)
+    if (!asset || !whRow || !bay || !locId) { setMsg({ type: 'warn', text: 'Choose a warehouse, building/area and bay first.' }); return }
+    const loc = locs.find(l => l.id === locId)
     setBusy(true)
     const { data: { user } } = await supabase.auth.getUser()
     const { error } = await supabase.from('coolerco_asset_touch').insert({
       tenant_id: TENANT,
       bar_code: asset.bar_code, local_code: asset.local_code, asset_name: asset.name,
-      warehouse_id: wh, warehouse_name: WH_NAMES[wh], bay, scan_type: type,
+      warehouse_id: whRow.id, warehouse_name: loc?.label || WH_NAMES[wh], location_id: locId, bay, scan_type: type,
       scanned_by: user?.email || 'ops-hub', scanned_by_user_id: user?.id || null,
       notes: notes || null,
     })
     setBusy(false)
     if (error) { setMsg({ type: 'err', text: 'Could not save the scan: ' + error.message }); return }
-    setMsg({ type: 'ok', text: `✓ ${asset.bar_code || asset.name} logged in ${WH_NAMES[wh]} · ${BAYS.find(b => b.key === bay)?.label}` })
-    setAsset(null); setCode(''); setNotes(''); loadRecent()
+    const wrong = expected?.expected_location_id && expected.expected_location_id !== locId
+    setMsg({ type: wrong ? 'warn' : 'ok', text: `✓ ${asset.bar_code || asset.name} logged in ${loc?.label} · ${BAYS.find(b => b.key === bay)?.label}${wrong ? ` — ⚠ should be in ${expected.expected_location}` : ''}` })
+    setAsset(null); setCode(''); setNotes(''); setExpected(null); loadRecent()
     inputRef.current?.focus()
   }
 
@@ -104,10 +124,21 @@ export default function Scan() {
                 </div>
 
                 <div className="field-lbl">🏢 Warehouse</div>
-                <select className="field-ctrl" value={wh} onChange={e => setWh(e.target.value)}>
+                <select className="field-ctrl" value={wh} onChange={e => { setWh(e.target.value); setLocId('') }}>
                   <option value="">Choose…</option>
                   {WAREHOUSES.map(w => <option key={w} value={w}>{WH_NAMES[w]}</option>)}
                 </select>
+
+                <div className="field-lbl" style={{ marginTop: 10 }}>🏠 Building / area</div>
+                <div className="bay-pick">
+                  {locs.filter(l => l.warehouse_code === wh).map(l => (
+                    <button type="button" key={l.id} className={`bay-tile bay-pending${locId === l.id ? ' on' : ''}`} onClick={() => setLocId(l.id)}>
+                      <span>{l.building}{l.area !== 'MAIN' ? ` · ${l.area}` : ''}</span>
+                      {expected?.expected_location_id === l.id && <strong title="Where this asset should be">★</strong>}
+                    </button>
+                  ))}
+                </div>
+                {expected?.expected_location && <div className="text3" style={{ fontSize: 10.5, marginTop: 4 }}>★ Should be in: {expected.expected_location}</div>}
 
                 <div className="field-lbl" style={{ marginTop: 10 }}>🎨 Bay</div>
                 <div className="bay-pick">

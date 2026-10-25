@@ -41,7 +41,7 @@ export default function AssetStock() {
       <Topbar
         title="Asset Stock"
         sub="Coolers physically in RTMA warehouses & workshops · grouped by bay"
-        actions={<a href={SPARES_APP_URL} target="_blank" rel="noopener noreferrer" className="btn btn-ghost btn-sm">🔧 Spares stock ↗</a>}
+        actions={<><Link to="/stock/check" className="btn btn-ghost btn-sm">🧭 Location check</Link><a href={SPARES_APP_URL} target="_blank" rel="noopener noreferrer" className="btn btn-ghost btn-sm">🔧 Spares stock ↗</a></>}
       />
       <div className="page-content">
         {err && (
