@@ -128,25 +128,8 @@ function Field({ label, children }) {
 }
 
 export function AssetDetail({ a }) {
-  const [cases, setCases] = useState(null)
-  const [scans, setScans] = useState(null)
   const where = whereIs(a)
   const b = BAYS.find(x => x.key === bayForStatus(a.asset_status))
-
-  // Loaded only when the matching section is opened (lazy) — the asset facts show immediately
-  async function loadCases() {
-    if (cases) return
-    const { rows } = await searchCases({ asset: a.name, status: 'all' }, { limit: 30 })
-    setCases(rows)
-  }
-  async function loadScans() {
-    if (scans) return
-    const { data } = await supabase.from('coolerco_asset_touch')
-      .select('created_at,scan_type,bay,warehouse_name,scanned_by')
-      .or(`bar_code.eq.${a.bar_code || '-'},asset_name.eq.${a.name}`)
-      .order('created_at', { ascending: false }).limit(20)
-    setScans(data || [])
-  }
 
   return (
     <div>
@@ -182,44 +165,105 @@ export function AssetDetail({ a }) {
         </div>
       </details>
 
-      <details className="sec" onToggle={e => e.currentTarget.open && loadCases()}>
-        <summary>🔧 Case history</summary>
-        <div className="sec-body">
-          {!cases ? <div className="load-state"><span className="spinner" /> Loading…</div>
-            : !cases.length ? <div className="text3">No cases for this asset.</div>
-              : (
-                <div className="timeline">
-                  {cases.map(c => {
-                    const role = caseAssets(c).find(x => x.asset === a.name)?.role
-                    return (
-                      <Link key={c.case_number} to={`/cases?asset=${encodeURIComponent(a.name)}`} className="tl-item">
-                        <span className="tl-dot">{CASE_TYPE_ICON[c.case_type] || '•'}</span>
-                        <div style={{ minWidth: 0 }}>
-                          <div><strong className="mono" style={{ fontSize: 11 }}>{c.case_number}</strong> · {c.case_type}{role ? <span className="text3"> ({role})</span> : null}</div>
-                          <div className="text3" style={{ fontSize: 10.5 }}>{fmt(c.created_on)} · {(c.warehouse_workshop || '').replace('RTMA ', '')} · {c.point_of_sale || '—'}</div>
-                        </div>
-                        <span className={`tag tag-${statusColor(c.status_reason)}`} style={{ marginLeft: 'auto' }}>{c.status_reason}</span>
-                      </Link>
-                    )
-                  })}
-                </div>
-              )}
-        </div>
-      </details>
-
-      <details className="sec" onToggle={e => e.currentTarget.open && loadScans()}>
-        <summary>📷 CoolerCo bay scans</summary>
-        <div className="sec-body">
-          {!scans ? <div className="load-state"><span className="spinner" /> Loading…</div>
-            : !scans.length ? <div className="text3">No bay scans yet.</div>
-              : (
-                <table className="tbl" style={{ fontSize: 11 }}>
-                  <thead><tr><th>Date</th><th>Type</th><th>Warehouse</th><th>Bay</th><th>By</th></tr></thead>
-                  <tbody>{scans.map((h, i) => <tr key={i}><td>{fmt(h.created_at)}</td><td>{h.scan_type || '—'}</td><td>{h.warehouse_name || '—'}</td><td>{h.bay || '—'}</td><td>{h.scanned_by || '—'}</td></tr>)}</tbody>
-                </table>
-              )}
-        </div>
-      </details>
+      <AssetHistory a={a} />
     </div>
+  )
+}
+
+// One timeline from every source we hold about an asset (all loaded together)
+const SOURCES = {
+  case:     { icon: '🔧', label: 'COM cases' },
+  cc:       { icon: '📨', label: 'CoolerCo requests' },
+  touch:    { icon: '📍', label: 'COM touches' },
+  record:   { icon: '🗂️', label: 'COM record changes' },
+  scan:     { icon: '📷', label: 'Bay scans' },
+}
+
+function AssetHistory({ a }) {
+  const [items, setItems] = useState(null)
+  const [on, setOn] = useState(() => Object.keys(SOURCES))
+  const [open, setOpen] = useState(true)
+
+  useEffect(() => {
+    let live = true
+    const n = a.name
+    Promise.all([
+      searchCases({ asset: n, status: 'all' }, { limit: 60 }),
+      supabase.from('coolerco_cases').select('case_number,case_type,status_reason,created_on,point_of_sale,warehouse_workshop,originator')
+        .or(`mapped_asset.eq.${n},asset_repaired.eq.${n},asset_removed.eq.${n},asset_delivered.eq.${n}`).order('created_on', { ascending: false }).limit(30),
+      supabase.from('asset_touch').select('touched_at,pos_name,location,condition,asset_status,status_reason,reporter_type,portal_user_created_by')
+        .eq('asset_number', n).order('touched_at', { ascending: false }).limit(30),
+      supabase.from('magnum_assets_history').select('revision,first_seen_at,asset_status,asset_location,assign_account,asset_condition')
+        .eq('asset_name', n).order('revision', { ascending: false }).limit(30),
+      supabase.from('coolerco_asset_touch').select('created_at,scan_type,bay,warehouse_name,scanned_by')
+        .or(`asset_name.eq.${n},bar_code.eq.${a.bar_code || '-'}`).order('created_at', { ascending: false }).limit(30),
+    ]).then(([cases, cc, touch, rec, scans]) => {
+      if (!live) return
+      const list = []
+      ;(cases.rows || []).forEach(c => {
+        const role = caseAssets(c).find(x => x.asset === n)?.role
+        list.push({ src: 'case', at: c.created_on, title: `${CASE_TYPE_ICON[c.case_type] || '•'} ${c.case_type}${role ? ` (${role})` : ''}`,
+          sub: `${c.case_number} · ${(c.warehouse_workshop || '').replace('RTMA ', '')} · ${c.point_of_sale || '—'}${c.service_closure_date ? ` · closed ${fmt(c.service_closure_date)}` : ''}`,
+          tag: c.status_reason, color: statusColor(c.status_reason), link: `/cases?asset=${encodeURIComponent(n)}` })
+      })
+      ;(cc.data || []).forEach(c => list.push({ src: 'cc', at: c.created_on, title: `${CASE_TYPE_ICON[c.case_type] || '•'} ${c.case_type}`,
+        sub: `${c.case_number} · ${c.originator} · ${c.point_of_sale || ''}`, tag: c.status_reason, color: c.status_reason === 'Waiting for Approval' ? 'orange' : statusColor(c.status_reason), link: '/requests' }))
+      ;(touch.data || []).forEach(t => list.push({ src: 'touch', at: t.touched_at, title: `📍 Touched at ${t.pos_name || 'location'}`,
+        sub: [t.condition, t.asset_status, t.reporter_type || t.portal_user_created_by].filter(Boolean).join(' · '), tag: t.status_reason, color: t.status_reason === 'Accepted' ? 'green' : 'neutral' }))
+      const recs = rec.data || []
+      recs.forEach((r, idx) => {
+        const prev = recs[idx + 1]
+        const changes = prev ? [
+          prev.asset_status !== r.asset_status && `status ${prev.asset_status} → ${r.asset_status}`,
+          prev.assign_account !== r.assign_account && `moved ${prev.assign_account || '—'} → ${r.assign_account || '—'}`,
+          prev.asset_condition !== r.asset_condition && `condition ${prev.asset_condition} → ${r.asset_condition}`,
+        ].filter(Boolean) : [`first seen: ${r.asset_status} · ${r.assign_account || r.asset_location || ''}`]
+        if (changes.length) list.push({ src: 'record', at: r.first_seen_at, title: '🗂️ COM record changed', sub: changes.join(' · ') })
+      })
+      ;(scans.data || []).forEach(sc => list.push({ src: 'scan', at: sc.created_at, title: `📷 Bay scan · ${sc.bay || '—'}`, sub: `${sc.warehouse_name || ''} · ${sc.scan_type || ''} · ${sc.scanned_by || ''}` }))
+      list.sort((x, y) => new Date(y.at || 0) - new Date(x.at || 0))
+      setItems(list)
+    })
+    return () => { live = false }
+  }, [a.name])
+
+  const shown = (items || []).filter(i => on.includes(i.src))
+  const count = k => (items || []).filter(i => i.src === k).length
+
+  return (
+    <details className="sec" open={open} onToggle={e => setOpen(e.currentTarget.open)}>
+      <summary>📜 Asset history {items ? `(${items.length})` : ''}</summary>
+      <div className="sec-body">
+        {!items ? <div className="load-state"><span className="spinner" /> Loading history…</div> : (
+          <>
+            <div className="chip-pick" style={{ marginBottom: 8 }}>
+              {Object.entries(SOURCES).map(([k, v]) => (
+                <button key={k} type="button" className={`chip-opt${on.includes(k) ? ' on' : ''}`}
+                  onClick={() => setOn(o => o.includes(k) ? o.filter(x => x !== k) : [...o, k])}>{v.icon} {v.label} ({count(k)})</button>
+              ))}
+            </div>
+            {!shown.length ? <div className="text3">No history found for the selected sources.</div> : (
+              <div className="timeline">
+                {shown.map((i, idx) => {
+                  const body = (
+                    <>
+                      <span className="tl-dot">{SOURCES[i.src].icon}</span>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 12 }}><strong>{i.title}</strong></div>
+                        <div className="text3" style={{ fontSize: 10.5 }}>{fmt(i.at)}{i.sub ? ` · ${i.sub}` : ''}</div>
+                      </div>
+                      {i.tag && <span className={`tag tag-${i.color || 'neutral'}`} style={{ marginLeft: 'auto' }}>{i.tag}</span>}
+                    </>
+                  )
+                  return i.link
+                    ? <Link key={idx} to={i.link} className="tl-item">{body}</Link>
+                    : <div key={idx} className="tl-item">{body}</div>
+                })}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </details>
   )
 }
