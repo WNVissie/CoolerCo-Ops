@@ -167,6 +167,13 @@ create index if not exists idx_cases_asset_delivered       on public.cases (asse
 create index if not exists idx_cases_asset_removed         on public.cases (asset_removed);
 create index if not exists idx_cases_asset_repaired        on public.cases (asset_repaired);
 
+-- Only signed-in users may use the new search and stock view
+revoke all on function public.coolerco_case_search(text,text,text,text,text,text,text,text,date,date,int,int) from public, anon;
+revoke all on public.coolerco_wh_asset_stock from anon;
 grant execute on function public.coolerco_bay_for_status(text) to anon, authenticated;
 grant execute on function public.coolerco_case_search(text,text,text,text,text,text,text,text,date,date,int,int) to authenticated;
 grant select on public.coolerco_wh_asset_stock to authenticated;
+
+-- Hardening (Supabase advisor): fixed search_path on the new functions
+alter function public.coolerco_bay_for_status(text) set search_path = public, pg_temp;
+alter function public.coolerco_case_search(text,text,text,text,text,text,text,text,date,date,int,int) set search_path = public, pg_temp;
