@@ -277,7 +277,10 @@ function CaseDetail({ c, onAsset }) {
             <div className="asset-card-hd">
               <span className="tag tag-blue">{a.icon} {a.role}</span>
               <button className="linkish mono" onClick={() => navigate(`/assets?q=${encodeURIComponent(a.asset)}`)} title="Open this asset">{a.asset} ↗</button>
-              <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} onClick={() => onAsset(a.asset)} title="Every case for this asset">🔧 All cases</button>
+              <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+                <button className="btn btn-primary btn-sm" onClick={() => navigate(`/assets?q=${encodeURIComponent(a.asset)}`)} title="Open this asset">🏭 Go to asset</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => onAsset(a.asset)} title="Every case for this asset">🔧 All cases</button>
+              </span>
             </div>
             <div className="dl-grid">
               <Field label="Barcode"><span className="mono">{info[a.asset]?.bar_code}</span></Field>
