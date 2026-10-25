@@ -213,7 +213,7 @@ function Families({ by }) {
   )
 }
 
-function PortalCatalogue({ by }) {
+export function PortalCatalogue({ by }) {
   const [fams, setFams] = useState([])
   const [mode, setMode] = useState('all')
   const [urls, setUrls] = useState({})

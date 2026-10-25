@@ -31,6 +31,7 @@ const NAV = [
     { to: '/portal', icon: '🏪', label: 'POS Lookup' },
   ] },
   { section: 'Admin', icon: '⚙️', items: [
+    { to: '/catalogue', icon: '🛍️', label: 'Catalogue' },
     { to: '/setup', icon: '⚙️', label: 'Setup' },
   ] },
 ]

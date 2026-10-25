@@ -15,6 +15,7 @@ const Routes_ = lazyPage(() => import('./pages/Routes'))
 const AssetStock = lazyPage(() => import('./pages/AssetStock'))
 const LocationCheck = lazyPage(() => import('./pages/LocationCheck'))
 const Setup = lazyPage(() => import('./pages/Setup'))
+const Catalogue = lazyPage(() => import('./pages/Catalogue'))
 const Requests = lazyPage(() => import('./pages/Requests'))
 const PortalAccess = lazyPage(() => import('./pages/PortalAccess'))
 const NewCase = lazyPage(() => import('./pages/NewCase'))
@@ -61,6 +62,7 @@ export default function App() {
               <Route path="/stock" element={<AssetStock />} />
               <Route path="/stock/check" element={<LocationCheck />} />
               <Route path="/setup" element={<Setup />} />
+              <Route path="/catalogue" element={<Catalogue />} />
               <Route path="/requests" element={<Requests />} />
               <Route path="/portal-access" element={<PortalAccess />} />
               <Route path="/wms/receiving" element={<Receiving />} />
