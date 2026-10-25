@@ -18,6 +18,7 @@ const Setup = lazyPage(() => import('./pages/Setup'))
 const Catalogue = lazyPage(() => import('./pages/Catalogue'))
 const Requests = lazyPage(() => import('./pages/Requests'))
 const PortalAccess = lazyPage(() => import('./pages/PortalAccess'))
+const Concessionaires = lazyPage(() => import('./pages/Concessionaires'))
 const NewCase = lazyPage(() => import('./pages/NewCase'))
 const CustomerPortal = lazyPage(() => import('./pages/CustomerPortal'))
 const Receiving = lazyPage(() => import('./pages/wms/Receiving'))
@@ -65,6 +66,7 @@ export default function App() {
               <Route path="/catalogue" element={<Catalogue />} />
               <Route path="/requests" element={<Requests />} />
               <Route path="/portal-access" element={<PortalAccess />} />
+              <Route path="/concessionaires" element={<Concessionaires />} />
               <Route path="/wms/receiving" element={<Receiving />} />
               <Route path="/wms/transfers" element={<Transfers />} />
               <Route path="/wms/stocktake" element={<Stocktake />} />

@@ -1,6 +1,7 @@
 -- CoolerCo-Ops · 007 · Concessionaire portal (link + PIN), comments, COM link on CoolerCo cases
 -- Target: RTMA_Ops PRODUCTION. ADDITIVE ONLY: new coolerco_ tables/functions + one new column on
 -- CoolerCo's own coolerco_cases. COM tables are only READ (never written).
+-- APPLIED 2026-10-25 (migration coolerco_007_concessionaire_portal). Seed result: 24 concessionaires.
 -- Concessionaires do NOT get database logins: they use a personal link + PIN and can only call the
 -- coolerco_conc_* functions below, which always filter to their concessionaire's COM names.
 
@@ -166,6 +167,8 @@ begin
     'concessionaire', c.display_name, 'actor', s.actor_label, 'actor_type', s.actor_type,
     'to_approve', (select count(*) from public.coolerco_cases k
                    where k.status_reason = 'Waiting for Approval' and public.coolerco_conc_owns_pos(c.id, k.pos_local_code)),
+    'to_log', (select count(*) from public.coolerco_cases k
+                   where k.status_reason = 'Open' and k.com_case_number is null and public.coolerco_conc_owns_pos(c.id, k.pos_local_code)),
     'open_com', (select count(*) from public.cases x join public.coolerco_concessionaire_names n on n.rop_name = x.responsible_ordering_party
                  where n.concessionaire_id = c.id and lower(trim(x.status_reason)) in ('open','in progress','waiting','in service','on hold')),
     'stores', (select count(*) from public.coolerco_pos_warehouse w join public.coolerco_concessionaire_names n on n.rop_name = w.concessionaire where n.concessionaire_id = c.id)
@@ -180,24 +183,26 @@ begin
   s := public.coolerco_conc_session(p_session);
   if s.token is null then return jsonb_build_object('error', 'expired'); end if;
   return coalesce((
-    select jsonb_agg(jsonb_build_object(
+    select jsonb_agg(r order by (r->>'created_on') desc) from (
+    select jsonb_build_object(
       'case_number', k.case_number, 'case_type', k.case_type, 'status', k.status_reason, 'created_on', k.created_on,
       'point_of_sale', k.point_of_sale, 'pos_local_code', k.pos_local_code, 'warehouse', k.warehouse_workshop,
       'contact', k.case_contact_name, 'phone', coalesce(k.case_mobile_number, k.case_contact_number),
       'description', k.description, 'photos', coalesce(array_length(k.photo_paths, 1), 0),
-      'asset', k.mapped_asset, 'barcode', a.bar_code, 'local_code', a.local_code, 'product', a.product_base, 'condition', a.asset_condition_x,
+      'asset', k.mapped_asset, 'barcode', a.bar_code, 'local_code', a.local_code, 'product', a.product_base, 'condition', a.condition,
       'family', coalesce(f.display_name, f.name), 'com_case_number', k.com_case_number, 'approved_by', k.approved_by, 'approved_at', k.approved_at,
-      'comments', (select count(*) from public.coolerco_case_comments m where m.case_number = k.case_number and m.visibility <> 'internal'))
-      order by k.created_on desc)
+      'end_date', k.end_date, 'motive', k.motive,
+      'comments', (select count(*) from public.coolerco_case_comments m where m.case_number = k.case_number and m.visibility <> 'internal')) r
     from public.coolerco_cases k
-    left join lateral (select bar_code, local_code, product_base, condition as asset_condition_x from public.assets_live where name = k.mapped_asset) a on true
+    left join lateral (select bar_code, local_code, product_base, condition from public.assets_live where name = k.mapped_asset limit 1) a on true
     left join public.coolerco_product_families f on f.id = k.requested_family_id
     where public.coolerco_conc_owns_pos(s.concessionaire_id, k.pos_local_code)
       and (p_view = 'all'
            or (p_view = 'waiting' and k.status_reason = 'Waiting for Approval')
            or (p_view = 'to_log'  and k.status_reason = 'Open' and k.com_case_number is null)
            or (p_view = 'done'    and k.status_reason not in ('Waiting for Approval','Open')))
-    limit 300), '[]'::jsonb);
+    order by k.created_on desc
+    limit 300) t), '[]'::jsonb);
 end $$;
 
 -- Accept / reject a customer request (first decision wins)
@@ -257,14 +262,15 @@ begin
   if s.token is null then return jsonb_build_object('error', 'expired'); end if;
   if q is not null then
     select array_agg(name) into v_assets from public.assets_live where name = q or bar_code = q or local_code = q;
+    v_assets := coalesce(v_assets, array[q]);
   end if;
   return (
     with hits as (
       select c.* from public.cases c
       join public.coolerco_concessionaire_names n on n.rop_name = c.responsible_ordering_party and n.concessionaire_id = s.concessionaire_id
       where (q is null or c.case_number ilike '%' || q || '%' or c.pos_local_code = q or c.point_of_sale ilike '%' || q || '%'
-             or c.mapped_asset = any(coalesce(v_assets, array[q])) or c.asset_repaired = any(coalesce(v_assets, array[q]))
-             or c.asset_removed = any(coalesce(v_assets, array[q])) or c.asset_delivered = any(coalesce(v_assets, array[q])))
+             or c.mapped_asset = any(v_assets) or c.asset_repaired = any(v_assets)
+             or c.asset_removed = any(v_assets) or c.asset_delivered = any(v_assets))
         and (p_status = 'all' or q is not null
              or (p_status = 'open' and lower(trim(c.status_reason)) in ('open','in progress','waiting','in service','on hold'))
              or (p_status = 'closed' and c.created_on > now() - interval '2 months'
@@ -344,7 +350,11 @@ begin
   end loop;
 end $$;
 -- staff must not read PIN hashes or session tokens through the API
-revoke select (pin_hash) on public.coolerco_concessionaire_users from authenticated;
+revoke all on public.coolerco_concessionaire_users from authenticated;
+grant select (id, concessionaire_id, name, email, phone, link_token, active, failed_attempts, locked_until, last_login_at, created_at, created_by),
+      insert (concessionaire_id, name, email, phone, active, created_by),
+      update (concessionaire_id, name, email, phone, active),
+      delete on public.coolerco_concessionaire_users to authenticated;
 revoke all on public.coolerco_conc_sessions from authenticated;
 
 revoke all on function public.coolerco_conc_session(text) from public, anon, authenticated;
