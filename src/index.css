@@ -406,3 +406,20 @@ textarea { resize: vertical; width: 100%; }
 .chip-opt { border: 1px solid var(--border); background: var(--surface); color: var(--text2); border-radius: 14px; font-size: 10.5px; padding: 3px 8px; cursor: pointer; }
 .chip-opt.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .fam-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; }
+/* collapsible navigation */
+.sidebar { transition: width .18s ease; }
+.nav-collapse-btn { margin-left: auto; flex-shrink: 0; width: 26px; height: 26px; border-radius: 6px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.04); color: rgba(255,255,255,.7); cursor: pointer; font-size: 13px; line-height: 1; }
+.nav-collapse-btn:hover { background: rgba(255,255,255,.12); color: #fff; }
+.sidebar.collapsed .sidebar-logo { flex-direction: column; justify-content: center; gap: 6px; padding: 8px 0; height: auto; }
+.sidebar.collapsed .nav-collapse-btn { margin-left: 0; }
+.sidebar.collapsed .nav-item { justify-content: center; padding: 9px 0; }
+.sidebar.collapsed .sidebar-footer { justify-content: center; padding: 10px 0; }
+button.nav-section-label { display: flex; justify-content: space-between; align-items: center; width: 100%; background: none; border: 0; cursor: pointer; text-align: left; }
+button.nav-section-label:hover { color: rgba(255,255,255,.55); }
+.nav-signout { color: rgba(255,255,255,.6); }
+.nav-scrim { display: none; }
+@media (max-width: 768px) {
+  .sidebar, .sidebar.collapsed { width: 250px; }
+  .nav-scrim { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 49; }
+  .topbar { padding-left: 54px; }
+}

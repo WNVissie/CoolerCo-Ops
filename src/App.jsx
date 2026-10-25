@@ -22,7 +22,12 @@ const Stocktake = lazy(() => import('./pages/wms/Stocktake'))
 const Dispatch = lazy(() => import('./pages/wms/Dispatch'))
 
 export default function App() {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  // Desktop: collapse to icons (remembered). Phone: menu slides in over the page.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => { try { return localStorage.getItem('cc_nav_collapsed') === '1' } catch { return false } })
+  const [mobileOpen, setMobileOpen] = useState(false)
+  const isPhone = () => window.matchMedia('(max-width: 768px)').matches
+  useEffect(() => { try { localStorage.setItem('cc_nav_collapsed', sidebarCollapsed ? '1' : '0') } catch { /* ignore */ } }, [sidebarCollapsed])
+  const toggleNav = () => (isPhone() ? setMobileOpen(o => !o) : setSidebarCollapsed(c => !c))
   const [session, setSession] = useState(undefined) // undefined = still checking
 
   useEffect(() => {
@@ -37,9 +42,11 @@ export default function App() {
   return (
     <BrowserRouter>
       <div className="app-shell">
-        <Sidebar collapsed={sidebarCollapsed} setCollapsed={setSidebarCollapsed} user={session.user} onSignOut={() => supabase.auth.signOut()} />
+        <Sidebar collapsed={sidebarCollapsed} onToggle={toggleNav} mobileOpen={mobileOpen} onNavigate={() => setMobileOpen(false)}
+          user={session.user} onSignOut={() => supabase.auth.signOut()} />
+        {mobileOpen && <div className="nav-scrim" onClick={() => setMobileOpen(false)} />}
         <div className="main-area">
-          <div className="topbar-hamburger" onClick={() => setSidebarCollapsed(c => !c)} title="Toggle menu">☰</div>
+          <button className="topbar-hamburger" onClick={() => setMobileOpen(true)} aria-label="Open menu">☰</button>
           <Suspense fallback={<div className="load-state"><span className="spinner" /> Loading…</div>}>
             <Routes>
               <Route path="/" element={<Dashboard />} />
