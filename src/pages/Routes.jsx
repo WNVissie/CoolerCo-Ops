@@ -3,7 +3,7 @@ import Topbar from '../components/Topbar'
 import DataTable from '../components/DataTable'
 import Drawer from '../components/Drawer'
 import { sbFetch, supabase } from '../lib/supabase'
-import { fmt, num, rtStatusColor, rtStatusLabel, PS } from '../lib/helpers'
+import { fmt, num, rtStatusColor, rtStatusLabel, PS, WAREHOUSES, WH_NAMES, whCaseName } from '../lib/helpers'
 
 export default function Routes() {
   const [rows, setRows] = useState([])
@@ -18,14 +18,14 @@ export default function Routes() {
   const load = useCallback(async () => {
     setLoading(true)
     const params = {
-      select: 'id,route_name,status,warehouse_id,driver_name,vehicle_registration,stop_count,created_at,dispatched_at,completed_at',
+      select: 'id,route_number,route_date,status,warehouse_group,resource_display_name,vehicle_code,planned_stop_count,planned_asset_count,created_at,dispatched_at,completed_at',
       order: 'created_at',
       asc: false,
       limit: PS,
       offset: page * PS,
     }
     if (status) params.eq = { status }
-    if (wh) params.eq = { ...params.eq, warehouse_id: wh }
+    if (wh) params.eq = { ...params.eq, warehouse_group: whCaseName(wh) }
 
     const { data, count } = await sbFetch('routing_routes', params)
     setRows(data); setCount(count)
@@ -46,15 +46,16 @@ export default function Routes() {
   }
 
   const COLS = [
-    { key: 'route_name', label: 'Route', render: v => <strong style={{ fontSize: 12 }}>{v || 'Unnamed'}</strong> },
+    { key: 'route_number', label: 'Route', render: v => <strong style={{ fontSize: 12 }}>{v || 'Unnamed'}</strong> },
     {
       key: 'status', label: 'Status',
       render: v => <span className={`tag tag-${rtStatusColor(v)}`}>{rtStatusLabel(v)}</span>
     },
-    { key: 'warehouse_id', label: 'WH' },
-    { key: 'driver_name', label: 'Driver' },
-    { key: 'vehicle_registration', label: 'Vehicle' },
-    { key: 'stop_count', label: 'Stops', render: v => <strong>{v ?? '—'}</strong> },
+    { key: 'warehouse_group', label: 'WH', render: v => (v || '—').replace('RTMA ', '') },
+    { key: 'route_date', label: 'Route date', render: v => <span className="text3">{fmt(v)}</span> },
+    { key: 'resource_display_name', label: 'Driver / Tech' },
+    { key: 'vehicle_code', label: 'Vehicle' },
+    { key: 'planned_stop_count', label: 'Stops', render: v => <strong>{v ?? '—'}</strong> },
     { key: 'created_at', label: 'Created', render: v => <span className="text3">{fmt(v)}</span> },
     { key: 'dispatched_at', label: 'Dispatched', render: v => <span className="text3">{fmt(v)}</span> },
   ]
@@ -80,7 +81,7 @@ export default function Routes() {
           </select>
           <select value={wh} onChange={e => setWh(e.target.value)}>
             <option value="">All warehouses</option>
-            {['JHB','CPT','BFN','DBN','EL','GEO','NEL','POL','PE'].map(w => <option key={w} value={w}>{w}</option>)}
+            {WAREHOUSES.map(w => <option key={w} value={w}>{WH_NAMES[w]}</option>)}
           </select>
           <button className="btn btn-ghost btn-sm" onClick={() => { setStatus(''); setWh(''); }}>Clear</button>
         </div>
@@ -94,7 +95,7 @@ export default function Routes() {
         </div>
       </div>
 
-      <Drawer open={!!selected} onClose={() => setSelected(null)} title={selected?.route_name || 'Route Detail'} icon="🗺️">
+      <Drawer open={!!selected} onClose={() => setSelected(null)} title={selected?.route_number || 'Route Detail'} icon="🗺️">
         {selected && (
           <>
             <div style={{ marginBottom: 14 }}>
@@ -102,10 +103,12 @@ export default function Routes() {
             </div>
             <div className="dl-grid">
               {[
-                ['Warehouse', selected.warehouse_id],
-                ['Driver', selected.driver_name],
-                ['Vehicle', selected.vehicle_registration],
-                ['Stops', selected.stop_count],
+                ['Warehouse', selected.warehouse_group],
+                ['Route date', fmt(selected.route_date)],
+                ['Driver / Tech', selected.resource_display_name],
+                ['Vehicle', selected.vehicle_code],
+                ['Stops', selected.planned_stop_count],
+                ['Assets', selected.planned_asset_count],
                 ['Created', fmt(selected.created_at)],
                 ['Dispatched', fmt(selected.dispatched_at)],
                 ['Completed', fmt(selected.completed_at)],
@@ -124,15 +127,15 @@ export default function Routes() {
                 </div>
                 <table className="tbl" style={{ fontSize: 11.5 }}>
                   <thead>
-                    <tr><th>#</th><th>Customer</th><th>Address</th><th>Status</th></tr>
+                    <tr><th>#</th><th>Case / POS</th><th>Address</th><th>Status</th></tr>
                   </thead>
                   <tbody>
                     {stops.map((s, i) => (
                       <tr key={i}>
                         <td>{s.stop_sequence ?? i + 1}</td>
-                        <td>{s.customer_name || '—'}</td>
+                        <td>{s.case_number} · {s.case_type}<div className="text3" style={{ fontSize: 10.5 }}>{s.point_of_sale || '—'}</div></td>
                         <td className="trunc" style={{ maxWidth: 140 }}>{s.address || '—'}</td>
-                        <td><span className={`tag tag-${s.is_completed ? 'green' : 'neutral'}`}>{s.is_completed ? '✓' : 'Pending'}</span></td>
+                        <td><span className={`tag tag-${s.outcome_status === 'completed' || s.actual_case_status === 'Solved' ? 'green' : 'neutral'}`}>{s.outcome_status || s.actual_case_status || 'planned'}</span></td>
                       </tr>
                     ))}
                   </tbody>

@@ -16,7 +16,7 @@ export default function Receiving() {
   useEffect(() => { loadRecent() }, [])
 
   async function loadRecent() {
-    const { data } = await supabase.from('wms_receiving')
+    const { data } = await supabase.from('coolerco_wms_receiving')
       .select('*')
       .order('received_at', { ascending: false })
       .limit(20)
@@ -33,7 +33,7 @@ export default function Receiving() {
       return
     }
     setSaving(true)
-    const { error } = await supabase.from('wms_receiving').insert({
+    const { error } = await supabase.from('coolerco_wms_receiving').insert({
       warehouse_id: form.warehouse_id,
       item_code: form.item_code,
       item_description: form.item_description,

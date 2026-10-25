@@ -16,7 +16,7 @@ export default function Stocktake() {
   useEffect(() => { loadSessions() }, [])
 
   async function loadSessions() {
-    const { data } = await supabase.from('wms_stocktakes')
+    const { data } = await supabase.from('coolerco_wms_stocktakes')
       .select('*').order('started_at', { ascending: false }).limit(20)
     setSessions(data || [])
     setLoading(false)
@@ -27,7 +27,7 @@ export default function Stocktake() {
   async function startSession(e) {
     e.preventDefault()
     setSaving(true)
-    const { data, error } = await supabase.from('wms_stocktakes').insert({
+    const { data, error } = await supabase.from('coolerco_wms_stocktakes').insert({
       warehouse_id: form.warehouse_id,
       category: form.category,
       notes: form.notes,
@@ -57,11 +57,11 @@ export default function Stocktake() {
     setSaving(true)
     // Save all lines
     if (lines.length > 0) {
-      await supabase.from('wms_stocktake_lines').insert(
+      await supabase.from('coolerco_wms_stocktake_lines').insert(
         lines.map(l => ({ ...l, recorded_at: new Date().toISOString() }))
       )
     }
-    await supabase.from('wms_stocktakes')
+    await supabase.from('coolerco_wms_stocktakes')
       .update({ status: 'completed', completed_at: new Date().toISOString(), line_count: lines.length })
       .eq('id', activeSession.id)
     setMsg({ type: 'success', text: `✓ Stocktake completed — ${lines.length} lines recorded` })

@@ -13,7 +13,7 @@ export default function Transfers() {
   useEffect(() => { loadRecent() }, [])
 
   async function loadRecent() {
-    const { data } = await supabase.from('wms_transfers')
+    const { data } = await supabase.from('coolerco_wms_transfers')
       .select('*').order('transferred_at', { ascending: false }).limit(20)
     setRecent(data || [])
     setLoading(false)
@@ -27,7 +27,7 @@ export default function Transfers() {
       setMsg({ type: 'error', text: 'From and To warehouse must be different' }); return
     }
     setSaving(true)
-    const { error } = await supabase.from('wms_transfers').insert({
+    const { error } = await supabase.from('coolerco_wms_transfers').insert({
       from_warehouse: form.from_warehouse,
       to_warehouse: form.to_warehouse,
       item_code: form.item_code,

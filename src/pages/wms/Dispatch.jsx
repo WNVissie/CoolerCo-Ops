@@ -16,7 +16,7 @@ export default function Dispatch() {
   useEffect(() => { loadRecent() }, [])
 
   async function loadRecent() {
-    const { data } = await supabase.from('wms_dispatches')
+    const { data } = await supabase.from('coolerco_wms_dispatches')
       .select('*').order('dispatched_at', { ascending: false }).limit(20)
     setRecent(data || [])
     setLoading(false)
@@ -27,7 +27,7 @@ export default function Dispatch() {
   async function submit(e) {
     e.preventDefault()
     setSaving(true)
-    const { error } = await supabase.from('wms_dispatches').insert({
+    const { error } = await supabase.from('coolerco_wms_dispatches').insert({
       warehouse_id: form.warehouse_id,
       item_code: form.item_code,
       quantity: Number(form.quantity),
