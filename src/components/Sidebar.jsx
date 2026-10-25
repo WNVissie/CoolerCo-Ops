@@ -5,7 +5,6 @@ import { useState, useEffect, useRef } from 'react'
 const NAV = [
   { section: 'Overview', icon: '📊', items: [
     { to: '/',         icon: '🏠', label: 'Dashboard' },
-    { to: '/scan',     icon: '📷', label: 'Scan / Touch' },
   ] },
   { section: 'Field Ops', icon: '🚚', items: [
     { to: '/cases',    icon: '🔧', label: 'Cases' },
@@ -20,6 +19,7 @@ const NAV = [
     { href: 'https://smartsparesrtma.netlify.app/', icon: '🔩', label: 'Spares (SmartSpares)' },
   ] },
   { section: 'WMS', icon: '🏬', items: [
+    { to: '/scan',          icon: '📷', label: 'Scan / Touch' },
     { to: '/wms/receiving', icon: '📥', label: 'Receiving' },
     { to: '/wms/transfers', icon: '🔄', label: 'Transfers' },
     { to: '/wms/stocktake', icon: '📋', label: 'Stocktake' },
