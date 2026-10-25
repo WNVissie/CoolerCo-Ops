@@ -26,6 +26,8 @@ const NAV = [
     { to: '/wms/dispatch',  icon: '📤', label: 'Dispatch' },
   ] },
   { section: 'Customers', icon: '🏪', items: [
+    { to: '/requests', icon: '📨', label: 'Requests' },
+    { to: '/portal-access', icon: '🔗', label: 'Portal Access' },
     { to: '/portal', icon: '🏪', label: 'POS Lookup' },
   ] },
   { section: 'Admin', icon: '⚙️', items: [

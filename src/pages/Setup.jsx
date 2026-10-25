@@ -17,6 +17,10 @@ export default function Setup() {
           <div className="sec-body"><Locations by={user?.email} /></div>
         </details>
         <details className="sec">
+          <summary>🛍️ Portal catalogue (what customers can request)</summary>
+          <div className="sec-body"><PortalCatalogue by={user?.email} /></div>
+        </details>
+        <details className="sec">
           <summary>🧬 Product families (interim, until COM has one base per product)</summary>
           <div className="sec-body"><Families by={user?.email} /></div>
         </details>
@@ -201,6 +205,80 @@ function Families({ by }) {
               </div>
             ))}
             {!f.bases.length && <div className="text3" style={{ fontSize: 10.5 }}>Empty</div>}
+          </div>
+        ))}
+      </div>
+      {msg && <div className={`form-msg ${msg.type}`}>{msg.text}</div>}
+    </div>
+  )
+}
+
+function PortalCatalogue({ by }) {
+  const [fams, setFams] = useState([])
+  const [mode, setMode] = useState('all')
+  const [urls, setUrls] = useState({})
+  const [q, setQ] = useState('')
+  const [onlyOn, setOnlyOn] = useState(true)
+  const [msg, setMsg] = useState(null)
+
+  async function load() {
+    const [f, m] = await Promise.all([
+      supabase.from('coolerco_product_families').select('*').order('sort_order').order('name'),
+      supabase.from('coolerco_settings').select('value').eq('key', 'portal_catalogue_mode').maybeSingle(),
+    ])
+    setFams(f.data || []); setMode(m.data?.value || 'all')
+    const paths = (f.data || []).map(x => x.photo_path).filter(Boolean)
+    if (paths.length) {
+      const { data } = await supabase.storage.from('coolerco-cases').createSignedUrls(paths, 3600)
+      setUrls(Object.fromEntries((data || []).filter(u => u.signedUrl).map(u => [u.path, u.signedUrl])))
+    }
+  }
+  useEffect(() => { load() }, [])
+
+  async function patch(f, change) {
+    const { error } = await supabase.from('coolerco_product_families').update({ ...change, updated_by: by, updated_at: new Date().toISOString() }).eq('id', f.id)
+    setMsg(error ? { type: 'err', text: error.message } : { type: 'ok', text: '✓ Saved' }); if (!error) load()
+  }
+  async function setCatalogueMode(v) {
+    const { error } = await supabase.from('coolerco_settings').update({ value: v, updated_by: by, updated_at: new Date().toISOString() }).eq('key', 'portal_catalogue_mode')
+    if (!error) setMode(v)
+  }
+  async function upload(f, file) {
+    const path = `catalogue/${f.id}-${Date.now()}.jpg`
+    const { error } = await supabase.storage.from('coolerco-cases').upload(path, file, { contentType: file.type || 'image/jpeg' })
+    if (error) { setMsg({ type: 'err', text: error.message }); return }
+    patch(f, { photo_path: path })
+  }
+
+  const list = fams.filter(f => (!onlyOn || f.show_in_portal) && (!q || (f.name + ' ' + (f.display_name || '')).toLowerCase().includes(q.toLowerCase())))
+  return (
+    <div>
+      <div className="notice">Customers see <strong>families only</strong> — never stock levels. Tick which families appear on the portal; add a photo and a friendly name.</div>
+      <div className="filters">
+        <div className="seg">
+          {[['all', '📚 Show all ticked families'], ['available', '🟢 Only families in stock at the store\'s warehouse']].map(([k, l]) => (
+            <button key={k} className={`seg-btn${mode === k ? ' on' : ''}`} onClick={() => setCatalogueMode(k)}>{l}</button>
+          ))}
+        </div>
+      </div>
+      <div className="filters">
+        <div className="search-wrap" style={{ flex: 1 }}><span className="ico">🔍</span><input placeholder="Search family…" value={q} onChange={e => setQ(e.target.value)} /></div>
+        <label style={{ fontSize: 11.5, display: 'flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={onlyOn} onChange={e => setOnlyOn(e.target.checked)} /> only shown on portal</label>
+      </div>
+      <div className="fam-grid">
+        {list.map(f => (
+          <div key={f.id} className="card" style={{ padding: 10, display: 'flex', gap: 10 }}>
+            <label className="cat-photo" title="Upload photo">
+              {urls[f.photo_path] ? <img src={urls[f.photo_path]} alt="" /> : <span>🧊<small>photo</small></span>}
+              <input type="file" accept="image/*" hidden onChange={e => e.target.files[0] && upload(f, e.target.files[0])} />
+            </label>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="loc-hd"><strong className="trunc">{f.name}</strong>
+                <label style={{ marginLeft: 'auto', fontSize: 11, display: 'flex', gap: 4, alignItems: 'center' }}>
+                  <input type="checkbox" checked={f.show_in_portal} onChange={e => patch(f, { show_in_portal: e.target.checked })} /> portal</label></div>
+              <input className="field-ctrl" style={{ marginTop: 6, fontSize: 11.5 }} placeholder="Display name" defaultValue={f.display_name || ''} onBlur={e => e.target.value !== (f.display_name || '') && patch(f, { display_name: e.target.value || null })} />
+              <input className="field-ctrl" style={{ marginTop: 4, fontSize: 11.5 }} placeholder="Short description (type, size)" defaultValue={f.description || ''} onBlur={e => e.target.value !== (f.description || '') && patch(f, { description: e.target.value || null })} />
+            </div>
           </div>
         ))}
       </div>

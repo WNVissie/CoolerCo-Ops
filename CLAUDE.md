@@ -60,6 +60,20 @@ Related docs (in the claude.ai project): `coolerco-field-mapping.md`, `coolerco-
 - `coolerco_product_families` + `coolerco_product_base_family` — interim families (81 families for 96 bases, seeded from base description without code; codes can be letters e.g. `ZAF0001 - BICYCLE`)
 - New tables: RLS on, authenticated read/write (tighten to admin role later)
 
+**003** `coolerco_003_cases_portal.sql` (applied in 3 parts 003a tables / 003b functions / 003c lock-down + bucket)
+- `coolerco_settings` (portal_catalogue_mode all|available, portal_daily_request_limit) · `coolerco_warehouse_settings` (app code → case code GT, CTN, DBN, BLM, GRG, EL, PE, POL, NEL; default SLA days)
+- `coolerco_pos_warehouse` — 19,181 POS from `latest_pos_records` (warehouse) with latest-case fallback; 963 `needs_review`
+- Catalogue = product families (+ display_name, description, asset_type, photo_path, show_in_portal, sort_order); 38 families switched on for the demo
+- `coolerco_cases` (COM column names + originator/origin, requested_family_id, photo_paths, approval fields) · `coolerco_case_events` (audit) · `coolerco_reason_codes` · `coolerco_case_counters`
+- Case number `CAS-ddmmyy-<case code>000001` (`coolerco_next_case_number`, restarts daily per warehouse, server-side lock)
+- `coolerco_case_set_status(case, status, reason, notes)` — approve (→ Open, sets begin/end by SLA) / reject (→ Rejected)
+- `coolerco_portal_links` (one token per POS, contact pre-filled from latest COM case, `otp_required` for later WhatsApp code) + `coolerco_portal_link_history` (trigger logs contact changes)
+- Public portal may ONLY call `coolerco_portal_context(token)` and `coolerco_portal_submit(token, request)` (security definer); bucket `coolerco-cases` (private): anon upload only to `portal/<valid token>/`, staff full; catalogue photos in `catalogue/`
+- **POS key = L-code** (`L18042450`) = `cases.pos_local_code` = `latest_pos_records.pos_id` = `assets_live.assign_account_local_code` (NOT `assets_live.pos_local_code`, which has no L)
+- Rule: DROP/REVOKE only ever on new coolerco_ objects; never on existing tables
+
+Demo link (OK GROCER CAROLINA 1245, L15060203, Gauteng, 3 assets): `/p/1WdAoeC9TEdWQBp77FVhHVp9`
+
 Live numbers 2026-10-25: stock 8,926 (4,850 RTW) · open cases 4,499 · 37 workshop assets without an open repair case.
 
 ---
@@ -74,9 +88,12 @@ Live numbers 2026-10-25: stock 8,926 (4,850 RTW) · open cases 4,499 · 37 works
 | `/stock` | Asset Stock by warehouse and bay (WH + WS toggle) |
 | `/stock/check` | Location Check — flags + list |
 | `/scan` | Bay scan: barcode → building/area (★ expected) → bay → type → saves to `coolerco_asset_touch` |
-| `/setup` | Admin: buildings/areas/rules + product families (move base between families) |
+| `/setup` | Admin: buildings/areas/rules · portal catalogue (tick, name, description, photo; all vs available mode) · product families |
 | `/picking`, `/routes` | Routing app data (read) |
 | `/portal` | POS Lookup (store → cases + assets) |
+| `/requests` | CoolerCo cases / portal requests: Waiting for Approval → ✅ Approve / 🚫 Reject (reason); photos, history |
+| `/portal-access` | Create a store's portal link, edit contact (logged), Copy / Open / WhatsApp / QR |
+| `/p/<token>` | **Public customer portal** (no login, own small bundle): Repair / Collection (store's Magnum assets from COM) or New asset (catalogue families) → details + up to 3 compressed photos → reference number + timeline; "My requests" tab |
 | `/newcase` | **Paused** (must not write to COM `cases`) |
 | `/wms/*` | Receiving/Transfers/Stocktake/Dispatch → `coolerco_wms_*` tables **not created yet** |
 
@@ -87,7 +104,7 @@ Helpers in `src/lib/helpers.js` (single source: statuses, SLA, case types, `case
 ## 5. Agreed next steps (see `coolerco-delivery-design.md`)
 
 1. ✅ Locations, stray flags, product families
-2. **CoolerCo cases** — `coolerco_cases` (COM column names + originator CoolerCo/Customer/Concessionaire/Magnum + user/time), `coolerco_case_events` (audit), `coolerco_reason_codes`, `coolerco_sla_rules` (per case type + warehouse; Magnum 2 days, 3 for far areas). Delivery wizard: SLA end date auto (overridable), POS confirm + mandatory GPS with search, available models grouped by Product Variant + Condition + Brand Hierarchy (RTW minus reservations; To be Branded not available). Concessionaire/Magnum → Open; Customer → Waiting for Approval (approved by Magnum or concessionaire). Flow: Open → In Progress → ✅ Confirm → In Service → Planned (Routed) → Asset Picked → Loaded → Arrived → Completed → Left POS; not completed → Action Required → Cancelled (reason) or Resolved.
+2. **CoolerCo cases** (portal part ✅ built 2026-10-25; still to do: staff Delivery wizard, statuses after Open, SLA rules per area) — `coolerco_cases` (COM column names + originator CoolerCo/Customer/Concessionaire/Magnum + user/time), `coolerco_case_events` (audit), `coolerco_reason_codes`, `coolerco_sla_rules` (per case type + warehouse; Magnum 2 days, 3 for far areas). Delivery wizard: SLA end date auto (overridable), POS confirm + mandatory GPS with search, available models grouped by Product Variant + Condition + Brand Hierarchy (RTW minus reservations; To be Branded not available). Concessionaire/Magnum → Open; Customer → Waiting for Approval (approved by Magnum or concessionaire). Flow: Open → In Progress → ✅ Confirm → In Service → Planned (Routed) → Asset Picked → Loaded → Arrived → Completed → Left POS; not completed → Action Required → Cancelled (reason) or Resolved.
 3. **Driver / job card** in the routing app: extra optional columns on `routing_job_cards` (contact no, received-by-other + details, original/delivered asset, swap); 3 photos; reasons Service Denied/Refused Entry, Location not Found, Asset Missing, Incorrect Asset Details; swap only within the **same product family** with warning; complete → asset to POS, out of stock, Assigned/Deployed via `coolerco_asset_movements` (never overwrite `assets_live`); new storage bucket for cases.
 4. Mobile-style tripsheet redesign in the routing app.
 

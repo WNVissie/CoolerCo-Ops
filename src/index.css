@@ -444,3 +444,7 @@ button.nav-section-label:hover { color: rgba(255,255,255,.55); }
 .nav-flyout { position: fixed; left: 56px; z-index: 80; min-width: 190px; background: #0f1d33; border: 1px solid rgba(255,255,255,.1); border-radius: 9px; padding: 6px 0; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
 .nav-flyout-hd { font-size: 10px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: rgba(255,255,255,.45); padding: 6px 14px 6px; }
 .nav-flyout .nav-item { padding: 8px 14px; }
+.cat-photo { width: 64px; height: 80px; flex-shrink: 0; border: 1px dashed var(--border); border-radius: 7px; display: flex; align-items: center; justify-content: center; cursor: pointer; overflow: hidden; background: var(--surface2); }
+.cat-photo img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.cat-photo span { display: flex; flex-direction: column; align-items: center; font-size: 20px; }
+.cat-photo small { font-size: 9px; color: var(--text3); }
