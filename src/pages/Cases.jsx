@@ -30,8 +30,9 @@ export default function Cases() {
   const load = useCallback(async () => {
     setLoading(true)
     const params = {
-      select: 'case_number,customer_name,asset_serial,sla_status,case_status,created_at,closed_at,technician_name,warehouse_id,fault_description',
-      order: 'created_at',
+      // All column names exactly as they exist in the cases table
+      select: 'case_number,case_type,responsible_ordering_party,point_of_sale,pos_local_code,mapped_asset,sla_status,status,status_reason,created_on,service_closure_date,technician_routed_to,warehouse_workshop,motive,sla_days_late,priority,begin_date,end_date,asset_condition,asset_type,origin,reason,contractor,case_contact_name,case_contact_number',
+      order: 'created_on',
       asc: false,
       limit: PS,
       offset: page * PS,
@@ -51,22 +52,26 @@ export default function Cases() {
       key: 'case_number', label: 'Case #', cls: 'mono',
       render: v => <strong style={{ fontSize: 11.5 }}>{v}</strong>
     },
-    { key: 'customer_name', label: 'Customer', render: v => <span className="trunc" style={{ maxWidth: 160, display: 'block' }}>{v || '—'}</span> },
-    { key: 'asset_serial', label: 'Asset Serial', cls: 'mono', render: v => <span style={{ fontSize: 11 }}>{v || '—'}</span> },
+    // point_of_sale is the outlet/POS name — the closest to "customer location"
+    { key: 'point_of_sale', label: 'Point of Sale', render: v => <span className="trunc" style={{ maxWidth: 160, display: 'block' }}>{v || '—'}</span> },
+    // responsible_ordering_party is the Concessionaire (asset owner/funder)
+    { key: 'responsible_ordering_party', label: 'Concessionaire', render: v => <span className="trunc" style={{ maxWidth: 130, display: 'block' }}>{v || '—'}</span> },
+    // mapped_asset is the asset name on the case (e.g. "CoolerCo 300L")
+    { key: 'mapped_asset', label: 'Asset', cls: 'mono', render: v => <span style={{ fontSize: 11 }}>{v || '—'}</span> },
     {
       key: 'sla_status', label: 'SLA Status',
       render: v => <span className={`tag tag-${slaColor(v)}`}>{slaLabel(v)}</span>
     },
-    { key: 'technician_name', label: 'Technician' },
-    { key: 'created_at', label: 'Opened', render: v => <span className="text3">{fmt(v)}</span> },
-    { key: 'closed_at', label: 'Closed', render: v => <span className="text3">{fmt(v)}</span> },
+    { key: 'technician_routed_to', label: 'Technician', render: v => <span className="trunc" style={{ maxWidth: 120, display: 'block' }}>{v || '—'}</span> },
+    { key: 'created_on', label: 'Opened', render: v => <span className="text3">{fmt(v)}</span> },
+    { key: 'service_closure_date', label: 'Closed', render: v => <span className="text3">{fmt(v)}</span> },
   ]
 
   return (
     <>
       <Topbar
         title="Cases"
-        sub="Service & repair cases"
+        sub="Service &amp; repair cases"
         actions={
           <a href="/newcase" className="btn btn-primary btn-sm">➕ New Case</a>
         }
@@ -77,7 +82,7 @@ export default function Cases() {
             <span className="ico">🔍</span>
             <input
               type="text"
-              placeholder="Search case number, customer…"
+              placeholder="Search case number…"
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
@@ -114,14 +119,27 @@ export default function Cases() {
             <div className="dl-grid">
               {[
                 ['Case Number', selected.case_number],
-                ['Customer', selected.customer_name],
-                ['Asset Serial', selected.asset_serial],
+                ['Case Type', selected.case_type],
+                ['Point of Sale', selected.point_of_sale],
+                ['POS Local Code', selected.pos_local_code],
+                ['Concessionaire', selected.responsible_ordering_party],
+                ['Asset', selected.mapped_asset],
+                ['Asset Type', selected.asset_type],
+                ['Asset Condition', selected.asset_condition],
+                ['Priority', selected.priority],
                 ['SLA Status', null],
-                ['Case Status', selected.case_status],
-                ['Technician', selected.technician_name],
-                ['Warehouse', selected.warehouse_id],
-                ['Opened', fmt(selected.created_at)],
-                ['Closed', fmt(selected.closed_at)],
+                ['Case Status', selected.status],
+                ['Status Reason', selected.status_reason],
+                ['Technician', selected.technician_routed_to],
+                ['Workshop', selected.warehouse_workshop],
+                ['Contractor', selected.contractor],
+                ['SLA Days Late', selected.sla_days_late != null ? `${selected.sla_days_late} days` : '—'],
+                ['Begin Date', fmt(selected.begin_date)],
+                ['End Date', fmt(selected.end_date)],
+                ['Opened', fmt(selected.created_on)],
+                ['Closed', fmt(selected.service_closure_date)],
+                ['Contact', selected.case_contact_name],
+                ['Contact Number', selected.case_contact_number],
               ].map(([lbl, val]) => (
                 <div key={lbl} className="dl-field">
                   <div className="lbl">{lbl}</div>
@@ -132,11 +150,19 @@ export default function Cases() {
                 </div>
               ))}
             </div>
-            {selected.fault_description && (
+            {selected.motive && (
               <div className="mt-16">
-                <div className="field-lbl">Fault Description</div>
+                <div className="field-lbl">Motive</div>
                 <div style={{ background: 'var(--surface2)', borderRadius: 7, padding: '10px 12px', fontSize: 12.5, lineHeight: 1.6, border: '1px solid var(--border)' }}>
-                  {selected.fault_description}
+                  {selected.motive}
+                </div>
+              </div>
+            )}
+            {selected.origin && (
+              <div className="mt-16">
+                <div className="field-lbl">Origin / Reason</div>
+                <div style={{ background: 'var(--surface2)', borderRadius: 7, padding: '10px 12px', fontSize: 12.5, lineHeight: 1.6, border: '1px solid var(--border)' }}>
+                  {[selected.origin, selected.reason].filter(Boolean).join(' — ')}
                 </div>
               </div>
             )}
