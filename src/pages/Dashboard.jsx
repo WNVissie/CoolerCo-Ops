@@ -29,7 +29,7 @@ export default function Dashboard() {
         supabase.from('cases').select('case_number', { count: 'exact', head: true }).eq('sla_status', 'Open Case SLA Not Met'),
         supabase.from('routing_routes').select('id,route_number,warehouse_group,status,created_at').order('created_at', { ascending: false }).limit(5),
         supabase.from('coolerco_asset_touch').select('id', { count: 'exact', head: true }).gte('created_at', new Date(Date.now() - 86400000).toISOString()),
-        supabase.from('routing_warehouse_preparation').select('case_number', { count: 'exact', head: true }).eq('picked', false),
+        supabase.rpc('coolerco_picking_queue', { p_from: new Date().toISOString().slice(0, 10), p_warehouse: null }),
         supabase.from('cases').select('case_number,case_type,point_of_sale,warehouse_workshop,status_reason,created_on')
           .in('status_reason', OPEN_REASONS).order('created_on', { ascending: false }).limit(8),
       ])
@@ -40,7 +40,7 @@ export default function Dashboard() {
         openCases: openCases.count,
         overdue: overdue.count,
         scans: scans.count,
-        pickPending: pickQueue.count,
+        pickPending: (pickQueue.data || []).filter(l => !l.packed).length,
       })
       setRoutes(routes.data || [])
       setRecentCases(rc.data || [])
@@ -64,7 +64,7 @@ export default function Dashboard() {
               <KPI label="📂 Open Cases" value={num(kpi.openCases)} sub="incl. On Hold" color="orange" />
               <KPI label="⏰ Overdue" value={num(kpi.overdue)} sub="open, past end date" color="red" />
               <KPI label="Scans Today" value={num(kpi.scans)} sub="asset touches" color="teal" />
-              <KPI label="Pick Pending" value={num(kpi.pickPending)} sub="items" color={kpi.pickPending > 20 ? 'orange' : 'green'} />
+              <KPI label="📦 To load" value={num(kpi.pickPending)} sub="today onwards, not packed" color={kpi.pickPending > 20 ? 'orange' : 'green'} />
             </div>
 
             <div className="two-col">

@@ -173,6 +173,7 @@ export function AssetDetail({ a }) {
 // One timeline from every source we hold about an asset (all loaded together)
 const SOURCES = {
   case:     { icon: '🔧', label: 'COM cases' },
+  repair:   { icon: '🛠️', label: 'Repair lines' },
   cc:       { icon: '📨', label: 'CoolerCo requests' },
   touch:    { icon: '📍', label: 'COM touches' },
   record:   { icon: '🗂️', label: 'COM record changes' },
@@ -197,7 +198,8 @@ function AssetHistory({ a }) {
         .eq('asset_name', n).order('revision', { ascending: false }).limit(30),
       supabase.from('coolerco_asset_touch').select('created_at,scan_type,bay,warehouse_name,scanned_by')
         .or(`asset_name.eq.${n},bar_code.eq.${a.bar_code || '-'}`).order('created_at', { ascending: false }).limit(30),
-    ]).then(([cases, cc, touch, rec, scans]) => {
+      supabase.rpc('coolerco_asset_repairs', { p_asset: n }),
+    ]).then(([cases, cc, touch, rec, scans, reps]) => {
       if (!live) return
       const list = []
       ;(cases.rows || []).forEach(c => {
@@ -221,6 +223,9 @@ function AssetHistory({ a }) {
         if (changes.length) list.push({ src: 'record', at: r.first_seen_at, title: '🗂️ COM record changed', sub: changes.join(' · ') })
       })
       ;(scans.data || []).forEach(sc => list.push({ src: 'scan', at: sc.created_at, title: `📷 Bay scan · ${sc.bay || '—'}`, sub: `${sc.warehouse_name || ''} · ${sc.scan_type || ''} · ${sc.scanned_by || ''}` }))
+      ;(reps.data || []).forEach(r => list.push({ src: 'repair', at: r.created_on, title: `🛠️ ${r.repair_name || r.repair_code || 'Repair'}`,
+        sub: [r.case_number, r.technician, (r.workshop || r.warehouse || '').replace('RTMA ', ''), r.damage_origin, r.component_type].filter(Boolean).join(' · '),
+        tag: r.case_status_reason, color: statusColor(r.case_status_reason) }))
       list.sort((x, y) => new Date(y.at || 0) - new Date(x.at || 0))
       setItems(list)
     })

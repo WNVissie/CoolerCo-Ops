@@ -72,6 +72,8 @@ Related docs (in the claude.ai project): `coolerco-field-mapping.md`, `coolerco-
 - **POS key = L-code** (`L18042450`) = `cases.pos_local_code` = `latest_pos_records.pos_id` = `assets_live.assign_account_local_code` (NOT `assets_live.pos_local_code`, which has no L)
 - Rule: DROP/REVOKE only ever on new coolerco_ objects; never on existing tables
 
+**004** Waiting for Action → SCRAP bay (follows Scrap an Asset cases) · **005** read-only windows: `coolerco_picking_queue(from, warehouse)` (routing preparation + route + stop) and `coolerco_asset_repairs(asset)` (COM repair lines) — security definer, signed-in only; the routing/repair tables' own permissions are unchanged
+
 Demo link (OK GROCER CAROLINA 1245, L15060203, Gauteng, 3 assets): `/p/1WdAoeC9TEdWQBp77FVhHVp9`
 
 Live numbers 2026-10-25: stock 8,926 (4,850 RTW) · open cases 4,499 · 37 workshop assets without an open repair case.
@@ -89,7 +91,8 @@ Live numbers 2026-10-25: stock 8,926 (4,850 RTW) · open cases 4,499 · 37 works
 | `/stock/check` | Location Check — flags + list |
 | `/scan` | Bay scan: barcode → building/area (★ expected) → bay → type → saves to `coolerco_asset_touch` |
 | `/setup` | Admin: buildings/areas/rules · portal catalogue (tick, name, description, photo; all vs available mode) · product families |
-| `/picking`, `/routes` | Routing app data (read) |
+| `/picking` | Warehouse Preparation board (read-only, `coolerco_picking_queue`): per date → route, Picked → RTW → Packed, asset + bay |
+| `/routes` | Routing app routes (read) |
 | `/portal` | POS Lookup (store → cases + assets) |
 | `/requests` | CoolerCo cases / portal requests: Waiting for Approval → ✅ Approve / 🚫 Reject (reason); photos, history |
 | `/portal-access` | Create a store's portal link, edit contact (logged), Copy / Open / WhatsApp / QR |

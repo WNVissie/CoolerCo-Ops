@@ -1,94 +1,130 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Topbar from '../components/Topbar'
-import DataTable from '../components/DataTable'
-import { sbFetch, supabase } from '../lib/supabase'
-import { fmt, num, PS } from '../lib/helpers'
+import { supabase } from '../lib/supabase'
+import { fmt, num, WAREHOUSES, WH_NAMES, whCaseName, condColor, CASE_TYPE_ICON } from '../lib/helpers'
+
+// Warehouse Preparation board — READ-ONLY view of the routing app's preparation
+// (picking, RTW and packing are done in the Routing App).
+const ROUTING_APP = 'https://smartroutertma.netlify.app/'
+const today = () => new Date().toISOString().slice(0, 10)
+const daysAgo = n => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10) }
+const dayLabel = d => new Date(d + 'T00:00:00').toLocaleDateString('en-ZA', { weekday: 'short', day: '2-digit', month: 'short' })
 
 export default function Picking() {
-  const [rows, setRows] = useState([])
-  const [count, setCount] = useState(0)
-  const [page, setPage] = useState(0)
-  const [showPicked, setShowPicked] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [rows, setRows] = useState(null)
+  const [err, setErr] = useState(null)
+  const [wh, setWh] = useState('')
+  const [from, setFrom] = useState(daysAgo(3))
+  const [show, setShow] = useState('open') // open = not yet packed | all
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    const params = {
-      // Exact column names from routing_warehouse_preparation table
-      select: 'route_id,case_number,picked,rtw,packed,returned,selected_asset_name,selected_bar_code,selected_local_code,selected_product_base,selected_condition,selected_branding,picked_at,bay,is_ncd',
-      order: 'case_number',
-      asc: true,
-      limit: PS,
-      offset: page * PS,
-    }
-    if (!showPicked) params.eq = { picked: false }
+  useEffect(() => {
+    setRows(null)
+    supabase.rpc('coolerco_picking_queue', { p_from: from, p_warehouse: wh ? whCaseName(wh) : null })
+      .then(({ data, error }) => { if (error) setErr(error.message); else { setErr(null); setRows(data || []) } })
+  }, [wh, from])
 
-    const { data, count } = await sbFetch('routing_warehouse_preparation', params)
-    setRows(data || []); setCount(count || 0)
-    setLoading(false)
-  }, [page, showPicked])
+  // Group: date → route (all done in the browser from one small response)
+  const groups = useMemo(() => {
+    const list = (rows || []).filter(r => show === 'all' || !r.packed)
+    const byDay = {}
+    list.forEach(r => {
+      const d = (byDay[r.route_date] ||= {})
+      ;(d[r.route_id] ||= { route: r, lines: [] }).lines.push(r)
+    })
+    return Object.entries(byDay).sort(([a], [b]) => a.localeCompare(b))
+  }, [rows, show])
 
-  useEffect(() => { load() }, [load])
-  useEffect(() => { setPage(0) }, [showPicked])
-
-  async function markPicked(row) {
-    // Update using case_number + route_id as the row identifier
-    const { error } = await supabase.from('routing_warehouse_preparation')
-      .update({ picked: true, picked_at: new Date().toISOString() })
-      .eq('case_number', row.case_number)
-      .eq('route_id', row.route_id)
-    if (!error) load()
-  }
-
-  const condColor = c => {
-    if (!c) return 'neutral'
-    const g = c.toString().toUpperCase()
-    if (g === 'A') return 'green'
-    if (g === 'B') return 'teal'
-    if (g === 'C') return 'orange'
-    return 'red'
-  }
-
-  const COLS = [
-    { key: 'case_number', label: 'Case #', cls: 'mono', render: v => <strong style={{ fontSize: 11.5 }}>{v || '—'}</strong> },
-    { key: 'route_id', label: 'Route ID', cls: 'mono', render: v => <span style={{ fontSize: 11 }}>{v || '—'}</span> },
-    {
-      key: 'selected_asset_name', label: 'Asset',
-      render: v => <span className="trunc" style={{ maxWidth: 200, display: 'block' }}>{v || '—'}</span>
-    },
-    { key: 'selected_bar_code', label: 'Barcode', cls: 'mono', render: v => <span style={{ fontSize: 11 }}>{v || '—'}</span> },
-    { key: 'selected_product_base', label: 'Product', render: v => <span className="trunc" style={{ maxWidth: 100, display: 'block' }}>{v || '—'}</span> },
-    { key: 'selected_condition', label: 'Cond.', render: v => v ? <span className={`tag tag-${condColor(v)}`}>{v}</span> : '—' },
-    { key: 'bay', label: 'Bay', render: v => <span style={{ fontSize: 11 }}>{v || '—'}</span> },
-    {
-      key: 'picked', label: 'Status',
-      render: (v, row) => v
-        ? <span className="tag tag-green">✓ Picked {fmt(row.picked_at)}</span>
-        : <button className="btn btn-primary btn-sm" onClick={e => { e.stopPropagation(); markPicked(row) }}>Mark Picked</button>
-    },
-  ]
+  const totals = useMemo(() => {
+    const t = { lines: 0, picked: 0, rtw: 0, packed: 0 }
+    ;(rows || []).forEach(r => { t.lines++; if (r.picked) t.picked++; if (r.rtw) t.rtw++; if (r.packed) t.packed++ })
+    return t
+  }, [rows])
 
   return (
     <>
-      <Topbar title="Picking Queue" sub="Warehouse pick list for routes" />
+      <Topbar title="Warehouse Preparation" sub="Picked → RTW → Packed, per route (read-only from the Routing App)"
+        actions={<a href={ROUTING_APP} target="_blank" rel="noopener noreferrer" className="btn btn-primary btn-sm">🛣️ Open Routing App ↗</a>} />
       <div className="page-content">
         <div className="filters">
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
-            <input type="checkbox" checked={showPicked} onChange={e => setShowPicked(e.target.checked)} />
-            Show picked items
-          </label>
-          <div style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text3)' }}>
-            {num(count)} {showPicked ? 'items' : 'pending items'}
+          <select value={wh} onChange={e => setWh(e.target.value)}>
+            <option value="">🏢 All warehouses</option>
+            {WAREHOUSES.map(w => <option key={w} value={w}>{WH_NAMES[w]}</option>)}
+          </select>
+          <label style={{ fontSize: 11.5, display: 'flex', gap: 6, alignItems: 'center' }}>From <input type="date" value={from} onChange={e => setFrom(e.target.value)} /></label>
+          <div className="seg">
+            {[['open', '📦 Not yet packed'], ['all', '🗂️ All lines']].map(([k, l]) => <button key={k} className={`seg-btn${show === k ? ' on' : ''}`} onClick={() => setShow(k)}>{l}</button>)}
           </div>
         </div>
 
-        <div className="card">
-          <div className="card-header">
-            <span className="card-title">📦 Pick List</span>
-            <span className="card-count">{num(count)} items</span>
-          </div>
-          <DataTable cols={COLS} rows={rows} count={count} page={page} setPage={setPage} loading={loading} />
-        </div>
+        {err && <div className="notice warn">{err}</div>}
+        {!rows && !err && <div className="load-state"><span className="spinner" /> Loading preparation…</div>}
+
+        {rows && (
+          <>
+            <div className="stats-row">
+              <div className="stat-card c-accent"><div className="stat-label">📋 Lines</div><div className="stat-value">{num(totals.lines)}</div><div className="stat-sub">since {fmt(from)}</div></div>
+              <div className="stat-card"><div className="stat-label">✅ Picked</div><div className="stat-value">{num(totals.picked)}</div></div>
+              <div className="stat-card c-green"><div className="stat-label">🟢 RTW</div><div className="stat-value">{num(totals.rtw)}</div></div>
+              <div className="stat-card c-orange"><div className="stat-label">📦 Packed / loaded</div><div className="stat-value">{num(totals.packed)}</div><div className="stat-sub">{num(totals.lines - totals.packed)} still to load</div></div>
+            </div>
+
+            {!groups.length && <div className="empty-state"><div className="empty-ico">📦</div><div>Nothing to prepare for this selection</div></div>}
+
+            {groups.map(([day, routes]) => (
+              <details key={day} className="sec" open={day >= today()}>
+                <summary>📅 {dayLabel(day)} {day === today() ? '· today' : ''} · {Object.keys(routes).length} route(s)</summary>
+                <div className="sec-body">
+                  {Object.values(routes).map(({ route, lines }) => {
+                    const p = lines.filter(l => l.picked).length, r = lines.filter(l => l.rtw).length, k = lines.filter(l => l.packed).length
+                    return (
+                      <details key={route.route_id} className="card wh-card" style={{ marginBottom: 10 }} open>
+                        <summary className="wh-card-hd">
+                          <div style={{ minWidth: 0 }}>
+                            <div className="card-title">🚚 {route.route_number} <span className="text3" style={{ fontWeight: 400 }}>· {(route.warehouse_group || '').replace('RTMA ', '')}</span></div>
+                            <div className="text3" style={{ fontSize: 10.5 }}>{route.driver || 'No driver yet'}{route.vehicle_code ? ` · ${route.vehicle_code}` : ''} · {route.route_status}</div>
+                          </div>
+                          <div className="prep-pills">
+                            <span className={`tag tag-${p === lines.length ? 'green' : 'orange'}`}>✅ {p}/{lines.length}</span>
+                            <span className={`tag tag-${r === lines.length ? 'green' : 'orange'}`}>🟢 {r}/{lines.length}</span>
+                            <span className={`tag tag-${k === lines.length ? 'green' : 'neutral'}`}>📦 {k}/{lines.length}</span>
+                          </div>
+                        </summary>
+                        <div className="tbl-wrap">
+                          <table className="tbl">
+                            <thead><tr><th>#</th><th>Case / store</th><th>Asset</th><th>Bay</th><th>Picked</th><th>RTW</th><th>Packed</th></tr></thead>
+                            <tbody>
+                              {lines.map(l => (
+                                <tr key={l.case_number}>
+                                  <td className="text3">{l.stop_sequence ?? '—'}</td>
+                                  <td>
+                                    <div className="mono" style={{ fontSize: 10.5 }}>{CASE_TYPE_ICON[l.case_type] || '•'} {l.case_number}{l.is_ncd ? <span className="tag tag-purple" style={{ marginLeft: 4 }}>NCD</span> : null}</div>
+                                    <div className="trunc text3" style={{ maxWidth: 220, fontSize: 10.5 }} title={l.point_of_sale}>{l.point_of_sale}</div>
+                                  </td>
+                                  <td>
+                                    {l.selected_asset_name ? <>
+                                      <div className="mono" style={{ fontSize: 10.5 }}>{l.selected_bar_code} · {l.selected_local_code}</div>
+                                      <div className="text3 trunc" style={{ maxWidth: 200, fontSize: 10.5 }}>{l.selected_product_base}</div>
+                                      {l.selected_condition && <span className={`tag tag-${condColor(l.selected_condition)}`}>{l.selected_condition}</span>}
+                                    </> : <span className="tag tag-orange">no asset selected</span>}
+                                    {l.returned_asset_name && <div className="text3" style={{ fontSize: 10 }}>⬇ return: {l.returned_bar_code}</div>}
+                                  </td>
+                                  <td>{l.bay || '—'}</td>
+                                  <td>{l.picked ? <span title={l.picked_at ? new Date(l.picked_at).toLocaleString('en-ZA') : ''}>✅</span> : '—'}</td>
+                                  <td>{l.rtw ? '🟢' : '—'}</td>
+                                  <td>{l.packed ? '📦' : '—'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </details>
+                    )
+                  })}
+                </div>
+              </details>
+            ))}
+          </>
+        )}
       </div>
     </>
   )
