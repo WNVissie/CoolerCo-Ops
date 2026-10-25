@@ -68,6 +68,7 @@ Related docs (in the claude.ai project): `coolerco-field-mapping.md`, `coolerco-
 - Case number `CAS-ddmmyy-<case code>000001` (`coolerco_next_case_number`, restarts daily per warehouse, server-side lock)
 - `coolerco_case_set_status(case, status, reason, notes)` — approve (→ Open, sets begin/end by SLA) / reject (→ Rejected)
 - `coolerco_portal_links` (one token per POS, contact pre-filled from latest COM case, `otp_required` for later WhatsApp code) + `coolerco_portal_link_history` (trigger logs contact changes)
+- **006** portal duplicate check: `coolerco_portal_context` returns `open_cases` (COM + CoolerCo) → portal shows "Already logged: case no." with *That's my problem* / *It's a different problem*
 - Public portal may ONLY call `coolerco_portal_context(token)` and `coolerco_portal_submit(token, request)` (security definer); bucket `coolerco-cases` (private): anon upload only to `portal/<valid token>/`, staff full; catalogue photos in `catalogue/`
 - **POS key = L-code** (`L18042450`) = `cases.pos_local_code` = `latest_pos_records.pos_id` = `assets_live.assign_account_local_code` (NOT `assets_live.pos_local_code`, which has no L)
 - Rule: DROP/REVOKE only ever on new coolerco_ objects; never on existing tables

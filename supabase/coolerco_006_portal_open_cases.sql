@@ -1,0 +1,5 @@
+-- CoolerCo-Ops · 006 · Portal duplicate check (applied 2026-10-25)
+-- coolerco_portal_context(token) now also returns 'open_cases' for the store:
+--   open COM cases (status_reason Open/In Progress/Waiting/In Service/On Hold) with all asset fields,
+--   plus open CoolerCo cases. Only CoolerCo's own function was replaced (create or replace).
+-- Full function body: see migration coolerco_006_portal_open_cases in Supabase (same as 003 + open_cases block).

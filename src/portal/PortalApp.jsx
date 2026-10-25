@@ -44,6 +44,8 @@ export default function PortalApp({ token }) {
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(null)
   const [famPhotos, setFamPhotos] = useState({})
+  const [dupAck, setDupAck] = useState(false) // customer confirmed it is a different problem
+  const [stopped, setStopped] = useState(null) // customer said the existing case covers it
 
   async function load() {
     const { data, error } = await supabase.rpc('coolerco_portal_context', { p_token: token })
@@ -59,7 +61,13 @@ export default function PortalApp({ token }) {
   }
   useEffect(() => { load() }, [token])
 
-  function reset() { setStep(0); setKind(null); setAsset(null); setFamily(null); setDesc(''); setPhotos([]); setDone(null) }
+  // Already-logged work for the chosen asset (repair/collection) or any open delivery (new asset)
+  const openFor = a => (ctx?.open_cases || []).filter(o => (o.assets || []).includes(a))
+  const dup = !ctx ? [] : kind === 'new'
+    ? (ctx.open_cases || []).filter(o => /deliver|replacement/i.test(o.case_type))
+    : asset ? openFor(asset.asset) : []
+
+  function reset() { setStep(0); setKind(null); setAsset(null); setFamily(null); setDesc(''); setPhotos([]); setDone(null); setDupAck(false); setStopped(null) }
 
   async function addPhotos(files) {
     for (const f of [...files].slice(0, 3 - photos.length)) {
@@ -82,7 +90,7 @@ export default function PortalApp({ token }) {
     setDone(data.case_number); load()
   }
 
-  const canNext = [!!kind, kind === 'new' ? !!family : !!asset, desc.trim().length >= 5 && name.trim() && phone.trim(), true][step]
+  const canNext = [!!kind, (kind === 'new' ? !!family : !!asset) && (!dup.length || dupAck), desc.trim().length >= 5 && name.trim() && phone.trim(), true][step]
 
   if (err && !ctx) return <Shell><div className="p-card p-center"><div className="p-big">⚠️</div><p>{err}</p></div></Shell>
   if (!ctx) return <Shell><div className="p-center"><span className="p-spin" /> Loading your store…</div></Shell>
@@ -94,8 +102,21 @@ export default function PortalApp({ token }) {
         <button className={tab === 'mine' ? 'on' : ''} onClick={() => setTab('mine')}>📋 My requests {ctx.requests?.length ? <span className="p-count">{ctx.requests.length}</span> : null}</button>
       </div>
 
+      {tab === 'mine' && (ctx.open_cases || []).some(o => o.source === 'COM') && (
+        <div className="p-card">
+          <h3>🔧 Open work for your store</h3>
+          {(ctx.open_cases || []).filter(o => o.source === 'COM').map(o => (
+            <div key={o.case_number} className="p-req">
+              <div><strong>{o.case_number}</strong><div className="p-muted">{o.case_type} · {fmtDate(o.created_on)}</div></div>
+              <span className="p-tag ok">{o.status}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {tab === 'mine' && (
         <div className="p-card">
+          <h3>📋 Requests you logged</h3>
           {!ctx.requests?.length ? <p className="p-muted">No requests yet.</p> : ctx.requests.map(r => (
             <div key={r.case_number} className="p-req">
               <div><strong>{r.case_number}</strong><div className="p-muted">{r.case_type} · {fmtDate(r.created_on)}</div></div>
@@ -121,7 +142,18 @@ export default function PortalApp({ token }) {
         </div>
       )}
 
-      {tab === 'new' && !done && (
+      {tab === 'new' && !done && stopped && (
+        <div className="p-card p-center">
+          <div className="p-done">✓</div>
+          <h2>No new request needed</h2>
+          <p className="p-muted">Your existing case number</p>
+          <div className="p-ref">{stopped.case_number}</div>
+          <p className="p-muted">{stopped.case_type} · {stopped.status} · logged {fmtDate(stopped.created_on)}</p>
+          <button className="p-btn" onClick={reset}>Back to start</button>
+        </div>
+      )}
+
+      {tab === 'new' && !done && !stopped && (
         <>
           <div className="p-steps">{STEPS.map((s, i) => <div key={s} className={`p-step ${i < step ? 'done' : i === step ? 'on' : ''}`}><span>{i < step ? '✓' : i + 1}</span>{s}</div>)}</div>
 
@@ -146,12 +178,13 @@ export default function PortalApp({ token }) {
               <p className="p-muted">Assets registered at your store</p>
               <div className="p-list">
                 {ctx.assets.map(a => (
-                  <button key={a.asset} className={`p-asset ${asset?.asset === a.asset ? 'sel' : ''}`} onClick={() => setAsset(a)}>
+                  <button key={a.asset} className={`p-asset ${asset?.asset === a.asset ? 'sel' : ''}`} onClick={() => { setAsset(a); setDupAck(false) }}>
                     <span className="p-thumb">{famPhotos[a.photo] ? <img src={famPhotos[a.photo]} alt="" /> : '🧊'}</span>
                     <span className="p-asset-info">
                       <strong>{a.family || a.family_name || a.product}</strong>
                       <small>Barcode {a.barcode || '—'} · Code {a.local_code || '—'}</small>
                       {a.condition && <span className="p-tag">{a.condition}</span>}
+                      {openFor(a.asset).length > 0 && <span className="p-tag warn">ℹ️ Already logged</span>}
                     </span>
                     <span className="p-check">{asset?.asset === a.asset ? '✓' : ''}</span>
                   </button>
@@ -161,7 +194,24 @@ export default function PortalApp({ token }) {
           )}
 
           {step === 1 && kind === 'new' && (
-            <Catalogue items={ctx.catalogue} photos={famPhotos} value={family} onChange={setFamily} />
+            <Catalogue items={ctx.catalogue} photos={famPhotos} value={family} onChange={f => { setFamily(f); setDupAck(false) }} />
+          )}
+
+          {step === 1 && dup.length > 0 && !dupAck && (
+            <div className="p-card p-dup">
+              <strong>ℹ️ This is already logged</strong>
+              {dup.slice(0, 3).map(o => (
+                <div key={o.case_number} className="p-req">
+                  <div><strong>{o.case_number}</strong><div className="p-muted">{o.case_type} · logged {fmtDate(o.created_on)}</div></div>
+                  <span className="p-tag ok">{o.status}</span>
+                </div>
+              ))}
+              <p className="p-muted">We are already working on this. Keep the case number above for any follow-up.</p>
+              <div className="p-nav" style={{ position: 'static', padding: 0 }}>
+                <button className="p-btn ghost" onClick={() => setStopped(dup[0])}>👍 That's my problem</button>
+                <button className="p-btn" onClick={() => setDupAck(true)}>It's a different problem →</button>
+              </div>
+            </div>
           )}
 
           {step === 2 && (

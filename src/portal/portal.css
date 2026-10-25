@@ -69,3 +69,5 @@
 .p-tl-dot { color: var(--cyan); }
 .p-req { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .p-req:last-child { border-bottom: 0; }
+.p-dup { border-color: var(--warn); background: var(--warn-l); }
+.p-dup > strong { display: block; margin-bottom: 6px; color: var(--warn); }
