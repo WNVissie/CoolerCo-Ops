@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import Topbar from '../components/Topbar'
 import { supabase } from '../lib/supabase'
-import { fmt, num } from '../lib/helpers'
+import { fmt, num, OPEN_REASONS, statusColor, CASE_TYPE_ICON } from '../lib/helpers'
 
 function KPI({ label, value, sub, color = '' }) {
   return (
@@ -22,40 +22,33 @@ export default function Dashboard() {
 
   useEffect(() => {
     async function load() {
-      const [assets, cases, openCases, routes, scans, pickQueue] = await Promise.all([
-        supabase.from('assets_live').select('id', { count: 'exact', head: true }),
-        supabase.from('cases').select('case_number', { count: 'exact', head: true }),
-        supabase.from('cases').select('case_number', { count: 'exact', head: true }).in('sla_status', ['Open Case SLA Not Met', 'Open Case SLA Not Met Ongoing', 'Open Case In SLA']),
+      // All loads fire together (parallel) — the page waits for the slowest one only
+      const [stock, openCases, overdue, routes, scans, pickQueue, rc] = await Promise.all([
+        supabase.from('coolerco_wh_asset_stock').select('bay,assets'),
+        supabase.from('cases').select('case_number', { count: 'exact', head: true }).in('status_reason', OPEN_REASONS),
+        supabase.from('cases').select('case_number', { count: 'exact', head: true }).eq('sla_status', 'Open Case SLA Not Met'),
         supabase.from('routing_routes').select('id,route_number,warehouse_group,status,created_at').order('created_at', { ascending: false }).limit(5),
-        supabase.from('coolerco_asset_touch').select('id', { count: 'exact', head: true }).eq('tenant_id', 'tenant_coolerco').gte('created_at', new Date(Date.now() - 86400000).toISOString()),
+        supabase.from('coolerco_asset_touch').select('id', { count: 'exact', head: true }).gte('created_at', new Date(Date.now() - 86400000).toISOString()),
         supabase.from('routing_warehouse_preparation').select('case_number', { count: 'exact', head: true }).eq('picked', false),
+        supabase.from('cases').select('case_number,case_type,point_of_sale,warehouse_workshop,status_reason,created_on')
+          .in('status_reason', OPEN_REASONS).order('created_on', { ascending: false }).limit(8),
       ])
+      const st = stock.data || []
       setKpi({
-        assets: assets.count,
-        cases: cases.count,
+        stock: stock.error ? null : st.reduce((t, r) => t + r.assets, 0),
+        available: stock.error ? null : st.filter(r => r.bay === 'GREEN').reduce((t, r) => t + r.assets, 0),
         openCases: openCases.count,
+        overdue: overdue.count,
         scans: scans.count,
         pickPending: pickQueue.count,
       })
       setRoutes(routes.data || [])
-
-      const { data: rc } = await supabase.from('cases')
-        .select('case_number,responsible_ordering_party,mapped_asset,sla_status,created_on,status')
-        .order('created_on', { ascending: false })
-        .limit(8)
-      setRecentCases(rc || [])
+      setRecentCases(rc.data || [])
       setLoading(false)
     }
     load()
   }, [])
 
-  const statusColor = s => {
-    if (!s) return ''
-    if (s.includes('Not Met')) return 'red'
-    if (s.includes('In SLA')) return 'green'
-    if (s.includes('Met')) return 'green'
-    return 'neutral'
-  }
 
   return (
     <>
@@ -66,9 +59,10 @@ export default function Dashboard() {
         ) : (
           <>
             <div className="stats-row">
-              <KPI label="Total Assets" value={num(kpi.assets)} sub="from COM" color="accent" />
-              <KPI label="Total Cases" value={num(kpi.cases)} sub="all time" />
-              <KPI label="Open Cases" value={num(kpi.openCases)} sub="active" color={kpi.openCases > 100 ? 'red' : 'orange'} />
+              <KPI label="🧊 CoolerCo stock" value={num(kpi.stock)} sub="RTMA WH + workshop" color="accent" />
+              <KPI label="🟢 Ready to Work" value={num(kpi.available)} sub="available" color="green" />
+              <KPI label="📂 Open Cases" value={num(kpi.openCases)} sub="incl. On Hold" color="orange" />
+              <KPI label="⏰ Overdue" value={num(kpi.overdue)} sub="open, past end date" color="red" />
               <KPI label="Scans Today" value={num(kpi.scans)} sub="asset touches" color="teal" />
               <KPI label="Pick Pending" value={num(kpi.pickPending)} sub="items" color={kpi.pickPending > 20 ? 'orange' : 'green'} />
             </div>
@@ -77,7 +71,7 @@ export default function Dashboard() {
               {/* Recent Cases */}
               <div className="card">
                 <div className="card-header">
-                  <span className="card-title">🔧 Recent Cases</span>
+                  <span className="card-title">📂 Latest open cases</span>
                   <Link to="/cases" className="btn btn-ghost btn-sm">View all →</Link>
                 </div>
                 <div className="tbl-wrap">
@@ -85,7 +79,7 @@ export default function Dashboard() {
                     <thead>
                       <tr>
                         <th>Case #</th>
-                        <th>Customer</th>
+                        <th>Type</th>
                         <th>Status</th>
                         <th>Date</th>
                       </tr>
@@ -94,12 +88,8 @@ export default function Dashboard() {
                       {recentCases.map(c => (
                         <tr key={c.case_number}>
                           <td className="mono" style={{ fontSize: 11 }}>{c.case_number}</td>
-                          <td className="trunc" style={{ maxWidth: 140 }}>{c.responsible_ordering_party || '—'}</td>
-                          <td>
-                            <span className={`tag tag-${statusColor(c.sla_status)}`}>
-                              {c.status || '—'}
-                            </span>
-                          </td>
+                          <td className="trunc" style={{ maxWidth: 150 }} title={c.point_of_sale}>{CASE_TYPE_ICON[c.case_type] || '•'} {c.case_type}</td>
+                          <td><span className={`tag tag-${statusColor(c.status_reason)}`}>{c.status_reason}</span></td>
                           <td className="text3">{fmt(c.created_on)}</td>
                         </tr>
                       ))}
@@ -148,8 +138,8 @@ export default function Dashboard() {
             {/* Quick Links */}
             <div className="mt-16" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
               {[
-                { to: '/assets', icon: '🏭', label: 'Assets', sub: `${num(kpi.assets)} total` },
-                { to: '/stock', icon: '🏬', label: 'Stock', sub: 'Overview' },
+                { to: '/assets', icon: '🏭', label: 'Assets', sub: 'Find any asset' },
+                { to: '/stock', icon: '🧊', label: 'Asset Stock', sub: 'By bay' },
                 { to: '/picking', icon: '📦', label: 'Picking', sub: `${num(kpi.pickPending)} pending` },
                 { to: '/scan', icon: '📷', label: 'Scan', sub: 'Log a touch' },
                 { to: '/wms/receiving', icon: '📥', label: 'Receiving', sub: 'WMS' },

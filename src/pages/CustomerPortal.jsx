@@ -1,202 +1,123 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import Topbar from '../components/Topbar'
-import DataTable from '../components/DataTable'
 import Drawer from '../components/Drawer'
-import { sbFetch, supabase } from '../lib/supabase'
-import { fmt, num, slaColor, slaLabel, PS } from '../lib/helpers'
+import { supabase } from '../lib/supabase'
+import { searchCases } from '../lib/caseSearch'
+import { fmt, num, statusColor, slaColor, slaLabel, condColor, CASE_TYPE_ICON, caseAssetText } from '../lib/helpers'
 
+// POS lookup: find a store, then see its cases and the assets COM says are there.
 export default function CustomerPortal() {
-  const [customers, setCustomers] = useState([])
-  const [selected, setSelected] = useState(null)
   const [search, setSearch] = useState('')
-  const [debouncedSearch, setDebouncedSearch] = useState('')
-  const [custCases, setCustCases] = useState([])
-  const [custAssets, setCustAssets] = useState([])
+  const [debounced, setDebounced] = useState('')
+  const [list, setList] = useState([])
   const [loading, setLoading] = useState(false)
-  const [tab, setTab] = useState('cases')
-  const [summary, setSummary] = useState({})
+  const [pos, setPos] = useState(null)
+
+  useEffect(() => { const t = setTimeout(() => setDebounced(search.trim()), 380); return () => clearTimeout(t) }, [search])
 
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 380)
-    return () => clearTimeout(t)
-  }, [search])
-
-  useEffect(() => {
-    if (debouncedSearch.length >= 2) searchCustomers()
-    else setCustomers([])
-  }, [debouncedSearch])
-
-  async function searchCustomers() {
+    if (debounced.length < 3) { setList([]); return }
     setLoading(true)
-    // Aggregate from cases — distinct customers
-    const { data } = await supabase.from('cases')
-      .select('customer_name,customer_account')
-      .ilike('customer_name', `%${debouncedSearch}%`)
-      .limit(30)
-    // Deduplicate
-    const seen = new Set()
-    const unique = (data || []).filter(r => {
-      if (!r.customer_name) return false
-      const key = r.customer_name.toLowerCase()
-      if (seen.has(key)) return false
-      seen.add(key); return true
-    })
-    setCustomers(unique)
-    setLoading(false)
-  }
-
-  async function openCustomer(c) {
-    setSelected(c)
-    setTab('cases')
-    const [casesR, assetsR] = await Promise.all([
-      supabase.from('cases')
-        .select('case_number,sla_status,case_status,created_at,closed_at,asset_serial,fault_description')
-        .ilike('customer_name', c.customer_name)
-        .order('created_at', { ascending: false })
-        .limit(50),
-      supabase.from('assets_live')
-        .select('serial_number,asset_description,condition_grade,warehouse_id,location_code')
-        .ilike('customer_name', c.customer_name)
-        .limit(50),
-    ])
-    const cases = casesR.data || []
-    const assets = assetsR.data || []
-    setCustCases(cases)
-    setCustAssets(assets)
-    setSummary({
-      totalCases: cases.length,
-      openCases: cases.filter(c => c.case_status === 'Open').length,
-      slaMet: cases.filter(c => c.sla_status === 'SLA Met').length,
-      totalAssets: assets.length,
-    })
-  }
-
-  const CASE_COLS = [
-    { key: 'case_number', label: 'Case #', cls: 'mono', render: v => <strong style={{ fontSize: 11 }}>{v}</strong> },
-    { key: 'sla_status', label: 'SLA', render: v => <span className={`tag tag-${slaColor(v)}`}>{slaLabel(v)}</span> },
-    { key: 'case_status', label: 'Status' },
-    { key: 'asset_serial', label: 'Asset', cls: 'mono', render: v => <span style={{ fontSize: 11 }}>{v || '—'}</span> },
-    { key: 'created_at', label: 'Date', render: v => <span className="text3">{fmt(v)}</span> },
-  ]
-
-  const ASSET_COLS = [
-    { key: 'serial_number', label: 'Serial', cls: 'mono', render: v => <strong style={{ fontSize: 11 }}>{v}</strong> },
-    { key: 'asset_description', label: 'Description' },
-    { key: 'condition_grade', label: 'Cond.', render: v => v ? <span className={`tag tag-${v === 'A' ? 'green' : v === 'B' ? 'blue' : v === 'C' ? 'orange' : 'red'}`}>{v}</span> : '—' },
-    { key: 'warehouse_id', label: 'WH' },
-    { key: 'location_code', label: 'Location' },
-  ]
+    const s = debounced.replace(/[,()]/g, ' ')
+    supabase.from('cases').select('point_of_sale,pos_local_code,responsible_ordering_party,warehouse_workshop')
+      .or(`pos_local_code.eq.${s},point_of_sale.ilike.%${s}%`).order('created_on', { ascending: false }).limit(300)
+      .then(({ data }) => {
+        const m = new Map()
+        ;(data || []).forEach(r => {
+          const k = r.pos_local_code || r.point_of_sale
+          if (!m.has(k)) m.set(k, { ...r, cases: 0 })
+          m.get(k).cases++
+        })
+        setList([...m.values()]); setLoading(false)
+      })
+  }, [debounced])
 
   return (
     <>
-      <Topbar title="Customer Portal" sub="View customer cases and assets" />
+      <Topbar title="POS Lookup" sub="Find a store · its cases and assets" />
       <div className="page-content">
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div style={{ padding: '16px' }}>
-            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10 }}>🔍 Search Customer</div>
-            <div className="search-wrap">
-              <span className="ico">👤</span>
-              <input
-                type="text"
-                placeholder="Type customer name (min 2 chars)…"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                autoFocus
-              />
-            </div>
+        <div className="filters">
+          <div className="search-wrap" style={{ flex: 1 }}>
+            <span className="ico">🏪</span>
+            <input placeholder="POS name or POS local code (min 3 characters)" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
-
-          {loading && <div className="load-state" style={{ padding: 20 }}><span className="spinner" /></div>}
-
-          {customers.length > 0 && (
-            <div style={{ borderTop: '1px solid var(--border)' }}>
-              {customers.map((c, i) => (
-                <div key={i}
-                  onClick={() => openCustomer(c)}
-                  style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    padding: '10px 16px', cursor: 'pointer', borderBottom: '1px solid var(--border)',
-                    transition: 'background .12s',
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'var(--surface2)'}
-                  onMouseLeave={e => e.currentTarget.style.background = ''}
-                >
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: 13 }}>{c.customer_name}</div>
-                    {c.customer_account && <div style={{ fontSize: 11, color: 'var(--text3)' }}>Account: {c.customer_account}</div>}
-                  </div>
-                  <span style={{ color: 'var(--text3)', fontSize: 12 }}>View →</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {debouncedSearch.length >= 2 && !loading && customers.length === 0 && (
-            <div className="empty-state" style={{ padding: 20 }}>No customers found for "{debouncedSearch}"</div>
-          )}
+        </div>
+        <div className="card">
+          {loading ? <div className="load-state"><span className="spinner" /> Searching…</div>
+            : !list.length ? <div className="empty-state"><div className="empty-ico">🏪</div><div>{debounced.length < 3 ? 'Type a POS name or code' : 'No stores found'}</div></div>
+              : (
+                <div className="tbl-wrap"><table className="tbl">
+                  <thead><tr><th>Point of Sale</th><th>POS code</th><th>Concessionaire</th><th>Warehouse</th><th>Recent cases</th></tr></thead>
+                  <tbody>{list.map(p => (
+                    <tr key={p.pos_local_code || p.point_of_sale} onClick={() => setPos(p)} style={{ cursor: 'pointer' }}>
+                      <td>{p.point_of_sale}</td><td className="mono">{p.pos_local_code || '—'}</td>
+                      <td className="trunc" style={{ maxWidth: 160 }}>{p.responsible_ordering_party || '—'}</td>
+                      <td>{(p.warehouse_workshop || '—').replace('RTMA ', '')}</td><td>{num(p.cases)}</td>
+                    </tr>
+                  ))}</tbody>
+                </table></div>
+              )}
         </div>
       </div>
-
-      <Drawer open={!!selected} onClose={() => setSelected(null)} title={selected?.customer_name} icon="👤">
-        {selected && (
-          <>
-            {/* Summary */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
-              {[
-                ['Cases', summary.totalCases, 'accent'],
-                ['Open', summary.openCases, summary.openCases > 0 ? 'orange' : 'green'],
-                ['SLA Met', summary.slaMet, 'green'],
-                ['Assets', summary.totalAssets, 'teal'],
-              ].map(([l, v, c]) => (
-                <div key={l} className={`stat-card c-${c}`} style={{ padding: '12px 14px' }}>
-                  <div className="stat-label">{l}</div>
-                  <div className="stat-value" style={{ fontSize: 20 }}>{v}</div>
-                </div>
-              ))}
-            </div>
-
-            {/* Tabs */}
-            <div className="cat-tabs" style={{ marginBottom: 14 }}>
-              <div className={`cat-tab${tab === 'cases' ? ' active' : ''}`} onClick={() => setTab('cases')}>
-                🔧 Cases ({custCases.length})
-              </div>
-              <div className={`cat-tab${tab === 'assets' ? ' active' : ''}`} onClick={() => setTab('assets')}>
-                🏭 Assets ({custAssets.length})
-              </div>
-            </div>
-
-            {tab === 'cases' && (
-              <table className="tbl" style={{ fontSize: 11.5 }}>
-                <thead>
-                  <tr>{CASE_COLS.map(c => <th key={c.key}>{c.label}</th>)}</tr>
-                </thead>
-                <tbody>
-                  {custCases.map((r, i) => (
-                    <tr key={i}>
-                      {CASE_COLS.map(c => <td key={c.key}>{c.render ? c.render(r[c.key], r) : (r[c.key] ?? '—')}</td>)}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-
-            {tab === 'assets' && (
-              <table className="tbl" style={{ fontSize: 11.5 }}>
-                <thead>
-                  <tr>{ASSET_COLS.map(c => <th key={c.key}>{c.label}</th>)}</tr>
-                </thead>
-                <tbody>
-                  {custAssets.map((r, i) => (
-                    <tr key={i}>
-                      {ASSET_COLS.map(c => <td key={c.key}>{c.render ? c.render(r[c.key], r) : (r[c.key] ?? '—')}</td>)}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </>
-        )}
+      <Drawer open={!!pos} onClose={() => setPos(null)} title={pos?.point_of_sale || 'POS'} icon="🏪">
+        {pos && <PosDetail p={pos} />}
       </Drawer>
     </>
+  )
+}
+
+function PosDetail({ p }) {
+  const [cases, setCases] = useState(null)
+  const [assets, setAssets] = useState(null)
+
+  // Both lists load at the same time
+  useEffect(() => {
+    const key = p.pos_local_code || p.point_of_sale
+    Promise.all([
+      searchCases({ pos: key, status: 'all' }, { limit: 50 }),
+      p.pos_local_code
+        ? supabase.from('assets_live').select('name,bar_code,local_code,product_base,condition,asset_status').eq('pos_local_code', p.pos_local_code).limit(50)
+        : Promise.resolve({ data: [] }),
+    ]).then(([c, a]) => { setCases(c.rows); setAssets(a.data || []) })
+  }, [p])
+
+  return (
+    <div>
+      <div className="dl-grid" style={{ marginBottom: 12 }}>
+        <div className="dl-field"><div className="lbl">POS code</div><div className="val mono">{p.pos_local_code || '—'}</div></div>
+        <div className="dl-field"><div className="lbl">Concessionaire</div><div className="val">{p.responsible_ordering_party || '—'}</div></div>
+      </div>
+      <details className="sec" open>
+        <summary>🧊 Assets at this POS (per COM) {assets ? `(${assets.length})` : ''}</summary>
+        <div className="sec-body">
+          {!assets ? <div className="load-state"><span className="spinner" /></div> : !assets.length ? <div className="text3">No assets listed at this POS.</div> : assets.map(a => (
+            <Link key={a.name} to={`/assets?q=${encodeURIComponent(a.bar_code || a.name)}`} className="tl-item">
+              <span className="mono" style={{ fontSize: 11 }}>{a.bar_code} · {a.local_code}</span>
+              <span className="text3 trunc" style={{ fontSize: 10.5 }}>{a.product_base}</span>
+              <span className={`tag tag-${condColor(a.condition)}`} style={{ marginLeft: 'auto' }}>{a.condition}</span>
+            </Link>
+          ))}
+        </div>
+      </details>
+      <details className="sec" open>
+        <summary>🔧 Cases {cases ? `(${cases.length})` : ''}</summary>
+        <div className="sec-body">
+          {!cases ? <div className="load-state"><span className="spinner" /></div> : !cases.length ? <div className="text3">No cases.</div> : cases.map(c => (
+            <div key={c.case_number} className="tl-item">
+              <span className="tl-dot">{CASE_TYPE_ICON[c.case_type] || '•'}</span>
+              <div style={{ minWidth: 0 }}>
+                <div><strong className="mono" style={{ fontSize: 11 }}>{c.case_number}</strong> · {c.case_type}</div>
+                <div className="text3" style={{ fontSize: 10.5 }}>{fmt(c.created_on)} · {caseAssetText(c)}</div>
+              </div>
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <span className={`tag tag-${statusColor(c.status_reason)}`}>{c.status_reason}</span>
+                <span className={`tag tag-${slaColor(c.sla_status)}`}>{slaLabel(c.sla_status)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </details>
+    </div>
   )
 }

@@ -1,174 +1,338 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import Topbar from '../components/Topbar'
 import DataTable from '../components/DataTable'
 import Drawer from '../components/Drawer'
-import { sbFetch, supabase } from '../lib/supabase'
-import { fmt, num, slaColor, slaLabel, PS } from '../lib/helpers'
+import { searchCases, countCases, exportCases } from '../lib/caseSearch'
+import {
+  fmt, num, PS, slaColor, slaLabel, statusColor, isOpenCase,
+  SLA_OPTIONS, CASE_TYPES, CASE_TYPE_ICON, DATE_FIELDS, WAREHOUSES, WH_NAMES, whCaseName,
+  caseAssets, caseAssetText, condColor,
+} from '../lib/helpers'
 
-const SLA_OPTS = [
-  '', 'Open Case SLA Not Met', 'Open Case SLA Not Met Ongoing',
-  'Open Case In SLA', 'SLA Met', 'Cancelled - Customer',
+const SEARCH_BY = [
+  { key: 'caseNumber', label: '🔖 Case no.', ph: 'e.g. CAS-12345' },
+  { key: 'pos',        label: '🏪 POS',      ph: 'POS name or POS local code' },
+  { key: 'asset',      label: '🧊 Asset',    ph: 'Barcode, local code or asset number' },
 ]
+const MAX_VIEW_DAYS = 62 // on-screen searches are limited to ~2 months; export can go longer
+
+const today = () => new Date().toISOString().slice(0, 10)
+const monthsAgo = n => { const d = new Date(); d.setMonth(d.getMonth() - n); return d.toISOString().slice(0, 10) }
+const dayDiff = (a, b) => Math.round((new Date(b) - new Date(a)) / 86400000)
+
+const EMPTY = { by: 'caseNumber', text: '', status: 'open', warehouse: '', caseType: '', sla: '', dateField: 'created_on', from: '', to: '' }
+
+// Turns the form into search parameters + checks the house rules
+function buildQuery(form) {
+  const q = { status: form.status, caseType: form.caseType, sla: form.sla, dateField: form.dateField, from: form.from, to: form.to }
+  if (form.text.trim()) q[form.by] = form.text.trim()
+  if (form.warehouse) q.warehouse = whCaseName(form.warehouse)
+  const specific = !!(q.caseNumber || q.pos || q.asset)
+  // Looking up a specific case / POS / asset finds it whether open or closed
+  // (unless "Closed" was chosen on purpose)
+  if (specific && form.status === 'open') q.status = 'all'
+  if (form.status !== 'open' && !specific) {
+    if (!q.warehouse && !q.caseType && !q.sla && !q.from && !q.to) {
+      return { error: 'To include closed cases, add a case no., POS, asset, warehouse, case type or a date range.' }
+    }
+    // No dates given → default to the last 2 months
+    if (!q.from && !q.to) { q.from = monthsAgo(2); q.to = today() }
+  }
+  return { q, specific }
+}
 
 export default function Cases() {
+  const [params] = useSearchParams()
+  const [form, setForm] = useState(() => {
+    const a = params.get('asset')
+    return a ? { ...EMPTY, by: 'asset', text: a, status: 'all' } : EMPTY
+  })
+  const [query, setQuery] = useState(() => buildQuery(form).q)
   const [rows, setRows] = useState([])
   const [count, setCount] = useState(0)
   const [page, setPage] = useState(0)
-  const [search, setSearch] = useState('')
-  const [sla, setSla] = useState('')
   const [loading, setLoading] = useState(true)
+  const [msg, setMsg] = useState(null)
+  const [more, setMore] = useState(false)
   const [selected, setSelected] = useState(null)
+  const [exp, setExp] = useState(null) // export dialog state
 
-  const [debouncedSearch, setDebouncedSearch] = useState('')
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 380)
-    return () => clearTimeout(t)
-  }, [search])
-
-  useEffect(() => { setPage(0) }, [debouncedSearch, sla])
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   const load = useCallback(async () => {
     setLoading(true)
-    const params = {
-      // All column names exactly as they exist in the cases table
-      select: 'case_number,case_type,responsible_ordering_party,point_of_sale,pos_local_code,mapped_asset,sla_status,status,status_reason,created_on,service_closure_date,technician_routed_to,warehouse_workshop,motive,sla_days_late,priority,begin_date,end_date,asset_condition,asset_type,origin,reason,contractor,case_contact_name,case_contact_number',
-      order: 'created_on',
-      asc: false,
-      limit: PS,
-      offset: page * PS,
-    }
-    if (debouncedSearch) params.ilike = { case_number: `%${debouncedSearch}%` }
-    if (sla) params.eq = { sla_status: sla }
-
-    const { data, count, error } = await sbFetch('cases', params)
-    if (!error) { setRows(data); setCount(count) }
-    setLoading(false)
-  }, [page, debouncedSearch, sla])
+    const { rows, count, error } = await searchCases(query, { limit: PS, offset: page * PS })
+    if (error) setMsg({ type: 'err', text: error.message })
+    setRows(rows); setCount(count); setLoading(false)
+  }, [query, page])
 
   useEffect(() => { load() }, [load])
 
+  function runSearch(e) {
+    e?.preventDefault()
+    const { q, error } = buildQuery(form)
+    if (error) { setMsg({ type: 'warn', text: error }); return }
+    if (q.from && q.to && !(q.caseNumber || q.pos || q.asset) && dayDiff(q.from, q.to) > MAX_VIEW_DAYS && form.status !== 'open') {
+      setMsg({ type: 'warn', text: 'On-screen searches are limited to 2 months. Shorten the dates, or use ⬇ Export for a longer period.' })
+      return
+    }
+    setMsg(null); setPage(0); setQuery(q)
+  }
+
+  function clearAll() { setForm(EMPTY); setMsg(null); setPage(0); setQuery(buildQuery(EMPTY).q) }
+
+  function searchAsset(asset) {
+    const f = { ...EMPTY, by: 'asset', text: asset, status: 'all' }
+    setForm(f); setSelected(null); setPage(0); setMsg(null); setQuery(buildQuery(f).q)
+  }
+
+  // ── Export: count first, warn, then download
+  async function startExport() {
+    const { q, error } = buildQuery(form)
+    if (error) { setMsg({ type: 'warn', text: error }); return }
+    setExp({ stage: 'counting', q })
+    const { count, error: cErr } = await countCases(q)
+    if (cErr) { setExp(null); setMsg({ type: 'err', text: cErr.message }); return }
+    const long = q.from && q.to && dayDiff(q.from, q.to) > MAX_VIEW_DAYS
+    setExp({ stage: 'confirm', q, count, long })
+  }
+  async function confirmExport() {
+    const { q, count } = exp
+    setExp(e => ({ ...e, stage: 'running', done: 0 }))
+    try {
+      const n = await exportCases(q, count, done => setExp(e => ({ ...e, done })))
+      setExp(null); setMsg({ type: 'ok', text: `Downloaded ${num(n)} cases to Excel.` })
+    } catch (err) {
+      setExp(null); setMsg({ type: 'err', text: err.message })
+    }
+  }
+
+  const isOpenView = query.status === 'open' && !query.caseNumber && !query.pos && !query.asset && !query.warehouse && !query.caseType && !query.sla && !query.from
+
   const COLS = [
-    {
-      key: 'case_number', label: 'Case #', cls: 'mono',
-      render: v => <strong style={{ fontSize: 11.5 }}>{v}</strong>
-    },
-    // point_of_sale is the outlet/POS name — the closest to "customer location"
-    { key: 'point_of_sale', label: 'Point of Sale', render: v => <span className="trunc" style={{ maxWidth: 160, display: 'block' }}>{v || '—'}</span> },
-    // responsible_ordering_party is the Concessionaire (asset owner/funder)
-    { key: 'responsible_ordering_party', label: 'Concessionaire', render: v => <span className="trunc" style={{ maxWidth: 130, display: 'block' }}>{v || '—'}</span> },
-    // mapped_asset is the asset name on the case (e.g. "CoolerCo 300L")
-    { key: 'mapped_asset', label: 'Asset', cls: 'mono', render: v => <span style={{ fontSize: 11 }}>{v || '—'}</span> },
-    {
-      key: 'sla_status', label: 'SLA Status',
-      render: v => <span className={`tag tag-${slaColor(v)}`}>{slaLabel(v)}</span>
-    },
-    { key: 'technician_routed_to', label: 'Technician', render: v => <span className="trunc" style={{ maxWidth: 120, display: 'block' }}>{v || '—'}</span> },
-    { key: 'created_on', label: 'Opened', render: v => <span className="text3">{fmt(v)}</span> },
+    { key: 'case_number', label: 'Case #', cls: 'mono', render: v => <strong style={{ fontSize: 11 }}>{v}</strong> },
+    { key: 'case_type', label: 'Type', render: v => <span className="trunc" style={{ maxWidth: 150, display: 'block' }} title={v}>{CASE_TYPE_ICON[v] || '•'} {v || '—'}</span> },
+    { key: 'status_reason', label: 'Status', render: v => <span className={`tag tag-${statusColor(v)}`}>{v || '—'}</span> },
+    { key: 'sla_status', label: 'SLA', render: v => <span className={`tag tag-${slaColor(v)}`}>{slaLabel(v)}</span> },
+    { key: 'warehouse_workshop', label: 'Warehouse', render: v => <span className="text2">{(v || '—').replace('RTMA ', '')}</span> },
+    { key: 'point_of_sale', label: 'Point of Sale', render: (v, r) => <span className="trunc" style={{ maxWidth: 170, display: 'block' }} title={v}>{v || '—'}{r.pos_local_code ? <span className="text3"> · {r.pos_local_code}</span> : null}</span> },
+    { key: '_asset', label: 'Asset(s)', cls: 'mono', render: (_, r) => <span style={{ fontSize: 10.5 }}>{caseAssetText(r)}</span> },
+    { key: 'created_on', label: 'Created', render: v => <span className="text3">{fmt(v)}</span> },
     { key: 'service_closure_date', label: 'Closed', render: v => <span className="text3">{fmt(v)}</span> },
   ]
+
+  const active = SEARCH_BY.find(s => s.key === form.by)
 
   return (
     <>
       <Topbar
         title="Cases"
-        sub="Service &amp; repair cases"
-        actions={
-          <a href="/newcase" className="btn btn-primary btn-sm">➕ New Case</a>
-        }
+        sub={isOpenView ? 'Showing open cases · search to include closed cases' : 'Search results'}
       />
       <div className="page-content">
-        <div className="filters">
-          <div className="search-wrap">
-            <span className="ico">🔍</span>
-            <input
-              type="text"
-              placeholder="Search case number…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
+        {/* ── Search panel ── */}
+        <form className="card search-panel" onSubmit={runSearch}>
+          <div className="sp-row">
+            <div className="seg">
+              {[['open', '📂 Open'], ['closed', '✅ Closed'], ['all', '🗂️ All']].map(([k, l]) => (
+                <button type="button" key={k} className={`seg-btn${form.status === k ? ' on' : ''}`} onClick={() => set('status', k)}>{l}</button>
+              ))}
+            </div>
+            <select value={form.by} onChange={e => set('by', e.target.value)} className="sp-by">
+              {SEARCH_BY.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+            </select>
+            <div className="search-wrap sp-text">
+              <span className="ico">🔍</span>
+              <input type="text" placeholder={active.ph} value={form.text} onChange={e => set('text', e.target.value)} />
+            </div>
+            <button type="submit" className="btn btn-primary btn-sm">Search</button>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setMore(m => !m)}>⚙️ Filters {more ? '▴' : '▾'}</button>
           </div>
-          <select value={sla} onChange={e => setSla(e.target.value)}>
-            <option value="">All SLA statuses</option>
-            {SLA_OPTS.filter(Boolean).map(s => (
-              <option key={s} value={s}>{slaLabel(s)}</option>
-            ))}
-          </select>
-          <button className="btn btn-ghost btn-sm" onClick={() => { setSearch(''); setSla(''); setPage(0) }}>Clear</button>
-        </div>
+
+          {more && (
+            <div className="sp-more">
+              <label><span>🏢 Warehouse</span>
+                <select value={form.warehouse} onChange={e => set('warehouse', e.target.value)}>
+                  <option value="">All</option>
+                  {WAREHOUSES.map(w => <option key={w} value={w}>{WH_NAMES[w]}</option>)}
+                </select>
+              </label>
+              <label><span>📋 Case type</span>
+                <select value={form.caseType} onChange={e => set('caseType', e.target.value)}>
+                  <option value="">All</option>
+                  {CASE_TYPES.map(t => <option key={t} value={t}>{CASE_TYPE_ICON[t]} {t}</option>)}
+                </select>
+              </label>
+              <label><span>⏱️ SLA</span>
+                <select value={form.sla} onChange={e => set('sla', e.target.value)}>
+                  <option value="">All</option>
+                  {SLA_OPTIONS.map(s => <option key={s} value={s}>{slaLabel(s)}</option>)}
+                </select>
+              </label>
+              <label><span>📅 Date field</span>
+                <select value={form.dateField} onChange={e => set('dateField', e.target.value)}>
+                  {DATE_FIELDS.map(d => <option key={d.key} value={d.key}>{d.label}</option>)}
+                </select>
+              </label>
+              <label><span>From</span><input type="date" value={form.from} onChange={e => set('from', e.target.value)} /></label>
+              <label><span>To</span><input type="date" value={form.to} onChange={e => set('to', e.target.value)} /></label>
+              <div className="sp-actions">
+                <button type="button" className="btn btn-ghost btn-sm" onClick={clearAll}>✕ Clear</button>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={startExport}>⬇ Export to Excel</button>
+              </div>
+            </div>
+          )}
+          {msg && <div className={`form-msg ${msg.type}`}>{msg.text}</div>}
+        </form>
 
         <div className="card">
           <div className="card-header">
-            <span className="card-title">🔧 Cases</span>
-            <span className="card-count">{num(count)} results</span>
+            <span className="card-title">{isOpenView ? '📂 Open cases' : '🔍 Results'}</span>
+            <span className="card-count">{num(count)} cases</span>
+            <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} onClick={startExport} disabled={!count}>⬇ Excel</button>
           </div>
-          <DataTable
-            cols={COLS}
-            rows={rows}
-            count={count}
-            page={page}
-            setPage={setPage}
-            onRowClick={setSelected}
-            loading={loading}
-          />
+          <DataTable cols={COLS} rows={rows} count={count} page={page} setPage={setPage} onRowClick={setSelected} loading={loading} />
         </div>
       </div>
 
-      <Drawer open={!!selected} onClose={() => setSelected(null)} title={selected?.case_number || 'Case Detail'} icon="🔧">
-        {selected && (
-          <div className="form-grid">
-            <div className="dl-grid">
-              {[
-                ['Case Number', selected.case_number],
-                ['Case Type', selected.case_type],
-                ['Point of Sale', selected.point_of_sale],
-                ['POS Local Code', selected.pos_local_code],
-                ['Concessionaire', selected.responsible_ordering_party],
-                ['Asset', selected.mapped_asset],
-                ['Asset Type', selected.asset_type],
-                ['Asset Condition', selected.asset_condition],
-                ['Priority', selected.priority],
-                ['SLA Status', null],
-                ['Case Status', selected.status],
-                ['Status Reason', selected.status_reason],
-                ['Technician', selected.technician_routed_to],
-                ['Workshop', selected.warehouse_workshop],
-                ['Contractor', selected.contractor],
-                ['SLA Days Late', selected.sla_days_late != null ? `${selected.sla_days_late} days` : '—'],
-                ['Begin Date', fmt(selected.begin_date)],
-                ['End Date', fmt(selected.end_date)],
-                ['Opened', fmt(selected.created_on)],
-                ['Closed', fmt(selected.service_closure_date)],
-                ['Contact', selected.case_contact_name],
-                ['Contact Number', selected.case_contact_number],
-              ].map(([lbl, val]) => (
-                <div key={lbl} className="dl-field">
-                  <div className="lbl">{lbl}</div>
-                  {lbl === 'SLA Status'
-                    ? <span className={`tag tag-${slaColor(selected.sla_status)}`}>{slaLabel(selected.sla_status)}</span>
-                    : <div className="val">{val || '—'}</div>
-                  }
+      {/* ── Export confirm ── */}
+      {exp && (
+        <div className="drawer-overlay" style={{ alignItems: 'center', justifyContent: 'center' }}>
+          <div className="card modal">
+            {exp.stage === 'counting' && <div className="load-state"><span className="spinner" /> Counting records…</div>}
+            {exp.stage === 'confirm' && (
+              <>
+                <div className="card-title" style={{ marginBottom: 8 }}>⬇ Export to Excel</div>
+                <div className={`notice ${exp.count > 10000 || exp.long ? 'warn' : ''}`}>
+                  <strong>{num(exp.count)}</strong> cases will be exported.
+                  {exp.long && <div>⚠️ This covers more than 2 months.</div>}
+                  {exp.count > 10000 && <div>⚠️ Large export — this may take a minute and use more mobile data.</div>}
                 </div>
-              ))}
-            </div>
-            {selected.motive && (
-              <div className="mt-16">
-                <div className="field-lbl">Motive</div>
-                <div style={{ background: 'var(--surface2)', borderRadius: 7, padding: '10px 12px', fontSize: 12.5, lineHeight: 1.6, border: '1px solid var(--border)' }}>
-                  {selected.motive}
+                <div className="modal-btns">
+                  <button className="btn btn-ghost btn-sm" onClick={() => setExp(null)}>Cancel</button>
+                  <button className="btn btn-primary btn-sm" disabled={!exp.count} onClick={confirmExport}>Download</button>
                 </div>
-              </div>
+              </>
             )}
-            {selected.origin && (
-              <div className="mt-16">
-                <div className="field-lbl">Origin / Reason</div>
-                <div style={{ background: 'var(--surface2)', borderRadius: 7, padding: '10px 12px', fontSize: 12.5, lineHeight: 1.6, border: '1px solid var(--border)' }}>
-                  {[selected.origin, selected.reason].filter(Boolean).join(' — ')}
-                </div>
-              </div>
+            {exp.stage === 'running' && (
+              <div className="load-state"><span className="spinner" /> Exporting {num(exp.done)} of {num(exp.count)}…</div>
             )}
           </div>
-        )}
+        </div>
+      )}
+
+      <Drawer open={!!selected} onClose={() => setSelected(null)} title={selected?.case_number || 'Case'} icon={CASE_TYPE_ICON[selected?.case_type] || '🔧'}>
+        {selected && <CaseDetail c={selected} onAsset={searchAsset} />}
       </Drawer>
     </>
+  )
+}
+
+function Field({ label, children }) {
+  return <div className="dl-field"><div className="lbl">{label}</div><div className="val">{children || '—'}</div></div>
+}
+
+function Section({ title, open, children }) {
+  return (
+    <details className="sec" open={open}>
+      <summary>{title}</summary>
+      <div className="sec-body">{children}</div>
+    </details>
+  )
+}
+
+function Mismatch({ asked, got }) {
+  if (!asked || !got) return null
+  return String(asked).trim().toLowerCase() === String(got).trim().toLowerCase()
+    ? <span className="tag tag-green">✓ matches request</span>
+    : <span className="tag tag-orange">⚠ requested {asked}</span>
+}
+
+function CaseDetail({ c, onAsset }) {
+  const assets = caseAssets(c)
+  return (
+    <div>
+      <div className="chip-row">
+        <span className="tag tag-neutral">{c.case_type}</span>
+        <span className={`tag tag-${statusColor(c.status_reason)}`}>{c.status_reason || '—'}</span>
+        <span className={`tag tag-${slaColor(c.sla_status)}`}>{slaLabel(c.sla_status)}</span>
+        {isOpenCase(c.status_reason) && c.sla_days_late > 0 && <span className="tag tag-red">{c.sla_days_late} days late</span>}
+      </div>
+
+      <Section title={`🧊 Assets on this case (${assets.length})`} open>
+        {!assets.length && <div className="text3">No asset recorded on this case.</div>}
+        {assets.map(a => (
+          <div key={a.role + a.asset} className="asset-card">
+            <div className="asset-card-hd">
+              <span className="tag tag-blue">{a.icon} {a.role}</span>
+              <button className="linkish mono" onClick={() => onAsset(a.asset)} title="Show every case for this asset">{a.asset} ↗</button>
+            </div>
+            <div className="dl-grid">
+              <Field label="Condition">{a.condition && <span className={`tag tag-${condColor(a.condition)}`}>{a.condition}</span>}</Field>
+              {a.product_base && <Field label="Product base">{a.product_base}</Field>}
+              {a.brand && <Field label="Brand">{a.brand}</Field>}
+            </div>
+            {a.requested && (a.requested.condition || a.requested.product_base || a.requested.brand) && (
+              <div className="req-box">
+                <div className="lbl">Requested</div>
+                <div className="dl-grid">
+                  <Field label="Condition">{a.requested.condition} <Mismatch asked={a.requested.condition} got={a.condition} /></Field>
+                  <Field label="Product base">{a.requested.product_base}</Field>
+                  <Field label="Brand">{a.requested.brand}</Field>
+                </div>
+              </div>
+            )}
+            {a.fallback && <div className="text3" style={{ fontSize: 10.5 }}>Only the Mapped Asset is filled on this case.</div>}
+          </div>
+        ))}
+        {c.mapped_asset && !assets.some(a => a.asset === c.mapped_asset) && (
+          <div className="text3" style={{ fontSize: 10.5 }}>Mapped asset: <span className="mono">{c.mapped_asset}</span></div>
+        )}
+      </Section>
+
+      <Section title="📅 Dates & SLA" open>
+        <div className="dl-grid">
+          <Field label="Created On">{fmt(c.created_on)}</Field>
+          <Field label="Begin Date">{fmt(c.begin_date)}</Field>
+          <Field label="End Date (due)">{fmt(c.end_date)}</Field>
+          <Field label="Service Closure">{fmt(c.service_closure_date)}</Field>
+          <Field label="SLA Level">{c.sla_level}</Field>
+          <Field label="SLA Group">{c.sla_group}</Field>
+          <Field label="Days late">{c.sla_days_late ? `${c.sla_days_late}` : null}</Field>
+          <Field label="Days early">{c.sla_days_early ? `${c.sla_days_early}` : null}</Field>
+        </div>
+      </Section>
+
+      <Section title="🏪 POS & contact">
+        <div className="dl-grid">
+          <Field label="Point of Sale">{c.point_of_sale}</Field>
+          <Field label="POS Local Code">{c.pos_local_code}</Field>
+          <Field label="Concessionaire">{c.responsible_ordering_party}</Field>
+          <Field label="Address">{c.address}</Field>
+          <Field label="Contact">{c.case_contact_name}</Field>
+          <Field label="Phone">{c.case_contact_number && <a href={`tel:${c.case_contact_number}`}>{c.case_contact_number}</a>}</Field>
+          <Field label="Mobile">{c.case_mobile_number && <a href={`tel:${c.case_mobile_number}`}>{c.case_mobile_number}</a>}</Field>
+        </div>
+      </Section>
+
+      <Section title="👷 Who & where">
+        <div className="dl-grid">
+          <Field label="Warehouse / Workshop">{c.warehouse_workshop}</Field>
+          <Field label="Technician">{c.technician_routed_to}</Field>
+          <Field label="Contractor">{c.contractor}</Field>
+          <Field label="Priority">{c.priority}</Field>
+          <Field label="Origin">{c.origin}</Field>
+          <Field label="Reason">{c.reason}</Field>
+        </div>
+      </Section>
+
+      {(c.motive || c.message) && (
+        <Section title="📝 Motive & messages">
+          {c.motive && <div className="note-box"><div className="lbl">Motive</div>{c.motive}</div>}
+          {c.message && <div className="note-box"><div className="lbl">Message</div>{c.message}</div>}
+        </Section>
+      )}
+    </div>
   )
 }

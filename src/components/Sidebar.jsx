@@ -14,9 +14,8 @@ const NAV = [
   { href: 'https://smartroutertma.netlify.app/', icon: '🛣️', label: 'Routing App', ext: true },
 
   { section: 'STOCK & WMS' },
-  { to: '/stock',          icon: '🏬', label: 'Stock Overview' },
-  { to: '/stock/warehouse', icon: '🏢', label: 'By Warehouse' },
-  { to: '/stock/low',       icon: '⚠️', label: 'Low Stock' },
+  { to: '/stock',          icon: '🧊', label: 'Asset Stock' },
+  { href: 'https://smartsparesrtma.netlify.app/', icon: '🔧', label: 'Spares (SmartSpares)', ext: true },
   { divider: true },
   { to: '/wms/receiving',   icon: '📥', label: 'Receiving' },
   { to: '/wms/transfers',   icon: '🔄', label: 'Transfers' },
@@ -24,11 +23,10 @@ const NAV = [
   { to: '/wms/dispatch',    icon: '📤', label: 'Dispatch' },
 
   { section: 'CUSTOMERS' },
-  { to: '/portal',   icon: '👤', label: 'Customer Portal' },
-  { to: '/newcase',  icon: '➕', label: 'New Case' },
+  { to: '/portal',   icon: '🏪', label: 'POS Lookup' },
 ]
 
-export default function Sidebar({ collapsed, setCollapsed }) {
+export default function Sidebar({ collapsed, setCollapsed, user, onSignOut }) {
   return (
     <aside className={`sidebar${collapsed ? ' collapsed' : ''}`}>
       <div className="sidebar-logo" onClick={() => setCollapsed(c => !c)}>
@@ -63,13 +61,14 @@ export default function Sidebar({ collapsed, setCollapsed }) {
       </nav>
 
       <div className="sidebar-footer">
-        <div className="footer-avatar">RT</div>
+        <div className="footer-avatar">{(user?.email || 'RT').slice(0, 2).toUpperCase()}</div>
         {!collapsed && (
-          <div style={{ overflow: 'hidden' }}>
-            <div className="footer-name">RTMA Ops</div>
+          <div style={{ overflow: 'hidden', flex: 1 }}>
+            <div className="footer-name trunc">{user?.email || 'RTMA Ops'}</div>
             <div className="footer-status"><span className="live-dot" />Live data</div>
           </div>
         )}
+        {!collapsed && onSignOut && <button className="btn btn-ghost btn-sm" onClick={onSignOut} title="Sign out">⏻</button>}
       </div>
     </aside>
   )

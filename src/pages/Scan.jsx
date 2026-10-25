@@ -1,185 +1,147 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Topbar from '../components/Topbar'
 import { supabase } from '../lib/supabase'
-import { fmt, num } from '../lib/helpers'
+import { fmt, num, BAYS, WAREHOUSES, WH_NAMES, bayForStatus, condColor } from '../lib/helpers'
+import { whereIs } from './Assets'
+
+// Daily CoolerCo bay scans → public.coolerco_asset_touch (adds rows only).
+// Separate from COM's monthly asset_touch; the two are compared at month-end.
+const SCAN_BAYS = BAYS.filter(b => ['RED', 'ORANGE', 'GREEN', 'YELLOW', 'SCRAP'].includes(b.key))
+const SCAN_TYPES = [['receive', '📥 Received'], ['move', '🔀 Moved bay'], ['count', '🔢 Stock count'], ['dispatch', '📤 Dispatched']]
+const TENANT = 'tenant_coolerco'
 
 export default function Scan() {
-  const [serial, setSerial] = useState('')
-  const [result, setResult] = useState(null)
+  const [code, setCode] = useState('')
+  const [asset, setAsset] = useState(null)
+  const [wh, setWh] = useState(() => { try { return localStorage.getItem('cc_scan_wh') || '' } catch { return '' } })
+  const [bay, setBay] = useState('')
+  const [type, setType] = useState('count')
+  const [notes, setNotes] = useState('')
   const [recent, setRecent] = useState([])
   const [stats, setStats] = useState({})
-  const [loading, setLoading] = useState(false)
-  const [scanning, setScanning] = useState(false)
+  const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState(null)
+  const inputRef = useRef(null)
 
-  useEffect(() => {
-    loadRecent()
-    loadStats()
-  }, [])
+  useEffect(() => { loadRecent() }, [])
+  useEffect(() => { try { wh && localStorage.setItem('cc_scan_wh', wh) } catch { /* ignore */ } }, [wh])
 
   async function loadRecent() {
-    const { data } = await supabase.from('coolerco_asset_touch')
-      .select('asset_serial,scanned_at,scan_type,location_code,scanned_by')
-      .eq('tenant_id', 'tenant_coolerco')
-      .order('scanned_at', { ascending: false })
-      .limit(15)
-    setRecent(data || [])
-  }
-
-  async function loadStats() {
-    const today = new Date().toISOString().split('T')[0]
-    const [todayR, weekR] = await Promise.all([
-      supabase.from('coolerco_asset_touch').select('id', { count: 'exact', head: true })
-        .eq('tenant_id', 'tenant_coolerco').gte('scanned_at', today),
-      supabase.from('coolerco_asset_touch').select('id', { count: 'exact', head: true })
-        .eq('tenant_id', 'tenant_coolerco').gte('scanned_at', new Date(Date.now() - 7 * 86400000).toISOString()),
+    const start = new Date(); start.setHours(0, 0, 0, 0)
+    const [list, today] = await Promise.all([
+      supabase.from('coolerco_asset_touch').select('created_at,bar_code,asset_name,warehouse_name,bay,scan_type,scanned_by')
+        .order('created_at', { ascending: false }).limit(15),
+      supabase.from('coolerco_asset_touch').select('id', { count: 'exact', head: true }).gte('created_at', start.toISOString()),
     ])
-    setStats({ today: todayR.count, week: weekR.count })
+    setRecent(list.data || []); setStats({ today: today.count })
   }
 
-  async function lookupSerial(s) {
-    if (!s.trim()) return
-    setLoading(true)
-    setResult(null)
+  async function lookup(e) {
+    e?.preventDefault()
+    const s = code.trim().replace(/[,()]/g, ' ')
+    if (!s) return
+    setBusy(true); setMsg(null); setAsset(null)
     const { data } = await supabase.from('assets_live')
-      .select('asset_id,serial_number,asset_description,condition_grade,warehouse_id,customer_name,location_code')
-      .ilike('serial_number', s.trim())
-      .limit(1)
-    setResult(data?.[0] || null)
-    setLoading(false)
-    if (!data?.length) setMsg({ type: 'error', text: `Serial "${s}" not found in asset register` })
+      .select('name,bar_code,local_code,asset_type,product_base,condition,asset_status,asset_location,assign_account,points_of_sale')
+      .or(`bar_code.eq.${s},local_code.eq.${s},name.eq.${s}`).limit(1)
+    setBusy(false)
+    const a = data?.[0]
+    if (!a) { setMsg({ type: 'err', text: `"${s}" was not found in the asset register.` }); return }
+    setAsset(a)
+    // Suggest the bay from the asset's COM status
+    const suggested = bayForStatus(a.asset_status)
+    setBay(SCAN_BAYS.some(b => b.key === suggested) ? suggested : 'RED')
   }
 
-  async function logTouch() {
-    if (!result) return
-    setScanning(true)
+  async function save() {
+    if (!asset || !wh || !bay) { setMsg({ type: 'warn', text: 'Choose a warehouse and bay first.' }); return }
+    setBusy(true)
+    const { data: { user } } = await supabase.auth.getUser()
     const { error } = await supabase.from('coolerco_asset_touch').insert({
-      tenant_id: 'tenant_coolerco',
-      asset_serial: result.serial_number,
-      scan_type: 'manual',
-      location_code: result.location_code,
-      scanned_by: 'ops-hub',
-      scanned_at: new Date().toISOString(),
+      tenant_id: TENANT,
+      bar_code: asset.bar_code, local_code: asset.local_code, asset_name: asset.name,
+      warehouse_id: wh, warehouse_name: WH_NAMES[wh], bay, scan_type: type,
+      scanned_by: user?.email || 'ops-hub', scanned_by_user_id: user?.id || null,
+      notes: notes || null,
     })
-    if (error) {
-      setMsg({ type: 'error', text: 'Failed to log touch: ' + error.message })
-    } else {
-      setMsg({ type: 'success', text: `✓ Touch logged for ${result.serial_number}` })
-      setSerial('')
-      setResult(null)
-      loadRecent()
-      loadStats()
-    }
-    setScanning(false)
-    setTimeout(() => setMsg(null), 4000)
+    setBusy(false)
+    if (error) { setMsg({ type: 'err', text: 'Could not save the scan: ' + error.message }); return }
+    setMsg({ type: 'ok', text: `✓ ${asset.bar_code || asset.name} logged in ${WH_NAMES[wh]} · ${BAYS.find(b => b.key === bay)?.label}` })
+    setAsset(null); setCode(''); setNotes(''); loadRecent()
+    inputRef.current?.focus()
   }
+
+  const where = whereIs(asset)
 
   return (
     <>
-      <Topbar title="Scan / Touch" sub="Log asset touches and look up by serial" />
+      <Topbar title="Scan / Bay Touch" sub={`Daily bay scans · ${num(stats.today)} today`} />
       <div className="page-content">
-        <div className="stats-row" style={{ marginBottom: 18 }}>
-          <div className="stat-card c-teal">
-            <div className="stat-label">Scans Today</div>
-            <div className="stat-value">{num(stats.today)}</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-label">Scans This Week</div>
-            <div className="stat-value">{num(stats.week)}</div>
-          </div>
-        </div>
-
         <div className="two-col">
-          {/* Lookup + Log */}
-          <div className="card">
-            <div className="card-header">
-              <span className="card-title">📷 Asset Lookup & Touch</span>
-            </div>
-            <div style={{ padding: '18px' }}>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-                <input
-                  type="text"
-                  placeholder="Enter serial number…"
-                  value={serial}
-                  onChange={e => setSerial(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && lookupSerial(serial)}
-                  style={{ flex: 1 }}
-                  autoFocus
-                />
-                <button className="btn btn-primary" onClick={() => lookupSerial(serial)} disabled={loading || !serial.trim()}>
-                  {loading ? <span className="spinner" /> : '🔍 Lookup'}
-                </button>
+          <div className="card" style={{ padding: 16 }}>
+            <form onSubmit={lookup} className="filters" style={{ marginBottom: 12 }}>
+              <div className="search-wrap" style={{ flex: 1 }}>
+                <span className="ico">📷</span>
+                <input ref={inputRef} autoFocus inputMode="numeric" placeholder="Scan or type barcode / local code" value={code} onChange={e => setCode(e.target.value)} />
               </div>
+              <button className="btn btn-primary btn-sm" disabled={busy}>Find</button>
+            </form>
 
-              {msg && (
-                <div className={`form-msg ${msg.type}`} style={{ display: 'block', marginBottom: 14 }}>
-                  {msg.text}
+            {asset && (
+              <>
+                <div className={`where-box ${where.rtma ? 'rtma' : ''}`}>
+                  <div style={{ fontSize: 22 }}>{where.icon}</div>
+                  <div>
+                    <div style={{ fontWeight: 600 }} className="mono">{asset.bar_code} · {asset.local_code}</div>
+                    <div className="text3" style={{ fontSize: 11 }}>{asset.product_base} · {asset.asset_type}</div>
+                    <div style={{ fontSize: 11.5 }}>COM says: {where.text}</div>
+                  </div>
                 </div>
-              )}
+                <div className="chip-row">
+                  {asset.condition && <span className={`tag tag-${condColor(asset.condition)}`}>{asset.condition}</span>}
+                  <span className="tag tag-neutral">{asset.asset_status}</span>
+                  {!where.rtma && <span className="tag tag-orange">⚠ Not in RTMA stock per COM</span>}
+                </div>
 
-              {result ? (
-                <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: 16 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                    <div style={{ fontWeight: 700, fontSize: 15 }}>{result.serial_number}</div>
-                    <span className={`tag tag-${result.condition_grade === 'A' ? 'green' : result.condition_grade === 'B' ? 'blue' : result.condition_grade === 'C' ? 'orange' : 'red'}`}>
-                      Grade {result.condition_grade || '?'}
-                    </span>
-                  </div>
-                  <div className="dl-grid">
-                    {[
-                      ['Description', result.asset_description],
-                      ['Warehouse', result.warehouse_id],
-                      ['Customer', result.customer_name],
-                      ['Location', result.location_code],
-                    ].map(([l, v]) => (
-                      <div key={l} className="dl-field">
-                        <div className="lbl">{l}</div>
-                        <div className="val">{v || '—'}</div>
-                      </div>
-                    ))}
-                  </div>
-                  <button
-                    className="btn btn-primary"
-                    style={{ width: '100%', marginTop: 16, padding: '9px' }}
-                    onClick={logTouch}
-                    disabled={scanning}
-                  >
-                    {scanning ? <><span className="spinner" style={{ width: 13, height: 13 }} /> Logging…</> : '✓ Log Touch'}
-                  </button>
+                <div className="field-lbl">🏢 Warehouse</div>
+                <select className="field-ctrl" value={wh} onChange={e => setWh(e.target.value)}>
+                  <option value="">Choose…</option>
+                  {WAREHOUSES.map(w => <option key={w} value={w}>{WH_NAMES[w]}</option>)}
+                </select>
+
+                <div className="field-lbl" style={{ marginTop: 10 }}>🎨 Bay</div>
+                <div className="bay-pick">
+                  {SCAN_BAYS.map(b => (
+                    <button type="button" key={b.key} className={`bay-tile bay-${b.key.toLowerCase()}${bay === b.key ? ' on' : ''}`} onClick={() => setBay(b.key)}>
+                      <span>{b.icon} {b.label}</span>
+                    </button>
+                  ))}
                 </div>
-              ) : (
-                <div className="empty-state" style={{ padding: '28px 0' }}>
-                  <div className="empty-ico">📷</div>
-                  <div>Enter a serial number to look up an asset</div>
-                  <div style={{ fontSize: 11, marginTop: 4, color: 'var(--text4)' }}>Press Enter or click Lookup</div>
+
+                <div className="field-lbl" style={{ marginTop: 10 }}>Scan type</div>
+                <div className="seg">
+                  {SCAN_TYPES.map(([k, l]) => <button type="button" key={k} className={`seg-btn${type === k ? ' on' : ''}`} onClick={() => setType(k)}>{l}</button>)}
                 </div>
-              )}
-            </div>
+                <input className="field-ctrl" style={{ marginTop: 10 }} placeholder="Notes (optional)" value={notes} onChange={e => setNotes(e.target.value)} />
+                <button className="btn btn-primary" style={{ marginTop: 12, width: '100%' }} onClick={save} disabled={busy}>✓ Save scan</button>
+              </>
+            )}
+            {msg && <div className={`form-msg ${msg.type}`} style={{ marginTop: 10 }}>{msg.text}</div>}
           </div>
 
-          {/* Recent Scans */}
           <div className="card">
-            <div className="card-header">
-              <span className="card-title">🕐 Recent Scans</span>
-              <span className="card-count">{recent.length} shown</span>
-            </div>
-            <div className="tbl-wrap">
-              <table className="tbl">
-                <thead>
-                  <tr><th>Serial</th><th>Type</th><th>Location</th><th>When</th></tr>
-                </thead>
-                <tbody>
-                  {recent.map((r, i) => (
-                    <tr key={i}>
-                      <td className="mono" style={{ fontSize: 11 }}>{r.asset_serial}</td>
-                      <td>{r.scan_type || '—'}</td>
-                      <td>{r.location_code || '—'}</td>
-                      <td className="text3">{fmt(r.scanned_at)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <div className="card-header"><span className="card-title">🕒 Recent scans</span></div>
+            {!recent.length ? <div className="empty-state"><div className="empty-ico">📷</div><div>No bay scans yet</div></div> : (
+              <div className="tbl-wrap">
+                <table className="tbl">
+                  <thead><tr><th>When</th><th>Barcode</th><th>WH</th><th>Bay</th><th>Type</th></tr></thead>
+                  <tbody>{recent.map((r, i) => (
+                    <tr key={i}><td className="text3">{fmt(r.created_at)}</td><td className="mono">{r.bar_code || r.asset_name}</td><td>{r.warehouse_name}</td>
+                      <td>{BAYS.find(b => b.key === r.bay)?.icon} {r.bay}</td><td>{r.scan_type}</td></tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       </div>
