@@ -145,34 +145,34 @@ export const whAssetAccounts = code => (WH_NAMES[code] ? [`RTMA ${WH_NAMES[code]
 // ── WMS bays (RTMA Status Mapping, confirmed 2026-10-25). Mirrors
 // public.coolerco_bay_for_status() in the database.
 export const BAYS = [
-  { key: 'RED',     icon: '🔴', label: 'Receiving',   desc: 'Waiting for Action · To Audit',        color: 'red' },
+  { key: 'RED',     icon: '🔴', label: 'Receiving',   desc: 'To Audit · awaiting assessment',      color: 'red' },
   { key: 'ORANGE',  icon: '🟠', label: 'Repair',      desc: 'To be Repaired · Refurbished · Broken', color: 'orange' },
   { key: 'GREEN',   icon: '🟢', label: 'Ready to Work', desc: 'Available stock',                    color: 'green' },
   { key: 'YELLOW',  icon: '🟡', label: 'Branding',    desc: 'To be Branded — not yet available',     color: 'yellow' },
   { key: 'PENDING', icon: '🔵', label: 'In Transit',  desc: 'Moving between locations',              color: 'blue' },
-  { key: 'SCRAP',   icon: '⚫', label: 'Scrap',       desc: 'To be Scrapped',                        color: 'neutral' },
+  { key: 'SCRAP',   icon: '⚫', label: 'Scrap',       desc: 'To be Scrapped · Waiting for Action',   color: 'neutral' },
   { key: 'MISSING', icon: '⚠️', label: 'Missing',     desc: 'Flagged — not found',                   color: 'purple' },
   { key: 'OTHER',   icon: '▫️', label: 'Other',       desc: 'Any other status',                      color: 'neutral' },
 ]
 
 export function bayForStatus(s) {
   const v = String(s || '').trim().toLowerCase()
-  if (v === 'waiting for action' || v === 'to audit') return 'RED'
+  if (v === 'to audit') return 'RED'
   if (v === 'to be repaired' || v === 'to be refurbished' || v === 'broken') return 'ORANGE'
   if (v === 'ready to work') return 'GREEN'
   if (v === 'to be branded') return 'YELLOW'
-  if (v === 'to be scrapped') return 'SCRAP'
+  if (v === 'to be scrapped' || v === 'waiting for action') return 'SCRAP' // Waiting for Action = after a scrap case
   if (v === 'in transit') return 'PENDING'
   if (v === 'missing') return 'MISSING'
   return 'OTHER'
 }
 export const BAY_STATUSES = {
-  RED: ['Waiting for Action', 'To Audit'],
+  RED: ['To Audit'],
   ORANGE: ['To be Repaired', 'To be Refurbished', 'Broken'],
   GREEN: ['Ready to Work'],
   YELLOW: ['To be Branded'],
   PENDING: ['In Transit'],
-  SCRAP: ['To be Scrapped'],
+  SCRAP: ['To be Scrapped', 'Waiting for Action'],
   MISSING: ['Missing'],
 }
 

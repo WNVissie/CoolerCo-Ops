@@ -15,7 +15,6 @@ language sql
 immutable
 as $$
   select case lower(trim(coalesce(p_status, '')))
-    when 'waiting for action' then 'RED'      -- received, awaiting assessment
     when 'to audit'           then 'RED'
     when 'to be repaired'     then 'ORANGE'   -- repair / wash bay
     when 'to be refurbished'  then 'ORANGE'
@@ -23,6 +22,7 @@ as $$
     when 'ready to work'      then 'GREEN'    -- available stock
     when 'to be branded'      then 'YELLOW'   -- decal prep, not yet available
     when 'to be scrapped'     then 'SCRAP'
+    when 'waiting for action' then 'SCRAP'    -- after a Scrap an Asset case (004)
     when 'in transit'         then 'PENDING'
     when 'missing'            then 'MISSING'
     else 'OTHER'

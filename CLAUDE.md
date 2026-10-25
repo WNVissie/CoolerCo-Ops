@@ -39,7 +39,7 @@ Related docs (in the claude.ai project): `coolerco-field-mapping.md`, `coolerco-
 
 **CoolerCo stock** = `asset_location` in (Warehouse, Workshop) AND `assign_account` like `RTMA … WH/WS`. DDS (previous supplier), other suppliers and POS assets are **not** stock — only visible when an asset is searched (shows "where is it").
 
-**Bays** (from COM status): Waiting for Action / To Audit → 🔴 RED Receiving · To be Repaired / Refurbished / Broken → 🟠 ORANGE Repair · Ready to Work → 🟢 GREEN · To be Branded → 🟡 YELLOW (not available) · In Transit → 🔵 PENDING · To be Scrapped → ⚫ SCRAP · Missing → ⚠️.
+**Bays** (from COM status): To Audit → 🔴 RED Receiving · Waiting for Action (after a scrap case) → ⚫ SCRAP · To be Repaired / Refurbished / Broken → 🟠 ORANGE Repair · Ready to Work → 🟢 GREEN · To be Branded → 🟡 YELLOW (not available) · In Transit → 🔵 PENDING · To be Scrapped → ⚫ SCRAP · Missing → ⚠️.
 
 ---
 
