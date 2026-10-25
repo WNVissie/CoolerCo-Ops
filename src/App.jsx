@@ -1,3 +1,4 @@
+import { lazyPage } from './lib/lazyPage'
 import { useState, useEffect, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Sidebar from './components/Sidebar'
@@ -6,22 +7,22 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 
 // Pages load on first visit (lazy) so the first screen opens fast
-const Assets = lazy(() => import('./pages/Assets'))
-const Cases = lazy(() => import('./pages/Cases'))
-const Scan = lazy(() => import('./pages/Scan'))
-const Picking = lazy(() => import('./pages/Picking'))
-const Routes_ = lazy(() => import('./pages/Routes'))
-const AssetStock = lazy(() => import('./pages/AssetStock'))
-const LocationCheck = lazy(() => import('./pages/LocationCheck'))
-const Setup = lazy(() => import('./pages/Setup'))
-const Requests = lazy(() => import('./pages/Requests'))
-const PortalAccess = lazy(() => import('./pages/PortalAccess'))
-const NewCase = lazy(() => import('./pages/NewCase'))
-const CustomerPortal = lazy(() => import('./pages/CustomerPortal'))
-const Receiving = lazy(() => import('./pages/wms/Receiving'))
-const Transfers = lazy(() => import('./pages/wms/Transfers'))
-const Stocktake = lazy(() => import('./pages/wms/Stocktake'))
-const Dispatch = lazy(() => import('./pages/wms/Dispatch'))
+const Assets = lazyPage(() => import('./pages/Assets'))
+const Cases = lazyPage(() => import('./pages/Cases'))
+const Scan = lazyPage(() => import('./pages/Scan'))
+const Picking = lazyPage(() => import('./pages/Picking'))
+const Routes_ = lazyPage(() => import('./pages/Routes'))
+const AssetStock = lazyPage(() => import('./pages/AssetStock'))
+const LocationCheck = lazyPage(() => import('./pages/LocationCheck'))
+const Setup = lazyPage(() => import('./pages/Setup'))
+const Requests = lazyPage(() => import('./pages/Requests'))
+const PortalAccess = lazyPage(() => import('./pages/PortalAccess'))
+const NewCase = lazyPage(() => import('./pages/NewCase'))
+const CustomerPortal = lazyPage(() => import('./pages/CustomerPortal'))
+const Receiving = lazyPage(() => import('./pages/wms/Receiving'))
+const Transfers = lazyPage(() => import('./pages/wms/Transfers'))
+const Stocktake = lazyPage(() => import('./pages/wms/Stocktake'))
+const Dispatch = lazyPage(() => import('./pages/wms/Dispatch'))
 
 export default function App() {
   // Desktop: collapse to icons (remembered). Phone: menu slides in over the page.
