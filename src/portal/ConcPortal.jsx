@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import { rpcRead, isNetErr, NET_MSG } from '../lib/rpcRetry'
 import './portal.css'
 
 // Concessionaire portal — no Supabase login. Personal link (/c/<link>) + PIN → 12-hour session.
@@ -40,8 +41,9 @@ export default function ConcPortal({ link }) {
   const [tab, setTab] = useState('approve')
 
   const call = useCallback(async (fn, args = {}) => {
-    const { data, error } = await supabase.rpc(fn, { p_session: session, ...args })
-    if (error) throw new Error(error.message)
+    const read = !/_(decide|link_com|add_comment)$/.test(fn)
+    const { data, error } = read ? await rpcRead(fn, { p_session: session, ...args }) : await supabase.rpc(fn, { p_session: session, ...args })
+    if (error) throw new Error(isNetErr(error) || error.network ? NET_MSG : error.message)
     if (data?.error === 'expired') { try { sessionStorage.removeItem(key) } catch {} ; setSession(null); setCtx(null); setErr(ERR.expired); return null }
     return data
   }, [session, key])
@@ -53,7 +55,7 @@ export default function ConcPortal({ link }) {
     ? <Shell><div className="p-card p-center"><div className="p-big">⏱️</div><p>This staff view has ended. Open it again from <b>Concessionaires</b> in CoolerCo-Ops.</p></div></Shell>
     : <PinScreen link={link} msg={err} onLogin={s => { try { sessionStorage.setItem(key, s) } catch {} ; setErr(null); setSession(s) }} />
 
-  if (!ctx) return <Shell><div className="p-card p-center">{err ? <p className="p-err">{err}</p> : <><span className="p-spin" /> Loading…</>}</div></Shell>
+  if (!ctx) return <Shell><div className="p-card p-center">{err ? <><p className="p-err">{err}</p><button className="p-btn" onClick={() => { setErr(null); loadCtx() }}>↻ Try again</button></> : <><span className="p-spin" /> Loading…</>}</div></Shell>
 
   const logout = () => { try { sessionStorage.removeItem(key) } catch {} ; setSession(null); setCtx(null) }
   const TABS = [
@@ -105,12 +107,12 @@ function PinScreen({ link, msg, onLogin }) {
   const [pin, setPin] = useState('')
   const [err, setErr] = useState(msg)
   const [busy, setBusy] = useState(false)
-  useEffect(() => { supabase.rpc('coolerco_conc_link_info', { p_link: link }).then(({ data }) => setInfo(data || { error: 'invalid_link' })) }, [link])
+  useEffect(() => { rpcRead('coolerco_conc_link_info', { p_link: link }).then(({ data, error }) => setInfo(error ? { error: 'net' } : data || { error: 'invalid_link' })) }, [link])
   async function go(e) {
     e.preventDefault(); setBusy(true); setErr(null)
     const { data, error } = await supabase.rpc('coolerco_conc_login', { p_link: link, p_pin: pin })
     setBusy(false)
-    if (error) return setErr(error.message)
+    if (error) return setErr(isNetErr(error) ? NET_MSG : error.message)
     if (data?.error) { setPin(''); return setErr(ERR[data.error] || data.error) }
     onLogin(data.session)
   }
@@ -118,6 +120,7 @@ function PinScreen({ link, msg, onLogin }) {
     <Shell>
       <div className="p-card p-center">
         {!info ? <><span className="p-spin" /> Checking your link…</>
+          : info.error === 'net' ? <><div className="p-big">📶</div><p className="p-err">{NET_MSG}</p><button className="p-btn" onClick={() => window.location.reload()}>↻ Try again</button></>
           : info.error ? <><div className="p-big">🔗</div><p className="p-err">{ERR.invalid_link}</p></>
             : (
               <form onSubmit={go}>

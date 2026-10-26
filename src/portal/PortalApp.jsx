@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
+import { rpcRead, isNetErr, NET_MSG } from '../lib/rpcRetry'
 import './portal.css'
 
 // Public customer portal — no login. The link token identifies the store.
@@ -48,8 +49,9 @@ export default function PortalApp({ token }) {
   const [stopped, setStopped] = useState(null) // customer said the existing case covers it
 
   async function load() {
-    const { data, error } = await supabase.rpc('coolerco_portal_context', { p_token: token })
-    if (error) { setErr(error.message); return }
+    setErr(null)
+    const { data, error } = await rpcRead('coolerco_portal_context', { p_token: token })
+    if (error) { setErr(isNetErr(error) ? NET_MSG + ' Your request was not sent yet.' : error.message); return }
     if (data?.error) { setErr(ERRORS[data.error] || data.error); return }
     setCtx(data); setName(n => n || data.contact?.name || ''); setPhone(p => p || data.contact?.phone || '')
     // Catalogue / family pictures (only those that exist), fetched in one call
@@ -92,7 +94,7 @@ export default function PortalApp({ token }) {
 
   const canNext = [!!kind, (kind === 'new' ? !!family : !!asset) && (!dup.length || dupAck), desc.trim().length >= 5 && name.trim() && phone.trim(), true][step]
 
-  if (err && !ctx) return <Shell><div className="p-card p-center"><div className="p-big">⚠️</div><p>{err}</p></div></Shell>
+  if (err && !ctx) return <Shell><div className="p-card p-center"><div className="p-big">{err === NET_MSG ? '📶' : '⚠️'}</div><p>{err}</p>{err === NET_MSG && <button className="p-btn" onClick={load}>↻ Try again</button>}</div></Shell>
   if (!ctx) return <Shell><div className="p-center"><span className="p-spin" /> Loading your store…</div></Shell>
 
   return (
