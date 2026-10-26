@@ -63,7 +63,7 @@ export default function ComTouchExport() {
   const [to, setTo] = useState(today)
   const [show, setShow] = useState('unsent') // unsent | sent | all
   const [latest, setLatest] = useState(true)
-  const [opt, setOpt] = useState({ statusReason: 'Accepted', gps: false })
+  const [opt, setOpt] = useState({ statusReason: 'Submited', gps: false }) // COM spelling; Submited starts COM's touch workflow
   const [rows, setRows] = useState(null)
   const [sel, setSel] = useState({})
   const [msg, setMsg] = useState(null)
@@ -129,7 +129,7 @@ export default function ComTouchExport() {
           <div className="sec-body" style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
             <label style={{ fontSize: 12 }}>Status Reason&nbsp;
               <select value={opt.statusReason} onChange={e => setOpt({ ...opt, statusReason: e.target.value })}>
-                {['Accepted', 'New', 'Submited'].map(s => <option key={s}>{s}</option>)}
+                {[['Submited', 'Submited (starts COM workflow)'], ['New', 'New'], ['Accepted', 'Accepted']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select></label>
             <label style={{ fontSize: 12, display: 'flex', gap: 4, alignItems: 'center' }}>
               <input type="checkbox" checked={opt.gps} onChange={e => setOpt({ ...opt, gps: e.target.checked })} /> add Latitude / Longitude columns (scan GPS)</label>
