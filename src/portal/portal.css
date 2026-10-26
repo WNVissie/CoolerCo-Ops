@@ -122,3 +122,9 @@
 .c-kpis b { font-size: 18px; color: var(--navy); line-height: 1.1; }
 @media (prefers-color-scheme: dark) { .c-kpis b { color: var(--cyan); } }
 .c-kpis small { color: var(--fg2); font-size: 10.5px; }
+
+.c-seg-wrap { display: flex; flex-wrap: wrap; }
+.c-segn { margin-left: 5px; font-size: 10.5px; opacity: .75; }
+.c-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.c-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px 3px 3px; border: 1.5px solid var(--line); border-radius: 14px; background: var(--card); color: var(--fg); cursor: pointer; font-size: 12px; }
+.c-chip.on { border-color: var(--cyan); background: var(--cyan-l); }

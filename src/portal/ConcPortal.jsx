@@ -27,7 +27,14 @@ const ERR = {
 const OPEN = ['open', 'in progress', 'waiting', 'in service', 'on hold']
 const fmtD = d => (d ? new Date(d).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
 const fmtDT = d => (d ? new Date(d).toLocaleString('en-ZA', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '')
-const statusTag = s => (s === 'Waiting for Approval' ? 'warn' : s === 'Rejected' || /cancel/i.test(s || '') ? 'bad' : OPEN.includes((s || '').toLowerCase()) || s === 'Linked to COM' ? 'ok' : '')
+const ATTENTION = ['action required', 'approval required', 'error', 'error external']
+const statusTag = s => {
+  const v = (s || '').toLowerCase()
+  if (s === 'Waiting for Approval' || ATTENTION.includes(v)) return 'warn'
+  if (s === 'Rejected' || /cancel|not solved/.test(v)) return 'bad'
+  if (OPEN.includes(v) || s === 'Linked to COM' || v === 'solved') return 'ok'
+  return ''
+}
 
 export default function ConcPortal({ link }) {
   const staff = link === 'view'
@@ -61,7 +68,7 @@ export default function ConcPortal({ link }) {
   const TABS = [
     ['approve', '✅', 'To approve', ctx.to_approve],
     ['log', '📝', 'Log in COM', ctx.to_log],
-    ['cases', '📋', 'Cases', ctx.open_com],
+    ['cases', '📋', 'Cases', (ctx.open_com || 0) + (ctx.attention_com || 0)],
     ['stores', '🏪', 'Stores', ctx.stores],
   ]
   return (
@@ -70,7 +77,8 @@ export default function ConcPortal({ link }) {
       <div className="c-kpis">
         <div><span>❄️</span><b>{(ctx.assets_at_pos || 0).toLocaleString()}</b><small>assets at your stores</small></div>
         <div><span>🏪</span><b>{(ctx.stores || 0).toLocaleString()}</b><small>stores</small></div>
-        <div><span>📋</span><b>{(ctx.open_com || 0).toLocaleString()}</b><small>open COM cases</small></div>
+        <div><span>📋</span><b>{(ctx.open_com || 0).toLocaleString()}</b><small>open cases (store + logistics)</small></div>
+        {ctx.attention_com > 0 && <div><span>⚠️</span><b>{ctx.attention_com.toLocaleString()}</b><small>need action</small></div>}
         {ctx.assets_in_workshop > 0 && <div><span>🛠️</span><b>{ctx.assets_in_workshop.toLocaleString()}</b><small>in workshop</small></div>}
       </div>
       <div className="p-tabs c-tabs">
@@ -292,21 +300,38 @@ function Cases({ call }) {
   const [page, setPage] = useState(0)
   const [open, setOpen] = useState(null)
   useEffect(() => { const t = setTimeout(() => { setDeb(q.trim()); setPage(0) }, 400); return () => clearTimeout(t) }, [q])
-  const [data, , err] = useList(call, 'coolerco_conc_cases', { p_search: deb || null, p_status: status, p_limit: 50, p_offset: page * 50 }, [deb, status, page, call])
+  const GROUPS = ['open', 'attention', 'closed', 'all']
+  const pStatus = deb && GROUPS.includes(status) ? 'all' : status
+  const [data, , err] = useList(call, 'coolerco_conc_cases', { p_search: deb || null, p_status: pStatus, p_limit: 50, p_offset: page * 50 }, [deb, pStatus, page, call])
   const total = data?.total || 0
+  const pick = k => { setStatus(k); setPage(0); setOpen(null) }
+  const groupOf = st => (data?.by_status || []).find(b => b.status === st)?.group
+  const seg = GROUPS.includes(status) ? status : groupOf(status) || 'all'
+  const gCount = g => (data?.by_status || []).filter(b => g === 'all' || b.group === g).reduce((a, b) => a + b.n, 0)
+  const chips = (data?.by_status || []).filter(b => seg === 'all' || b.group === seg)
   return (
     <>
       <div className="c-search">
         <input placeholder="🔍 Case no., store name, POS code, barcode…" value={q} onChange={e => setQ(e.target.value)} />
       </div>
-      {!deb && (
-        <div className="c-seg">
-          {[['open', 'Open'], ['closed', 'Closed (2 months)']].map(([k, l]) => <button key={k} className={status === k ? 'on' : ''} onClick={() => { setStatus(k); setPage(0) }}>{l}</button>)}
+      <p className="p-muted" style={{ marginTop: -4 }}>🔧 Repair at Shopper POS · 🚚 Delivery · 🔄 Replacement · 📦 Removal — warehouse cases are not shown.</p>
+      <div className="c-seg c-seg-wrap">
+        {[['open', 'Open'], ['attention', '⚠️ Needs action'], ['closed', deb ? 'Closed' : 'Closed (2 months)'], ['all', 'All']].map(([k, l]) => (
+          <button key={k} className={seg === k ? 'on' : ''} onClick={() => pick(k)}>{l}{data ? <span className="c-segn">{gCount(k)}</span> : null}</button>
+        ))}
+      </div>
+      {chips.length > 1 && (
+        <div className="c-chips">
+          {chips.map(b => (
+            <button key={b.status} className={`c-chip ${status === b.status ? 'on' : ''}`} onClick={() => pick(status === b.status ? seg : b.status)}>
+              <span className={`p-tag ${statusTag(b.status)}`}>{b.status}</span><b>{b.n}</b>
+            </button>
+          ))}
         </div>
       )}
       {!data ? <Loading err={err} /> : !data.rows.length ? <Empty icon="🔍" text={deb ? 'No cases found for your stores.' : 'No cases.'} /> : (
         <>
-          <p className="p-muted">{total.toLocaleString()} COM case{total === 1 ? '' : 's'}{deb ? ' found (all statuses)' : ''} · read-only — progress is updated by COM</p>
+          <p className="p-muted">{total.toLocaleString()} case{total === 1 ? '' : 's'}{GROUPS.includes(status) ? '' : ` · ${status}`}{data.by_type ? ' · ' + Object.entries(data.by_type).map(([t, n]) => `${icon(t)} ${n}`).join('  ') : ''} · status updated by COM</p>
           {data.rows.map(c => (
             <div className="p-card c-case" key={c.case_number}>
               <button className="c-row-top c-btnrow" onClick={() => setOpen(open === c.case_number ? null : c.case_number)}>
@@ -323,7 +348,9 @@ function Cases({ call }) {
                   <div className="p-sum c-sum">
                     <div><span>COM case</span><b className="c-mono">{c.case_number}</b></div>
                     <div><span>Store</span>{c.point_of_sale} · {c.pos_local_code}</div>
-                    <div><span>Asset</span><span className="c-mono">{c.asset || '—'}</span></div>
+                    <div><span>Status</span><span className={`p-tag ${statusTag(c.status)}`}>{c.status || '—'}</span></div>
+                    <div><span>{c.case_type === 'Replacement of Asset' ? 'New asset' : 'Asset'}</span><span className="c-mono">{c.asset || '—'}</span></div>
+                    {c.asset_removed && <div><span>Removed</span><span className="c-mono">{c.asset_removed}</span></div>}
                     <div><span>Due</span>{fmtD(c.end_date)}{c.sla ? ` · ${c.sla}` : ''}</div>
                     {c.closed && <div><span>Closed</span>{fmtD(c.closed)}</div>}
                     {c.motive && <div><span>Reason</span>{c.motive}</div>}
