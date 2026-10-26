@@ -10,6 +10,7 @@ import Dashboard from './pages/Dashboard'
 const Assets = lazyPage(() => import('./pages/Assets'))
 const Cases = lazyPage(() => import('./pages/Cases'))
 const Scan = lazyPage(() => import('./pages/Scan'))
+const ComTouchExport = lazyPage(() => import('./pages/ComTouchExport'))
 const Picking = lazyPage(() => import('./pages/Picking'))
 const Routes_ = lazyPage(() => import('./pages/Routes'))
 const AssetStock = lazyPage(() => import('./pages/AssetStock'))
@@ -58,6 +59,7 @@ export default function App() {
               <Route path="/assets" element={<Assets />} />
               <Route path="/cases" element={<Cases />} />
               <Route path="/scan" element={<Scan />} />
+              <Route path="/scan/export" element={<ComTouchExport />} />
               <Route path="/picking" element={<Picking />} />
               <Route path="/routes" element={<Routes_ />} />
               <Route path="/stock" element={<AssetStock />} />
