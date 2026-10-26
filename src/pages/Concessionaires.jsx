@@ -23,22 +23,25 @@ export default function Concessionaires() {
 
   async function load() {
     // parallel: concessionaires, names, users, waiting requests per store
-    const [c, n, u] = await Promise.all([
+    const [c, n, u, b] = await Promise.all([
       supabase.from('coolerco_concessionaires').select('*').order('display_name'),
       supabase.from('coolerco_concessionaire_names').select('*'),
       supabase.from('coolerco_concessionaire_users').select('id,concessionaire_id,active,last_login_at'),
+      supabase.from('coolerco_conc_asset_base').select('*'),
     ])
+    const base = Object.fromEntries((b.data || []).map(x => [x.concessionaire_id, x]))
     const names = n.data || [], users = u.data || []
     setRows((c.data || []).map(x => ({
       ...x,
       names: names.filter(m => m.concessionaire_id === x.id).map(m => m.rop_name),
       users: users.filter(m => m.concessionaire_id === x.id),
+      base: base[x.id] || {},
     })))
   }
   useEffect(() => { load() }, [])
 
   const s = q.trim().toLowerCase()
-  const list = (rows || []).filter(r => (showOff || r.active) && (!s || r.display_name.toLowerCase().includes(s) || r.names.some(n => n.toLowerCase().includes(s))))
+  const list = (rows || []).slice().sort((a, b) => (b.base.assets_at_pos || 0) - (a.base.assets_at_pos || 0)).filter(r => (showOff || r.active) && (!s || r.display_name.toLowerCase().includes(s) || r.names.some(n => n.toLowerCase().includes(s))))
   const withUsers = (rows || []).filter(r => r.users.some(u => u.active)).length
 
   return (
@@ -47,6 +50,7 @@ export default function Concessionaires() {
       <div className="page-content">
         <div className="stats-row">
           <div className="stat-card c-accent"><div className="stat-label">🤝 Concessionaires</div><div className="stat-value">{rows ? num(rows.filter(r => r.active).length) : '…'}</div></div>
+          <div className="stat-card c-teal"><div className="stat-label">❄️ Assets at POS</div><div className="stat-value">{rows ? num(rows.reduce((a, r) => a + (r.base.assets_at_pos || 0), 0)) : '…'}</div><div className="stat-sub">asset base of all concessionaires</div></div>
           <div className="stat-card c-green"><div className="stat-label">🔐 With portal users</div><div className="stat-value">{rows ? num(withUsers) : '…'}</div></div>
         </div>
         <div className="filters">
@@ -64,6 +68,10 @@ export default function Concessionaires() {
                   {r.names.length > 1 ? `${r.names.length} COM spellings · ` : ''}{r.users.length ? `${r.users.filter(u => u.active).length} user(s)` : 'no users yet'}
                   {!r.active && ' · switched off'}
                 </div>
+              </div>
+              <div style={{ textAlign: 'right', minWidth: 90 }}>
+                <strong>{num(r.base.assets_at_pos || 0)}</strong>
+                <div className="text3" style={{ fontSize: 10 }}>❄️ assets · {num(r.base.stores_with_assets || 0)} stores</div>
               </div>
               <button className="btn btn-ghost btn-sm" onClick={() => openAs(r.id)} title="See the portal exactly as they see it">👁 Open as</button>
               <button className="btn btn-primary btn-sm" onClick={() => setOpen(r)}>Users & links</button>

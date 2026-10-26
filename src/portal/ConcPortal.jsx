@@ -65,6 +65,12 @@ export default function ConcPortal({ link }) {
   return (
     <Shell who={ctx.concessionaire} sub={ctx.actor} onLogout={staff ? null : logout}>
       {ctx.actor_type === 'staff' && <div className="p-card p-dup" style={{ padding: 10, fontSize: 12.5 }}>👁 Staff view — you see exactly what <b>{ctx.concessionaire}</b> sees. Anything you do is logged under your name.</div>}
+      <div className="c-kpis">
+        <div><span>❄️</span><b>{(ctx.assets_at_pos || 0).toLocaleString()}</b><small>assets at your stores</small></div>
+        <div><span>🏪</span><b>{(ctx.stores || 0).toLocaleString()}</b><small>stores</small></div>
+        <div><span>📋</span><b>{(ctx.open_com || 0).toLocaleString()}</b><small>open COM cases</small></div>
+        {ctx.assets_in_workshop > 0 && <div><span>🛠️</span><b>{ctx.assets_in_workshop.toLocaleString()}</b><small>in workshop</small></div>}
+      </div>
       <div className="p-tabs c-tabs">
         {TABS.map(([k, i, l, n]) => (
           <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>
@@ -75,7 +81,7 @@ export default function ConcPortal({ link }) {
       {tab === 'approve' && <Approve call={call} onChange={loadCtx} />}
       {tab === 'log' && <LogCom call={call} onChange={loadCtx} />}
       {tab === 'cases' && <Cases call={call} />}
-      {tab === 'stores' && <Stores call={call} />}
+      {tab === 'stores' && <Stores call={call} ctx={ctx} />}
     </Shell>
   )
 }
@@ -373,19 +379,19 @@ function Comments({ call, caseNo, count, startOpen }) {
   )
 }
 
-function Stores({ call }) {
+function Stores({ call, ctx }) {
   const [rows, , err] = useList(call, 'coolerco_conc_stores', {}, [call])
   const [q, setQ] = useState('')
   const [shown, setShown] = useState(60)
   if (!rows) return <Loading err={err} />
   const s = q.trim().toLowerCase()
   const list = s ? rows.filter(r => (r.name || '').toLowerCase().includes(s) || (r.pos || '').toLowerCase().includes(s)) : rows
-  const assets = rows.reduce((a, r) => a + (r.assets || 0), 0)
+  const withAssets = rows.filter(r => r.assets > 0).length
   return (
     <>
       <div className="c-stats">
-        <div><b>{rows.length.toLocaleString()}</b><small>stores</small></div>
-        <div><b>{assets.toLocaleString()}</b><small>Magnum assets at stores</small></div>
+        <div><b>{(ctx.assets_at_pos || 0).toLocaleString()}</b><small>❄️ asset base at POS (you are responsible)</small></div>
+        <div><b>{rows.length.toLocaleString()}</b><small>🏪 stores · {withAssets.toLocaleString()} with assets</small></div>
       </div>
       <div className="c-search"><input placeholder="🔍 Store name or POS code…" value={q} onChange={e => { setQ(e.target.value); setShown(60) }} /></div>
       <div className="p-card" style={{ padding: '4px 14px' }}>
