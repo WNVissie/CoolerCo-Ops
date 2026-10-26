@@ -65,7 +65,7 @@ export default function Scan() {
   async function loadRecent() {
     const start = new Date(); start.setHours(0, 0, 0, 0)
     const [list, today] = await Promise.all([
-      supabase.from('coolerco_asset_touch').select('created_at,bar_code,asset_name,warehouse_name,bay,bay_ok,location_ok,com_exported_at,photo_paths')
+      supabase.from('coolerco_asset_touch').select('id,created_at,bar_code,asset_name,warehouse_name,bay,bay_ok,location_ok,touch_status,photo_paths,scanned_by')
         .order('created_at', { ascending: false }).limit(15),
       supabase.from('coolerco_asset_touch').select('id', { count: 'exact', head: true }).gte('created_at', start.toISOString()),
     ])
@@ -148,9 +148,20 @@ export default function Scan() {
     if (error) { setMsg({ type: 'err', text: 'Could not save the scan: ' + error.message }); return }
     const warn = [bayOk === false && `wrong bay — belongs in ${BAYS.find(b => b.key === expectedBay)?.icon} ${BAYS.find(b => b.key === expectedBay)?.label}`,
       locOk === false && `wrong area — should be in ${expected.expected_location}`].filter(Boolean)
-    setMsg({ type: warn.length ? 'warn' : 'ok', text: `✓ ${asset.bar_code || asset.name} saved · ${loc?.label} · ${BAYS.find(b => b.key === bay)?.label}${warn.length ? ' — ⚠ ' + warn.join(' · ') : ''}` })
+    setMsg({ type: warn.length ? 'warn' : 'ok', text: `✓ ${asset.bar_code || asset.name} saved as New (tap 📤 Submit when done) · ${loc?.label} · ${BAYS.find(b => b.key === bay)?.label}${warn.length ? ' — ⚠ ' + warn.join(' · ') : ''}` })
     reset(); loadRecent(); inputRef.current?.focus()
   }
+
+  async function submit(ids) {
+    if (!ids.length) return
+    const { data: { user } } = await supabase.auth.getUser()
+    const { error } = await supabase.from('coolerco_asset_touch')
+      .update({ touch_status: 'Submitted', submitted_at: new Date().toISOString(), submitted_by: user?.email || null })
+      .in('id', ids).eq('touch_status', 'New')
+    setMsg(error ? { type: 'err', text: error.message } : { type: 'ok', text: `📤 ${ids.length} scan(s) submitted — ready to sync to COM` })
+    loadRecent()
+  }
+  const newOnes = recent.filter(r => r.touch_status === 'New')
 
   const where = whereIs(asset)
   const Changed = ({ k }) => changed(k) ? <span className="tag tag-orange" style={{ marginLeft: 6 }}>changed</span> : null
@@ -312,18 +323,26 @@ export default function Scan() {
           </div>
 
           <div className="card">
-            <div className="card-header"><span className="card-title">🕒 Recent scans</span><Link className="card-count" to="/scan/export">COM export ›</Link></div>
+            <div className="card-header">
+              <span className="card-title">🕒 Recent scans</span>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                {newOnes.length > 0 && <button className="btn btn-primary btn-sm" onClick={() => submit(newOnes.map(r => r.id))}>📤 Submit {newOnes.length} new</button>}
+                <Link className="card-count" to="/scan/export">COM sync ›</Link>
+              </div>
+            </div>
             {!recent.length ? <div className="empty-state"><div className="empty-ico">📷</div><div>No scans yet</div></div> : (
               <div className="tbl-wrap">
                 <table className="tbl">
-                  <thead><tr><th>When</th><th>Barcode</th><th>Area</th><th>Bay</th><th>📸</th><th>COM</th></tr></thead>
+                  <thead><tr><th>When</th><th>Barcode</th><th>Area</th><th>Bay</th><th>📸</th><th>Status</th></tr></thead>
                   <tbody>{recent.map((r, i) => (
                     <tr key={i}>
                       <td className="text3">{fmt(r.created_at)}</td><td className="mono">{r.bar_code || r.asset_name}</td>
                       <td>{r.warehouse_name}{r.location_ok === false ? ' ⚠' : ''}</td>
                       <td>{BAYS.find(b => b.key === r.bay)?.icon} {r.bay}{r.bay_ok === false ? ' ⚠' : ''}</td>
                       <td>{r.photo_paths?.length || 0}</td>
-                      <td>{r.com_exported_at ? <span className="tag tag-green">sent</span> : <span className="tag tag-neutral">to send</span>}</td>
+                      <td>{r.touch_status === 'New'
+                        ? <button className="btn btn-ghost btn-sm" onClick={() => submit([r.id])}>📤 Submit</button>
+                        : <span className={`tag tag-${r.touch_status === 'Synced' ? 'green' : 'blue'}`}>{r.touch_status}</span>}</td>
                     </tr>
                   ))}</tbody>
                 </table>
