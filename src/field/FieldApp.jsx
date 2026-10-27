@@ -50,7 +50,7 @@ export default function FieldApp() {
     if (!session) return
     startAutoFlush()
     // fetch the other screens once, so they open without signal later (kept by the service worker)
-    const warm = () => { import('../pages/Scan'); import('./FieldTrip'); import('./FieldCases'); if (!('BarcodeDetector' in window)) import('@zxing/browser') } // iPhone camera reader only where needed
+    const warm = () => { import('../pages/Scan'); import('./FieldTrip'); import('./FieldCases'); if (!('BarcodeDetector' in window)) import('../lib/zxingReader').then(m => m.loadReader()) } // iPhone camera reader only where needed
     'requestIdleCallback' in window ? requestIdleCallback(warm) : setTimeout(warm, 1500)
   }, [session])
 

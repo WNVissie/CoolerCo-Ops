@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 
 // Full-screen camera scanner for QR codes and normal barcodes.
 // Uses the phone's built-in reader (BarcodeDetector, Android Chrome) when available,
-// otherwise ZXing (iPhone Safari, older phones) — loaded only when the camera opens.
+// otherwise zxing-cpp/WebAssembly (iPhone Safari, older phones) — loaded only when the camera opens.
+// The fallback reads only the area inside the white frame, at the camera's full sharpness (1920 px).
 const FORMATS = ['qr_code', 'code_128', 'code_39', 'code_93', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'itf', 'codabar', 'data_matrix']
 
 // continuous: keep the camera open after a read (Quick scan) — the same code is ignored for 4 s,
@@ -37,7 +38,7 @@ export default function CameraScan({ onResult, onClose, continuous = false, paus
       try {
         const native = 'BarcodeDetector' in window && (await window.BarcodeDetector.getSupportedFormats?.() || []).includes('qr_code')
         if (native) {
-          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }, audio: false })
+          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false })
           if (!alive) { stream.getTracks().forEach(t => t.stop()); return }
           const v = videoRef.current; v.srcObject = stream; await v.play()
           const track = stream.getVideoTracks()[0]
@@ -54,15 +55,44 @@ export default function CameraScan({ onResult, onClose, continuous = false, paus
           tick()
           stop.current = () => { clearTimeout(raf); stream.getTracks().forEach(t => t.stop()) }
         } else {
-          const { BrowserMultiFormatReader } = await import('@zxing/browser')
-          const reader = new BrowserMultiFormatReader()
-          const controls = await reader.decodeFromConstraints(
-            { video: { facingMode: { ideal: 'environment' } }, audio: false }, videoRef.current,
-            res => { if (res) finish(res.getText()) })
-          if (!alive) { controls.stop(); return }
-          stop.current = () => controls.stop()
-          const track = videoRef.current?.srcObject?.getVideoTracks?.()[0]
-          if (track?.getCapabilities?.().torch) setTorch(false)
+          const [{ readFrame, loadReader }, stream] = await Promise.all([
+            import('../lib/zxingReader').then(m => { m.loadReader(); return m }),
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false }),
+          ])
+          if (!alive) { stream.getTracks().forEach(t => t.stop()); return }
+          const v = videoRef.current; v.srcObject = stream; await v.play()
+          const track = stream.getVideoTracks()[0]
+          try { await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }) } catch { /* not supported */ }
+          if (track.getCapabilities?.().torch) setTorch(false)
+          await loadReader()
+          const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d', { willReadFrequently: true })
+          let raf, busy = false
+          // the white frame is a centred square, 72% of the narrower screen side (max 300 px) — map it onto the video
+          const frameCrop = () => {
+            const vw = v.videoWidth, vh = v.videoHeight, sw = v.clientWidth || window.innerWidth, sh = v.clientHeight || window.innerHeight
+            const scale = Math.max(sw / vw, sh / vh) // object-fit: cover
+            const side = Math.min(sw * 0.72, 300) * 1.25 / scale // a little margin around the frame
+            const sx = Math.max(0, (vw - side) / 2), sy = Math.max(0, (vh - side) / 2)
+            return [sx, sy, Math.min(side, vw), Math.min(side, vh)]
+          }
+          const tick = async () => {
+            if (!alive || done.current) return
+            if (!busy && v.videoWidth) {
+              busy = true
+              try {
+                const [sx, sy, w, h] = frameCrop()
+                canvas.width = Math.round(w); canvas.height = Math.round(h)
+                ctx.drawImage(v, sx, sy, w, h, 0, 0, canvas.width, canvas.height)
+                const text = await readFrame(ctx.getImageData(0, 0, canvas.width, canvas.height))
+                if (text) finish(text)
+              } catch { /* frame not ready */ }
+              busy = false
+            }
+            if (!done.current) raf = setTimeout(tick, 150)
+          }
+          resume.current = () => { clearTimeout(raf); tick() }
+          tick()
+          stop.current = () => { clearTimeout(raf); stream.getTracks().forEach(t => t.stop()) }
         }
       } catch (e) {
         setErr(/denied|permission|notallowed/i.test(e?.name + e?.message)

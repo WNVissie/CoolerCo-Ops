@@ -11,13 +11,12 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
-    "@zxing/browser": "^0.1.5",
-    "@zxing/library": "^0.21.3",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.26.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "zxing-wasm": "^2.1.2"
   },
   "devDependencies": {
     "@types/react": "^18.3.3",
