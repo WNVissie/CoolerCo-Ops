@@ -511,3 +511,48 @@ input.field-ctrl:focus, textarea.field-ctrl:focus { border-color: var(--accent);
 .off-bar.off { background: var(--orange-bg); color: var(--orange); font-weight: 600; }
 .q-list { padding: 6px 12px; border-bottom: 1px solid var(--border); }
 .q-row { display: flex; gap: 8px; align-items: center; justify-content: space-between; font-size: 12px; padding: 4px 0; }
+
+/* Quick scan */
+.place-badge { display: inline-grid; place-items: center; flex-shrink: 0; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); color: #fff; }
+.place-badge > span { border-radius: 50%; box-shadow: 0 0 0 2px #fff; }
+.place-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 10px; color: var(--text3); margin-top: 10px; }
+.place-legend span { display: inline-flex; align-items: center; gap: 3px; }
+.place-legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.quick-card { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-top: 10px; background: var(--surface); font-size: 12px; }
+.quick-card.ok { border-color: var(--green); }
+.quick-card.warn { border-color: var(--orange); background: var(--orange-bg); }
+.quick-card.bad { border: 2px solid var(--red); background: var(--red-bg); }
+.quick-card.dark { margin: 0; color: var(--text); }
+.quick-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 10px; margin-top: 8px; }
+.quick-grid > div { display: flex; flex-direction: column; min-width: 0; }
+.quick-grid span { font-size: 9.5px; color: var(--text3); text-transform: uppercase; letter-spacing: .3px; }
+.quick-grid b { font-size: 11.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quick-wrong { margin-top: 6px; font-size: 11.5px; display: grid; gap: 2px; }
+.cam-card { position: relative; z-index: 1; margin: 0 12px; max-height: 45vh; overflow: auto; }
+
+/* Scan source chips: COM navy, CC = CoolerCo cyan (logo colours) */
+.src-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 700; letter-spacing: .3px; color: #fff; line-height: 1.6; }
+.src-chip b { font-weight: 600; background: rgba(255,255,255,.22); border-radius: 999px; padding: 0 5px; }
+.src-chip.com { background: #1e3a8a; }
+.src-chip.cc { background: linear-gradient(135deg, #0066cc, #00aaff); }
+.seg-btn .src-chip { vertical-align: middle; }
+
+/* Install app */
+.install-overlay { align-items: center; justify-content: center; padding: 16px; z-index: 300; }
+.install-modal { width: min(440px, 100%); max-height: calc(100dvh - 32px); overflow: auto; padding: 16px; }
+.install-steps { margin: 10px 0 0; padding-left: 20px; display: grid; gap: 6px; font-size: 12.5px; line-height: 1.45; }
+.nav-item.nav-btn { width: 100%; background: none; border: 0; border-left: 3px solid transparent; text-align: left; cursor: pointer; font: inherit; color: #fff; }
+.nav-item.nav-btn:hover { background: rgba(255,255,255,.06); color: #fff; }
+
+/* ‹ Back on phones (staff pages) */
+.topbar-back { display: none; }
+@media (max-width: 768px) {
+  .topbar-back { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 34px; height: 34px; margin-right: 2px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text2); font-size: 22px; line-height: 1; cursor: pointer; }
+  .topbar > .topbar-back + div { flex: 1 1 calc(100% - 50px) !important; }
+}
+
+/* Scan report: "Scanned by" source filter above the list */
+.src-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 10px 12px 0; font-size: 11.5px; }
+.src-opt { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text2); font: inherit; font-size: 12px; cursor: pointer; }
+.src-opt b { font-weight: 700; color: var(--text); background: var(--surface3); border-radius: 999px; padding: 0 6px; }
+.src-opt.on { border-color: var(--accent); background: var(--accent-l, #E6F7FD); color: var(--text); font-weight: 600; }

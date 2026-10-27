@@ -1,5 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, lazy, Suspense } from 'react'
+const InstallApp = lazy(() => import('./InstallApp'))
 
 // Menu categories — each folds open/closed (one open at a time, so no scrolling)
 const NAV = [
@@ -12,7 +13,8 @@ const NAV = [
     { to: '/picking',  icon: '📦', label: 'Warehouse Prep' },
     { to: '/routes',   icon: '🗺️', label: 'Routes' },
     { href: 'https://smartroutertma.netlify.app/', icon: '🛣️', label: 'Routing App' },
-    { href: '/field', icon: '📲', label: 'Field app (install)' },
+    { action: 'install', icon: '📲', label: 'Install app' },
+    { href: '/field', icon: '📱', label: 'Open Field app' },
     { to: '/driver-links', icon: '🔗', label: 'Driver app links' },
   ] },
   { section: 'Stock', icon: '🧊', items: [
@@ -22,9 +24,10 @@ const NAV = [
   ] },
   { section: 'WMS', icon: '🏬', items: [
     { to: '/scan',          icon: '📷', label: 'Scan / Touch' },
+    { to: '/scan/report',   icon: '📊', label: 'Scan report' },
     { to: '/scan/export',   icon: '⬆️', label: 'COM Touch sync' },
     { to: '/scan/stocktake', icon: '📋', label: 'Stock take exceptions' },
-    { href: 'https://smartscanmagnum.netlify.app/', icon: '📊', label: 'COM Scan reports (SmartScan)' },
+    { href: 'https://smartscanmagnum.netlify.app/', icon: '🔗', label: 'SmartScan (COM)' },
     { to: '/wms/receiving', icon: '📥', label: 'Receiving' },
     { to: '/wms/transfers', icon: '🔄', label: 'Transfers' },
     { to: '/wms/stocktake', icon: '📋', label: 'Stocktake' },
@@ -51,6 +54,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onNavigate, u
   const [open, setOpen] = useState(() => groupOf(pathname) || 'Overview')
   const [flyout, setFlyout] = useState(null) // { section, top } — collapsed mode
   const [tip, setTip] = useState(null)       // { text, top }  — collapsed tooltips
+  const [install, setInstall] = useState(false) // 📲 Install app window
   const asideRef = useRef(null)
 
   // Keep the category of the current page open
@@ -76,12 +80,15 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onNavigate, u
       </>
     )
     const done = () => { setFlyout(null); onNavigate?.() }
+    if (item.action === 'install') return <button type="button" className="nav-item nav-btn" onClick={() => { done(); setInstall(true) }}>{inner}</button>
     return item.href
       ? <a className="nav-item" href={item.href} target="_blank" rel="noopener noreferrer" onClick={done}>{inner}</a>
-      : <NavLink to={item.to} end={item.to === '/'} onClick={done} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>{inner}</NavLink>
+      : <NavLink to={item.to} end={item.to === '/' || item.to === '/scan'} onClick={done} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>{inner}</NavLink>
   }
 
   return (
+    <>
+    {install && <Suspense fallback={null}><InstallApp onClose={() => setInstall(false)} /></Suspense>}
     <aside ref={asideRef} className={`sidebar${collapsed ? ' collapsed' : ''}${mobileOpen ? ' mob-open' : ''}`}>
       <div className="sidebar-logo">
         <div className="logo-icon">CC</div>
@@ -149,5 +156,6 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onNavigate, u
         </div>
       )}
     </aside>
+    </>
   )
 }

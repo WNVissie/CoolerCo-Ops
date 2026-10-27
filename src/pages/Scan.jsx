@@ -6,13 +6,15 @@ import { fmt, num, BAYS, WAREHOUSES, WH_NAMES, bayForStatus, condColor, CONDITIO
 import { compressImage, getGps } from '../lib/photos'
 import { whereIs } from './Assets'
 import CameraScan, { codeCandidates } from '../components/CameraScan'
-import { queueAdd, queueAll, flushQueue, startAutoFlush, isNetErr, offlineLookup, cachedQuery, saveWarehouseAssets, savedAssetsInfo, storageUsed } from '../lib/offline'
+import PlaceBadge, { PlaceLegend } from '../components/PlaceBadge'
+import { dbScanType, queueAdd, queueAll, flushQueue, startAutoFlush, isNetErr, offlineLookup, cachedQuery, saveWarehouseAssets, savedAssetsInfo, storageUsed } from '../lib/offline'
 
 // Bay scan = COM Asset Touch. Saves to public.coolerco_asset_touch (CoolerCo table).
 // Sent to COM (CSV, see /scan/export): location, condition, brand, model, serial, external status, comments.
 // CoolerCo only (never sent to COM): building/area + bay and whether they are right.
 const SCAN_BAYS = BAYS.filter(b => ['RED', 'ORANGE', 'GREEN', 'YELLOW', 'PENDING', 'SCRAP'].includes(b.key))
-const SCAN_TYPES = [['count', '🔢 Stock count'], ['receive', '📥 Received'], ['move', '🔀 Moved bay'], ['dispatch', '📤 Dispatched']]
+// values = what the database accepts (daily, monthly, receiving, dispatch, stocktake)
+const SCAN_TYPES = [['stocktake', '🔢 Stock count'], ['receiving', '📥 Received'], ['daily', '🔀 Moved bay'], ['dispatch', '📤 Dispatched']]
 const EXTERNAL = [ // COM's list (Asset Touch → External Status)
   'Asset Found in Expected Location', 'Asset Not in Expected Location', 'Asset Found with Casualty / Damaged',
   'Asset Found with No Plate / Plate not OK', 'Asset Found with no identifier', 'Asset Inactive Found', 'New Asset Found in Location',
@@ -20,6 +22,9 @@ const EXTERNAL = [ // COM's list (Asset Touch → External Status)
 const PHOTO_SLOTS = [['barcode', '🏷 Barcode'], ['asset', '🧊 Asset'], ['plate', '🔖 Property plate']]
 const MAX_PHOTOS = 6
 const TENANT = 'tenant_coolerco'
+const keep = (k, d) => { try { return localStorage.getItem(k) ?? d } catch { return d } }
+const put = (k, v) => { try { localStorage.setItem(k, v) } catch { /* ignore */ } }
+const buzz = bad => { try { navigator.vibrate?.(bad ? [160, 80, 160, 80, 160] : 60) } catch { /* ignore */ } }
 
 export default function Scan({ field = false }) {
   const [code, setCode] = useState('')
@@ -27,7 +32,7 @@ export default function Scan({ field = false }) {
   const [wh, setWh] = useState(() => { try { return localStorage.getItem('cc_scan_wh') || '' } catch { return '' } })
   const [ws, setWs] = useState(false) // COM location: WH or WS
   const [bay, setBay] = useState('')
-  const [type, setType] = useState('count')
+  const [type, setType] = useState('stocktake')
   const [found, setFound] = useState({}) // condition, brand, variant, serial, ext
   const [notes, setNotes] = useState('')
   const [photos, setPhotos] = useState([]) // { slot, path, url }
@@ -53,6 +58,16 @@ export default function Scan({ field = false }) {
   const [whs, setWhs] = useState([])
   const [locId, setLocId] = useState('')
   const [expected, setExpected] = useState(null)
+
+  // ⚡ Quick scan: scan → compact card → saved. ✏️ Change opens the full scan.
+  const [mode, setMode] = useState(() => keep('cc_scan_mode', 'quick'))
+  const [scanLoc, setScanLoc] = useState(() => keep('cc_scan_loc', '')) // where the scanner is standing (building/area)
+  const [quickWs, setQuickWs] = useState(() => keep('cc_scan_ws', '0') === '1')
+  const [qc, setQc] = useState(null) // the last quick-scan card
+  const gpsRef = useRef(null)
+  useEffect(() => put('cc_scan_mode', mode), [mode])
+  useEffect(() => { if (scanLoc) put('cc_scan_loc', scanLoc) }, [scanLoc])
+  useEffect(() => put('cc_scan_ws', quickWs ? '1' : '0'), [quickWs])
 
   useEffect(() => {
     loadRecent()
@@ -116,15 +131,11 @@ export default function Scan({ field = false }) {
     setAsset(null); setCode(''); setNotes(''); setExpected(null); setPhotos([]); setFound({}); setGps(undefined); touchId.current = null
   }
 
-  async function lookup(e, scanned) {
-    e?.preventDefault?.()
-    const raw = (scanned ?? code).trim()
-    if (!raw) return
-    if (scanned) setCode(scanned)
+  // Find an asset by any code (online: assets_live · no signal: the list saved on this phone)
+  async function findAsset(raw) {
     // QR codes can hold a URL or text: try every likely key (asset no., barcode, local code, serial, external code, SAP no.)
     const keys = codeCandidates(raw).map(k => k.replace(/[,()"\\]/g, '')).filter(Boolean)
     const list = keys.map(k => `"${k}"`).join(',')
-    setBusy(true); setMsg(null); setAsset(null); setPhotos([])
     let a = null, fromPhone = false
     try {
       if (!navigator.onLine) throw new Error('offline')
@@ -136,9 +147,28 @@ export default function Scan({ field = false }) {
       const rank = x => ['name', 'bar_code', 'local_code', 'serial_number', 'external_code', 'sap_number'].findIndex(f => keys.includes(String(x[f] || '')))
       a = (data || []).sort((x, y) => rank(x) - rank(y))[0]
     } catch (err) {
-      if (!isNetErr(err)) { setBusy(false); setMsg({ type: 'err', text: err.message }); return }
+      if (!isNetErr(err)) return { error: err.message }
       a = await offlineLookup(keys); fromPhone = true // no signal: the warehouse list saved on this phone
     }
+    return { a, fromPhone }
+  }
+  // Where it should be (location rules) + where CoolerCo last scanned it
+  async function locationCheck(a, fromPhone) {
+    if (fromPhone) return null
+    const { data } = await supabase.from('coolerco_asset_location_check')
+      .select('warehouse_code,expected_location_id,expected_location,scanned_location_id,scanned_location,last_scan_at')
+      .eq('name', a.name).maybeSingle().then(r => r, () => ({ data: null }))
+    return data || null
+  }
+
+  async function lookup(e, scanned) {
+    e?.preventDefault?.()
+    const raw = (scanned ?? code).trim()
+    if (!raw) return
+    if (scanned) setCode(scanned)
+    setBusy(true); setMsg(null); setAsset(null); setPhotos([])
+    const { a, fromPhone, error } = await findAsset(raw)
+    if (error) { setBusy(false); setMsg({ type: 'err', text: error }); return }
     if (!a) { setBusy(false); setMsg({ type: 'err', text: fromPhone ? `No signal and not in this phone's saved list. Code read: "${raw.slice(0, 120)}"` : `Not found in the asset register. Code read: "${raw.slice(0, 120)}"` }); return }
     if (fromPhone) setMsg({ type: 'warn', text: '📶 No signal — asset details from the list saved on this phone' })
     touchId.current = crypto.randomUUID()
@@ -148,8 +178,7 @@ export default function Scan({ field = false }) {
     const suggested = bayForStatus(a.asset_status)
     setBay(SCAN_BAYS.some(b => b.key === suggested) ? suggested : '')
     setGps(undefined); getGps().then(setGps) // in the background
-    const { data: chk } = fromPhone ? { data: null } : await supabase.from('coolerco_asset_location_check')
-      .select('warehouse_code,expected_location_id,expected_location').eq('name', a.name).maybeSingle().then(r => r, () => ({ data: null }))
+    const chk = await locationCheck(a, fromPhone)
     setBusy(false)
     setExpected(chk || null)
     if (chk?.warehouse_code) setWh(chk.warehouse_code)
@@ -205,24 +234,90 @@ export default function Scan({ field = false }) {
       created_at: new Date().toISOString(), // the time of the scan, also when it is sent later
     }
     const pending = photos.filter(p => !p.uploaded).map(p => ({ path: p.path, blob: p.blob }))
-    let queuedNow = false
+    const res = await persist(row, pending, asset.bar_code || asset.name)
+    setBusy(false)
+    if (res.error) { setMsg({ type: 'err', text: 'Could not save the scan: ' + res.error }); return }
+    const queuedNow = res.queued
+    const warn = [bayOk === false && `wrong bay — belongs in ${BAYS.find(b => b.key === expectedBay)?.icon} ${BAYS.find(b => b.key === expectedBay)?.label}`,
+      locOk === false && `wrong area — should be in ${expected.expected_location}`].filter(Boolean)
+    setMsg({ type: warn.length ? 'warn' : 'ok', text: `${queuedNow ? '📶 No signal — saved on this phone, it will send by itself.' : '✓'} ${asset.bar_code || asset.name} saved as New (tap 📤 Submit when done) · ${loc?.label} · ${BAYS.find(b => b.key === bay)?.label}${warn.length ? ' — ⚠ ' + warn.join(' · ') : ''}` })
+    reset(); loadRecent(); inputRef.current?.focus()
+  }
+
+  // Save one scan: online → insert (duplicate id = already saved); no signal → kept on the phone
+  async function persist(row, pending = [], label = '') {
     try {
       if (!navigator.onLine) throw new Error('offline')
       for (const p of pending) {
         const { error } = await supabase.storage.from('coolerco-cases').upload(p.path, p.blob, { contentType: 'image/jpeg', upsert: true })
         if (error) throw error
       }
-      const { error } = await supabase.from('coolerco_asset_touch').insert(row)
+      const { error } = await supabase.from('coolerco_asset_touch').insert({ ...row, scan_type: dbScanType(row.scan_type) })
       if (error && error.code !== '23505') throw error
+      return { queued: false }
     } catch (err) {
-      if (!isNetErr(err)) { setBusy(false); setMsg({ type: 'err', text: 'Could not save the scan: ' + (err.message || err) }); return }
-      await queueAdd({ type: 'touch', row, photos: pending, label: asset.bar_code || asset.name }); queuedNow = true
+      if (!isNetErr(err)) return { error: err.message || String(err) }
+      await queueAdd({ type: 'touch', row, photos: pending, label }); return { queued: true }
     }
-    setBusy(false)
-    const warn = [bayOk === false && `wrong bay — belongs in ${BAYS.find(b => b.key === expectedBay)?.icon} ${BAYS.find(b => b.key === expectedBay)?.label}`,
-      locOk === false && `wrong area — should be in ${expected.expected_location}`].filter(Boolean)
-    setMsg({ type: warn.length ? 'warn' : 'ok', text: `${queuedNow ? '📶 No signal — saved on this phone, it will send by itself.' : '✓'} ${asset.bar_code || asset.name} saved as New (tap 📤 Submit when done) · ${loc?.label} · ${BAYS.find(b => b.key === bay)?.label}${warn.length ? ' — ⚠ ' + warn.join(' · ') : ''}` })
-    reset(); loadRecent(); inputRef.current?.focus()
+  }
+
+  // ⚡ Quick scan: find → compare with where the scanner is → save (or ask when it is in the wrong place)
+  const scanPlace = locs.find(l => l.id === scanLoc && l.warehouse_code === wh) || null
+  async function quickScan(raw) {
+    raw = String(raw || '').trim()
+    if (!raw) return
+    const whRow = whs.find(w => w.code === wh)
+    if (!scanPlace || !whRow) { setMsg({ type: 'warn', text: '📍 First choose where you are scanning — warehouse and area.' }); return }
+    setMsg(null); setCode(''); setQc({ status: 'looking', code: raw })
+    getGps().then(g => { gpsRef.current = g }) // in the background, used for the next save
+    const { a, fromPhone, error } = await findAsset(raw)
+    if (error || !a) {
+      buzz(true)
+      setQc({ status: 'notfound', code: raw, text: error || (fromPhone ? "No signal and not in this phone's saved list" : 'Not found in the asset register') }); return
+    }
+    const chk = await locationCheck(a, fromPhone)
+    const comWh = /^RTMA /i.test(a.assign_account || '') ? String(a.assign_account).replace(/^RTMA\s+|\s+W[HS]$/gi, '') : null
+    const card = {
+      id: crypto.randomUUID(), asset: a, chk, fromPhone, place: scanPlace, whRow, ws: quickWs,
+      expBay: bayForStatus(a.asset_status),
+      areaOk: chk?.expected_location_id ? chk.expected_location_id === scanPlace.id : null, // location rules
+      whOk: comWh ? comWh === WH_NAMES[wh] : false, // COM: is it booked to this warehouse at all?
+    }
+    if (card.areaOk === false || card.whOk === false) { buzz(true); setQc({ ...card, status: 'wrong' }); return }
+    buzz(false); await quickSave(card)
+  }
+  async function quickSave(card) {
+    const a = card.asset, comLoc = `RTMA ${WH_NAMES[card.place.warehouse_code]} ${card.ws ? 'WS' : 'WH'}`
+    setQc({ ...card, status: 'saving' })
+    const row = {
+      id: card.id, tenant_id: TENANT,
+      bar_code: a.bar_code || a.name, local_code: a.local_code, asset_name: a.name,
+      warehouse_id: card.whRow.id, warehouse_name: card.place.label, location_id: card.place.id,
+      bay: SCAN_BAYS.some(b => b.key === card.expBay) ? card.expBay : null, scan_type: 'stocktake',
+      scanned_by: me?.email || 'ops-hub', scanned_by_user_id: me?.id || null, notes: null,
+      com_location: comLoc, external_status: comLoc === a.assign_account ? 'Asset Found in Expected Location' : 'Asset Not in Expected Location',
+      condition_found: a.condition || null, brand_found: a.brand_hierarchy || null,
+      product_variant_found: a.product_variant || null, product_base_found: a.product_base || null, serial_found: a.serial_number || null,
+      latitude: gpsRef.current?.lat ?? null, longitude: gpsRef.current?.lng ?? null, photo_paths: [],
+      expected_bay: card.expBay, bay_ok: null, // quick scan does not check the bay
+      expected_location_id: card.chk?.expected_location_id || null,
+      location_ok: card.areaOk === false || card.whOk === false ? false : card.areaOk,
+      created_at: new Date().toISOString(),
+    }
+    const res = await persist(row, [], a.bar_code || a.name)
+    setQc({ ...card, status: res.error ? 'error' : res.queued ? 'queued' : 'saved', text: res.error, accepted: card.areaOk === false || card.whOk === false })
+    if (!res.error) loadRecent()
+  }
+  // ✏️ Change → the full scan, prefilled (saving it adds a newer scan; the latest scan counts)
+  function openFull(card) {
+    const a = card.asset
+    setMode('full'); setCam(false); setQc(null); setMsg(null)
+    touchId.current = crypto.randomUUID()
+    setAsset(a); setCode(a.bar_code || a.name); setPhotos([]); setNotes('')
+    setFound({ condition: a.condition || '', brand: a.brand_hierarchy || '', variant: a.product_variant || '', serial: a.serial_number || '', ext: '' })
+    setWs(card.ws); setLocId(card.place.id); setExpected(card.chk || null)
+    setBay(SCAN_BAYS.some(b => b.key === card.expBay) ? card.expBay : '')
+    setGps(undefined); getGps().then(setGps)
   }
 
   async function submit(ids) {
@@ -251,7 +346,8 @@ export default function Scan({ field = false }) {
     <>
       {!field && <Topbar title="Scan / Asset Touch" sub={`Bay scan + COM asset touch · you ${num(stats.today)} today · all teams ${num(stats.all)}`}
         actions={<>
-          <a className="btn btn-ghost btn-sm" href={SMARTSCAN_URL} target="_blank" rel="noopener noreferrer" title="COM assets scanned — reporting app">📊 COM scan reports ↗</a>
+          <Link className="btn btn-ghost btn-sm" to="/scan/report" title="Assets scanned by warehouse — COM + CoolerCo">📊 Scan report</Link>
+          <a className="btn btn-ghost btn-sm" href={SMARTSCAN_URL} target="_blank" rel="noopener noreferrer" title="COM scanning app">🔗 SmartScan ↗</a>
           <Link className="btn btn-ghost btn-sm" to="/scan/export">⬆ COM Touch sync</Link>
         </>} />}
       <div className="page-content">
@@ -265,6 +361,47 @@ export default function Scan({ field = false }) {
                 {saving !== null ? `⬇ ${num(saving)}…` : saved ? `💾 ${num(saved.n)} saved ${new Date(saved.at).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short' })} ↻` : `⬇ Save ${WH_NAMES[wh]} list for offline`}
               </button>}
             </div>
+            <div className="seg" style={{ marginBottom: 10 }}>
+              <button type="button" className={`seg-btn${mode === 'quick' ? ' on' : ''}`} onClick={() => { setMode('quick'); reset() }}>⚡ Quick scan</button>
+              <button type="button" className={`seg-btn${mode === 'full' ? ' on' : ''}`} onClick={() => { setMode('full'); setQc(null) }}>📋 Full scan</button>
+            </div>
+            {mode === 'quick' ? (
+              <>
+                <details className="sec" open={!scanPlace}>
+                  <summary>📍 Scanning in: {scanPlace ? <b>{scanPlace.label}{quickWs ? ' · Workshop' : ''}</b> : <span className="tag tag-orange">choose first</span>}</summary>
+                  <div className="sec-body">
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <select className="field-ctrl" style={{ flex: 1, minWidth: 140 }} value={wh} onChange={e => { setWh(e.target.value); setScanLoc('') }}>
+                        <option value="">🏢 Warehouse…</option>
+                        {WAREHOUSES.map(w => <option key={w} value={w}>{WH_NAMES[w]}</option>)}
+                      </select>
+                      <div className="seg">
+                        <button type="button" className={`seg-btn${!quickWs ? ' on' : ''}`} onClick={() => setQuickWs(false)}>🏬 WH</button>
+                        <button type="button" className={`seg-btn${quickWs ? ' on' : ''}`} onClick={() => setQuickWs(true)}>🛠 WS</button>
+                      </div>
+                    </div>
+                    <div className="bay-pick" style={{ marginTop: 8 }}>
+                      {locs.filter(l => l.warehouse_code === wh).map(l => (
+                        <button type="button" key={l.id} className={`bay-tile bay-pending${scanPlace?.id === l.id ? ' on' : ''}`} onClick={() => setScanLoc(l.id)}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><PlaceBadge area={quickWs ? 'WS' : l.area} size={16} />{l.building}{l.area !== 'MAIN' ? ` · ${l.area}` : ''}</span>
+                        </button>))}
+                    </div>
+                  </div>
+                </details>
+                <form onSubmit={e => { e.preventDefault(); quickScan(code) }} className="scan-find">
+                  <button type="button" className="btn btn-primary scan-cam-btn" disabled={!scanPlace} onClick={() => setCam(true)}>📷 Scan</button>
+                  <div className="search-wrap">
+                    <span className="ico">⌨</span>
+                    <input ref={inputRef} autoFocus enterKeyHint="search" autoComplete="off" placeholder="or type / hand-scanner, then Enter" value={code} onChange={e => setCode(e.target.value)} />
+                  </div>
+                </form>
+                {cam && <CameraScan continuous paused={qc?.status === 'wrong' || qc?.status === 'looking'} onClose={() => setCam(false)} onResult={quickScan}>
+                  {qc && <QuickCard qc={qc} onAccept={() => quickSave(qc)} onSkip={() => setQc({ ...qc, status: 'skipped' })} onChange={() => openFull(qc)} dark />}
+                </CameraScan>}
+                {qc && <QuickCard qc={qc} onAccept={() => quickSave(qc)} onSkip={() => setQc({ ...qc, status: 'skipped' })} onChange={() => openFull(qc)} />}
+                <PlaceLegend />
+              </>
+            ) : (<>
             <form onSubmit={lookup} className="scan-find">
               <button type="button" className="btn btn-primary scan-cam-btn" onClick={() => setCam(true)} title="Scan a QR code or barcode with the camera">📷 Scan</button>
               <div className="search-wrap">
@@ -410,6 +547,7 @@ export default function Scan({ field = false }) {
                 <button className="btn btn-primary" style={{ marginTop: 12, width: '100%' }} onClick={save} disabled={busy || upl}>✓ Save scan</button>
               </>
             )}
+            </>)}
             {msg && <div className={`form-msg ${msg.type}`} style={{ marginTop: 10 }}>{msg.text}</div>}
           </div>
 
@@ -454,5 +592,46 @@ export default function Scan({ field = false }) {
         </div>
       </div>
     </>
+  )
+}
+
+// The compact quick-scan card. Badge = where the asset IS now (the area it was just scanned in) · bay from its COM status.
+function QuickCard({ qc, onAccept, onSkip, onChange, dark = false }) {
+  if (qc.status === 'looking') return <div className={`quick-card${dark ? ' dark' : ''}`}><span className="spinner" /> Looking up {qc.code}…</div>
+  if (qc.status === 'notfound') return <div className={`quick-card bad${dark ? ' dark' : ''}`}><b>❓ {qc.text}</b><div className="mono" style={{ fontSize: 11 }}>{String(qc.code).slice(0, 80)}</div></div>
+  const a = qc.asset, bay = BAYS.find(b => b.key === qc.expBay)
+  const wrong = qc.areaOk === false || qc.whOk === false
+  const state = { saving: ['⏳', 'Saving…'], saved: ['✅', qc.accepted ? 'Saved — accepted in this place (exception)' : 'Saved'], queued: ['📵', 'Saved on this phone — sends by itself'],
+    error: ['⚠', 'Not saved: ' + (qc.text || '')], wrong: ['⚠', 'Wrong place — accept here?'], skipped: ['⏭', 'Skipped — not saved'] }[qc.status] || ['', '']
+  return (
+    <div className={`quick-card${wrong && qc.status !== 'saved' ? ' bad' : wrong ? ' warn' : ' ok'}${dark ? ' dark' : ''}`}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <PlaceBadge area={qc.ws ? 'WS' : qc.place?.area} bay={qc.expBay} size={40} title="Where it is now" />
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div className="mono" style={{ fontWeight: 700, fontSize: 15 }}>{a.bar_code || a.name}</div>
+          <div style={{ fontSize: 11 }}>Is in <b>{qc.place?.label}{qc.ws ? ' · WS' : ''}</b> · {bay ? `${bay.icon} ${bay.label}` : a.asset_status}</div>
+        </div>
+        <span style={{ fontSize: 20 }}>{state[0]}</span>
+      </div>
+      <div className="quick-grid">
+        <div><span>SAP no.</span><b className="mono">{a.sap_number || '—'}</b></div>
+        <div><span>COM location</span><b>{a.assign_account || a.points_of_sale || a.asset_location || '—'}</b></div>
+        <div><span>Condition</span><b>{a.condition || '—'}</b></div>
+        <div><span>Branding</span><b>{a.brand_hierarchy || '—'}</b></div>
+      </div>
+      {wrong && <div className="quick-wrong">
+        {qc.whOk === false && (/^RTMA /i.test(a.assign_account || '')
+          ? <div style={{ fontSize: 13 }}>⛔ <b>Wrong warehouse</b> — this asset belongs to <b>{String(a.assign_account).replace(/^RTMA\s+|\s+W[HS]$/gi, '')}</b> ({a.assign_account}).</div>
+          : <div style={{ fontSize: 13 }}>⛔ <b>Not RTMA stock</b> — COM has it at <b>{a.points_of_sale || a.assign_account || a.asset_location || 'another location'}</b>.</div>)}
+        {qc.areaOk === false && <div>⚠ By its status it belongs in <b>{qc.chk?.expected_location}</b>.</div>}
+        {qc.chk?.scanned_location && <div className="text3">Last CoolerCo scan: {qc.chk.scanned_location}</div>}
+      </div>}
+      <div style={{ fontSize: 11, marginTop: 4 }}>{state[1]}</div>
+      <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+        {qc.status === 'wrong' && <><button type="button" className="btn btn-primary btn-sm" onClick={onAccept}>✓ Accept here</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onSkip}>Skip</button></>}
+        {['saved', 'queued', 'wrong', 'skipped', 'error'].includes(qc.status) && <button type="button" className="btn btn-ghost btn-sm" onClick={onChange}>✏️ Change</button>}
+      </div>
+    </div>
   )
 }
