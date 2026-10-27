@@ -11,7 +11,8 @@ const OUTCOME = {
   planned: ['Planned', 'blue'], solved: ['✅ Done', 'green'], carried_over: ['↪ Carried over', 'orange'],
   cancelled: ['🚫 Cancelled', 'neutral'], removed: ['Removed', 'neutral'], awaiting_third_party_update: ['⏳ Awaiting update', 'orange'],
 }
-const iso = d => d.toISOString().slice(0, 10)
+// local (South African) date, not UTC — so midnight to 2 am still shows today
+const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 const addDays = (s, n) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return iso(d) }
 const fmtDay = s => new Date(s + 'T12:00:00').toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' })
 const fmtTime = t => (t ? new Date(t).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' }) : '')
@@ -85,6 +86,9 @@ export default function FieldTrip() {
           <strong>{date === iso(new Date()) ? 'Today · ' : ''}{fmtDay(date)}</strong>
           <button className="btn btn-ghost btn-sm" onClick={() => setDate(d => addDays(d, 1))}>›</button>
           <button className="btn btn-ghost btn-sm" onClick={load} title="Refresh">↻</button>
+        </div>
+        {date !== iso(new Date()) && <button className="btn btn-primary btn-sm" style={{ width: '100%', marginTop: 8 }} onClick={() => setDate(iso(new Date()))}>⏎ Back to today</button>}
+        <div>
         </div>
         {fromPhone && <div className="form-msg warn" style={{ marginTop: 8 }}>📵 No signal — showing the copy saved on this phone ({fmtTime(trip.at)}).</div>}
       </div>
