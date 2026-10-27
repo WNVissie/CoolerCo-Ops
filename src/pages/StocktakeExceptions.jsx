@@ -28,9 +28,10 @@ export default function StocktakeExceptions() {
   const [q, setQ] = useState('')
   const [shown, setShown] = useState(PAGE)
 
+  const [noPeriods, setNoPeriods] = useState(false)
   useEffect(() => {
     supabase.from('asset_touch_periods').select('id,label,start_date,end_date,closed_at').eq('scope', 'warehouse').order('start_date', { ascending: false }).limit(20)
-      .then(({ data }) => { setPeriods(data || []); if (data?.[0]) setPeriod(data[0].id) })
+      .then(({ data }) => { setPeriods(data || []); if (data?.[0]) setPeriod(data[0].id); else { setNoPeriods(true); setRows([]) } })
   }, [])
 
   useEffect(() => {
@@ -111,7 +112,8 @@ export default function StocktakeExceptions() {
             </div>
             <button className="btn btn-ghost btn-sm" disabled={!list.length} onClick={exportXlsx}>⬇ Excel ({num(list.length)})</button>
           </div>
-          {!rows ? <div className="load-state"><span className="spinner" /> Comparing snapshot with scans…</div> : !list.length ? (
+          {noPeriods ? <div className="empty-state"><div className="empty-ico">📋</div><div>No warehouse stock take period yet. Open one in <a href={SMARTSCAN_URL} target="_blank" rel="noopener noreferrer">SmartScan</a> — it takes the snapshot.</div></div>
+            : !rows ? <div className="load-state"><span className="spinner" /> Comparing snapshot with scans…</div> : !list.length ? (
             <div className="empty-state"><div className="empty-ico">🎉</div><div>Nothing in this list.</div></div>
           ) : (
             <div className="tbl-wrap">

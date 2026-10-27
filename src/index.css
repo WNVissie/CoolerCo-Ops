@@ -462,3 +462,47 @@ button.nav-section-label:hover { color: rgba(255,255,255,.55); }
 .scan-photo.has { border-style: solid; border-color: var(--green); }
 .scan-photo img { width: 100%; height: 62px; object-fit: cover; }
 .scan-photo small { font-size: 9.5px; line-height: 1.1; text-align: center; padding: 0 2px; }
+
+/* Camera scanner */
+.cam-overlay { position: fixed; inset: 0; z-index: 200; background: #000; display: flex; flex-direction: column; }
+.cam-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.cam-frame { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.cam-frame span { width: min(72vw, 300px); height: min(72vw, 300px); border: 3px solid rgba(255,255,255,.9); border-radius: 18px; box-shadow: 0 0 0 100vmax rgba(0,0,0,.45); }
+.cam-top, .cam-bottom { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: calc(12px + env(safe-area-inset-top)) 14px 12px; color: #fff; font-size: 13px; }
+.cam-bottom { margin-top: auto; padding: 14px 14px calc(18px + env(safe-area-inset-bottom)); flex-direction: column; text-align: center; }
+.cam-btn { background: rgba(255,255,255,.18); color: #fff; border: 1px solid rgba(255,255,255,.35); border-radius: 22px; padding: 9px 16px; font-size: 14px; cursor: pointer; }
+.cam-err { background: rgba(220,38,38,.85); padding: 10px 12px; border-radius: 10px; font-size: 13px; }
+.scan-find { display: flex; gap: 8px; align-items: stretch; margin-bottom: 12px; }
+.scan-find .search-wrap { flex: 1; }
+.scan-cam-btn { font-size: 15px; padding: 0 14px; white-space: nowrap; }
+
+/* ── Phone polish (2026-10-27) ── */
+@media (max-width: 768px) {
+  /* no iPhone zoom on focus; comfortable tap targets */
+  input, select, textarea, .field-ctrl, .search-wrap input { font-size: 16px !important; }
+  .btn { min-height: 36px; }
+  .btn-sm { min-height: 32px; }
+  .seg-btn { padding: 8px 10px; }
+  .page-content { padding: 12px 12px calc(16px + env(safe-area-inset-bottom)); }
+  /* header: title on its own line, buttons below, subtitle max 2 lines */
+  .topbar { flex-wrap: wrap; row-gap: 6px; height: auto; min-height: 52px; padding-top: 8px; padding-bottom: 8px; }
+  .topbar > div:first-of-type { flex: 1 1 calc(100% - 10px) !important; min-width: 0; }
+  .topbar > div:last-child:not(:first-of-type) { flex: 1 1 100%; flex-wrap: wrap; }
+  .topbar-sub { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .filters { flex-wrap: wrap; }
+  .filters > select, .filters > input[type="date"] { flex: 1 1 140px; }
+  .card-header { flex-wrap: wrap; gap: 6px; }
+  /* scan: big camera button on its own row */
+  .scan-find { flex-wrap: wrap; }
+  .scan-cam-btn { flex: 1 1 100%; min-height: 48px; font-size: 17px; }
+  .scan-find .search-wrap { flex: 1 1 60%; }
+  .bay-pick { grid-template-columns: repeat(2, 1fr); }
+  .bay-tile { min-height: 40px; }
+  .scan-photo { width: 30%; min-width: 86px; height: 96px; }
+  .scan-photo img { height: 70px; }
+  .tbl th, .tbl td { padding: 8px 9px; }
+}
+.search-wrap input { padding-left: 34px; }
+@media (max-width: 768px) { .search-wrap input { padding-left: 36px; } .search-wrap .ico { font-size: 14px; } }
+input.field-ctrl, textarea.field-ctrl { box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface2); color: var(--text); font-family: inherit; outline: none; }
+input.field-ctrl:focus, textarea.field-ctrl:focus { border-color: var(--accent); }

@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 import { fmt, num, BAYS, WAREHOUSES, WH_NAMES, bayForStatus, condColor, CONDITIONS, SMARTSCAN_URL } from '../lib/helpers'
 import { compressImage, getGps } from '../lib/photos'
 import { whereIs } from './Assets'
+import CameraScan, { codeCandidates } from '../components/CameraScan'
 
 // Bay scan = COM Asset Touch. Saves to public.coolerco_asset_touch (CoolerCo table).
 // Sent to COM (CSV, see /scan/export): location, condition, brand, model, serial, external status, comments.
@@ -37,6 +38,9 @@ export default function Scan() {
   const [msg, setMsg] = useState(null)
   const [opts, setOpts] = useState({ brands: [], models: [] })
   const inputRef = useRef(null)
+  const [cam, setCam] = useState(false)
+  const [me, setMe] = useState(null)
+  const [scope, setScope] = useState('me') // me | wh (teams scan at different warehouses at the same time)
   const touchId = useRef(null)
 
   const [locs, setLocs] = useState([])
@@ -62,30 +66,44 @@ export default function Scan() {
   }, [])
   useEffect(() => { try { wh && localStorage.setItem('cc_scan_wh', wh) } catch { /* ignore */ } }, [wh])
 
+  useEffect(() => { supabase.auth.getUser().then(({ data }) => setMe(data?.user || null)) }, [])
+  useEffect(() => { if (me) loadRecent() }, [me, scope, wh])
+
   async function loadRecent() {
+    if (!me) return
     const start = new Date(); start.setHours(0, 0, 0, 0)
-    const [list, today] = await Promise.all([
-      supabase.from('coolerco_asset_touch').select('id,created_at,bar_code,asset_name,warehouse_name,bay,bay_ok,location_ok,touch_status,photo_paths,scanned_by')
-        .order('created_at', { ascending: false }).limit(15),
+    const whId = whs.find(w => w.code === wh)?.id
+    let list = supabase.from('coolerco_asset_touch').select('id,created_at,bar_code,asset_name,warehouse_name,bay,bay_ok,location_ok,touch_status,photo_paths,scanned_by,scanned_by_user_id')
+      .order('created_at', { ascending: false }).limit(25)
+    list = scope === 'wh' && whId ? list.eq('warehouse_id', whId) : list.eq('scanned_by_user_id', me.id)
+    const [l, mine, all] = await Promise.all([
+      list,
+      supabase.from('coolerco_asset_touch').select('id', { count: 'exact', head: true }).gte('created_at', start.toISOString()).eq('scanned_by_user_id', me.id),
       supabase.from('coolerco_asset_touch').select('id', { count: 'exact', head: true }).gte('created_at', start.toISOString()),
     ])
-    setRecent(list.data || []); setStats({ today: today.count })
+    setRecent(l.data || []); setStats({ today: mine.count, all: all.count })
   }
 
   function reset() {
     setAsset(null); setCode(''); setNotes(''); setExpected(null); setPhotos([]); setFound({}); setGps(undefined); touchId.current = null
   }
 
-  async function lookup(e) {
-    e?.preventDefault()
-    const s = code.trim().replace(/[,()]/g, ' ')
-    if (!s) return
+  async function lookup(e, scanned) {
+    e?.preventDefault?.()
+    const raw = (scanned ?? code).trim()
+    if (!raw) return
+    if (scanned) setCode(scanned)
+    // QR codes can hold a URL or text: try every likely key (asset no., barcode, local code, serial, external code, SAP no.)
+    const keys = codeCandidates(raw).map(k => k.replace(/[,()"\\]/g, '')).filter(Boolean)
+    const list = keys.map(k => `"${k}"`).join(',')
     setBusy(true); setMsg(null); setAsset(null); setPhotos([])
     const { data } = await supabase.from('assets_live')
       .select('name,bar_code,local_code,sap_number,serial_number,external_code,asset_type,product_base,product_variant,brand_hierarchy,condition,asset_status,asset_location,assign_account,points_of_sale')
-      .or(`bar_code.eq.${s},local_code.eq.${s},name.eq.${s},serial_number.eq.${s}`).limit(1)
-    const a = data?.[0]
-    if (!a) { setBusy(false); setMsg({ type: 'err', text: `"${s}" was not found in the asset register.` }); return }
+      .or(['name', 'bar_code', 'local_code', 'serial_number', 'external_code', 'sap_number'].map(f => `${f}.in.(${list})`).join(',')).limit(5)
+    // best match: asset no. → barcode → local code → serial → external → SAP
+    const rank = a => ['name', 'bar_code', 'local_code', 'serial_number', 'external_code', 'sap_number'].findIndex(f => keys.includes(String(a[f] || '')))
+    const a = (data || []).sort((x, y) => rank(x) - rank(y))[0]
+    if (!a) { setBusy(false); setMsg({ type: 'err', text: `Not found in the asset register. Code read: "${raw.slice(0, 120)}"` }); return }
     touchId.current = crypto.randomUUID()
     setAsset(a)
     setFound({ condition: a.condition || '', brand: a.brand_hierarchy || '', variant: a.product_variant || '', serial: a.serial_number || '', ext: '' })
@@ -161,29 +179,31 @@ export default function Scan() {
     setMsg(error ? { type: 'err', text: error.message } : { type: 'ok', text: `📤 ${ids.length} scan(s) submitted — ready to sync to COM` })
     loadRecent()
   }
-  const newOnes = recent.filter(r => r.touch_status === 'New')
+  const newOnes = recent.filter(r => r.touch_status === 'New' && r.scanned_by_user_id === me?.id)
 
   const where = whereIs(asset)
   const Changed = ({ k }) => changed(k) ? <span className="tag tag-orange" style={{ marginLeft: 6 }}>changed</span> : null
 
   return (
     <>
-      <Topbar title="Scan / Asset Touch" sub={`Bay scan + COM asset touch · ${num(stats.today)} today`}
+      <Topbar title="Scan / Asset Touch" sub={`Bay scan + COM asset touch · you ${num(stats.today)} today · all teams ${num(stats.all)}`}
         actions={<>
           <a className="btn btn-ghost btn-sm" href={SMARTSCAN_URL} target="_blank" rel="noopener noreferrer" title="COM assets scanned — reporting app">📊 COM scan reports ↗</a>
-          <Link className="btn btn-ghost btn-sm" to="/scan/export">⬆ COM Touch export</Link>
+          <Link className="btn btn-ghost btn-sm" to="/scan/export">⬆ COM Touch sync</Link>
         </>} />
       <div className="page-content">
         <div className="two-col">
           <div className="card" style={{ padding: 16 }}>
-            <form onSubmit={lookup} className="filters" style={{ marginBottom: 12 }}>
-              <div className="search-wrap" style={{ flex: 1 }}>
-                <span className="ico">📷</span>
-                <input ref={inputRef} autoFocus inputMode="numeric" placeholder="Scan or type barcode / local code / serial" value={code} onChange={e => setCode(e.target.value)} />
+            <form onSubmit={lookup} className="scan-find">
+              <button type="button" className="btn btn-primary scan-cam-btn" onClick={() => setCam(true)} title="Scan a QR code or barcode with the camera">📷 Scan</button>
+              <div className="search-wrap">
+                <span className="ico">⌨</span>
+                <input ref={inputRef} autoFocus enterKeyHint="search" autoComplete="off" placeholder="or type / hand-scanner: barcode, local code, serial" value={code} onChange={e => setCode(e.target.value)} />
               </div>
-              <button className="btn btn-primary btn-sm" disabled={busy}>Find</button>
-              {asset && <button type="button" className="btn btn-ghost btn-sm" onClick={reset}>✕</button>}
+              <button className="btn btn-ghost btn-sm" disabled={busy}>Find</button>
+              {asset && <button type="button" className="btn btn-ghost btn-sm" onClick={reset} aria-label="Clear">✕</button>}
             </form>
+            {cam && <CameraScan onClose={() => setCam(false)} onResult={txt => { setCam(false); lookup(null, txt) }} />}
 
             {asset && (
               <>
@@ -324,7 +344,10 @@ export default function Scan() {
 
           <div className="card">
             <div className="card-header">
-              <span className="card-title">🕒 Recent scans</span>
+              <div className="seg">
+                <button className={`seg-btn${scope === 'me' ? ' on' : ''}`} onClick={() => setScope('me')}>👤 Mine</button>
+                <button className={`seg-btn${scope === 'wh' ? ' on' : ''}`} onClick={() => setScope('wh')} disabled={!wh}>🏢 {wh ? WH_NAMES[wh] : 'Warehouse'}</button>
+              </div>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                 {newOnes.length > 0 && <button className="btn btn-primary btn-sm" onClick={() => submit(newOnes.map(r => r.id))}>📤 Submit {newOnes.length} new</button>}
                 <Link className="card-count" to="/scan/export">COM sync ›</Link>
@@ -341,7 +364,7 @@ export default function Scan() {
                       <td>{BAYS.find(b => b.key === r.bay)?.icon} {r.bay}{r.bay_ok === false ? ' ⚠' : ''}</td>
                       <td>{r.photo_paths?.length || 0}</td>
                       <td>{r.touch_status === 'New'
-                        ? <button className="btn btn-ghost btn-sm" onClick={() => submit([r.id])}>📤 Submit</button>
+                        ? (r.scanned_by_user_id === me?.id ? <button className="btn btn-ghost btn-sm" onClick={() => submit([r.id])}>📤 Submit</button> : <span className="tag tag-neutral" title={r.scanned_by}>New · {String(r.scanned_by || '').split('@')[0]}</span>)
                         : <span className={`tag tag-${r.touch_status === 'Synced' ? 'green' : 'blue'}`}>{r.touch_status}</span>}</td>
                     </tr>
                   ))}</tbody>

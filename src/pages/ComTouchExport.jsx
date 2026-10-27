@@ -113,7 +113,7 @@ export default function ComTouchExport() {
 
   return (
     <>
-      <Topbar title="COM Touch export" sub="Bay scans → CSV in COM's Asset Touch layout · bay/area stay in CoolerCo"
+      <Topbar title="COM Touch sync" sub="Bay scans → CSV in COM's Asset Touch layout · bay/area stay in CoolerCo"
         actions={<Link className="btn btn-ghost btn-sm" to="/scan">📷 Scan</Link>} />
       <div className="page-content">
         <div className="filters" style={{ flexWrap: 'wrap' }}>
