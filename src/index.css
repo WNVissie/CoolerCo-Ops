@@ -506,3 +506,8 @@ button.nav-section-label:hover { color: rgba(255,255,255,.55); }
 @media (max-width: 768px) { .search-wrap input { padding-left: 36px; } .search-wrap .ico { font-size: 14px; } }
 input.field-ctrl, textarea.field-ctrl { box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface2); color: var(--text); font-family: inherit; outline: none; }
 input.field-ctrl:focus, textarea.field-ctrl:focus { border-color: var(--accent); }
+/* offline bar + queue */
+.off-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: space-between; font-size: 11.5px; padding: 6px 8px; margin: -4px 0 10px; border-radius: 8px; background: var(--green-bg); color: var(--green); }
+.off-bar.off { background: var(--orange-bg); color: var(--orange); font-weight: 600; }
+.q-list { padding: 6px 12px; border-bottom: 1px solid var(--border); }
+.q-row { display: flex; gap: 8px; align-items: center; justify-content: space-between; font-size: 12px; padding: 4px 0; }

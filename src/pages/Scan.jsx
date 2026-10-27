@@ -6,6 +6,7 @@ import { fmt, num, BAYS, WAREHOUSES, WH_NAMES, bayForStatus, condColor, CONDITIO
 import { compressImage, getGps } from '../lib/photos'
 import { whereIs } from './Assets'
 import CameraScan, { codeCandidates } from '../components/CameraScan'
+import { queueAdd, queueAll, flushQueue, startAutoFlush, isNetErr, offlineLookup, cachedQuery, kvGet, kvSet, saveWarehouseAssets, savedAssetsInfo } from '../lib/offline'
 
 // Bay scan = COM Asset Touch. Saves to public.coolerco_asset_touch (CoolerCo table).
 // Sent to COM (CSV, see /scan/export): location, condition, brand, model, serial, external status, comments.
@@ -20,7 +21,7 @@ const PHOTO_SLOTS = [['barcode', '🏷 Barcode'], ['asset', '🧊 Asset'], ['pla
 const MAX_PHOTOS = 6
 const TENANT = 'tenant_coolerco'
 
-export default function Scan() {
+export default function Scan({ field = false }) {
   const [code, setCode] = useState('')
   const [asset, setAsset] = useState(null)
   const [wh, setWh] = useState(() => { try { return localStorage.getItem('cc_scan_wh') || '' } catch { return '' } })
@@ -42,6 +43,10 @@ export default function Scan() {
   const [me, setMe] = useState(null)
   const [scope, setScope] = useState('me') // me | wh (teams scan at different warehouses at the same time)
   const touchId = useRef(null)
+  const [online, setOnline] = useState(navigator.onLine)
+  const [queued, setQueued] = useState([]) // waiting to send (this phone)
+  const [saved, setSaved] = useState(null) // offline asset list info
+  const [saving, setSaving] = useState(null)
 
   const [locs, setLocs] = useState([])
   const [whs, setWhs] = useState([])
@@ -51,13 +56,14 @@ export default function Scan() {
   useEffect(() => {
     loadRecent()
     // parallel: warehouses, areas, dropdown values (server-side distinct)
+    // live when online, the phone's saved copy when not
     Promise.all([
-      supabase.from('warehouses').select('id,code,name').eq('warehouse_type', 'regional').in('code', WAREHOUSES),
-      supabase.from('coolerco_wh_locations').select('id,warehouse_code,building,area,label').eq('active', true).order('sort_order'),
-      supabase.from('coolerco_asset_options').select('kind,value,base,n'),
+      cachedQuery('whs', () => supabase.from('warehouses').select('id,code,name').eq('warehouse_type', 'regional').in('code', WAREHOUSES)),
+      cachedQuery('locs', () => supabase.from('coolerco_wh_locations').select('id,warehouse_code,building,area,label').eq('active', true).order('sort_order')),
+      cachedQuery('opts', () => supabase.from('coolerco_asset_options').select('kind,value,base,n')),
     ]).then(([w, l, o]) => {
-      setWhs(w.data || []); setLocs(l.data || [])
-      const rows = o.data || []
+      setWhs(w || []); setLocs(l || [])
+      const rows = o || []
       setOpts({
         brands: rows.filter(r => r.kind === 'brand').sort((a, b) => b.n - a.n),
         models: rows.filter(r => r.kind === 'model').sort((a, b) => String(a.value).localeCompare(String(b.value))),
@@ -66,11 +72,31 @@ export default function Scan() {
   }, [])
   useEffect(() => { try { wh && localStorage.setItem('cc_scan_wh', wh) } catch { /* ignore */ } }, [wh])
 
-  useEffect(() => { supabase.auth.getUser().then(({ data }) => setMe(data?.user || null)) }, [])
+  // session from the phone (works offline)
+  useEffect(() => { supabase.auth.getSession().then(({ data }) => setMe(data?.session?.user || null)) }, [])
   useEffect(() => { if (me) loadRecent() }, [me, scope, wh])
+  useEffect(() => {
+    startAutoFlush()
+    const refreshQ = () => queueAll().then(setQueued)
+    const on = () => { setOnline(true); flushQueue() }, off = () => setOnline(false)
+    const sent = e => { setMsg({ type: 'ok', text: `📶 Back online — ${e.detail} saved item(s) sent` }); loadRecent() }
+    window.addEventListener('online', on); window.addEventListener('offline', off)
+    window.addEventListener('cc-queue', refreshQ); window.addEventListener('cc-queue-sent', sent)
+    refreshQ()
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); window.removeEventListener('cc-queue', refreshQ); window.removeEventListener('cc-queue-sent', sent) }
+  }, [])
+  useEffect(() => { if (wh) savedAssetsInfo(wh).then(setSaved) }, [wh])
+
+  async function saveOffline() {
+    if (!wh) return
+    setSaving(0)
+    try { const v = await saveWarehouseAssets(wh, n => setSaving(n)); setSaved({ at: v.at, n: v.rows.length }) }
+    catch (e) { setMsg({ type: 'err', text: 'Could not save the list: ' + (e.message || e) }) }
+    setSaving(null)
+  }
 
   async function loadRecent() {
-    if (!me) return
+    if (!me || !navigator.onLine) return
     const start = new Date(); start.setHours(0, 0, 0, 0)
     const whId = whs.find(w => w.code === wh)?.id
     let list = supabase.from('coolerco_asset_touch').select('id,created_at,bar_code,asset_name,warehouse_name,bay,bay_ok,location_ok,touch_status,photo_paths,scanned_by,scanned_by_user_id')
@@ -97,13 +123,22 @@ export default function Scan() {
     const keys = codeCandidates(raw).map(k => k.replace(/[,()"\\]/g, '')).filter(Boolean)
     const list = keys.map(k => `"${k}"`).join(',')
     setBusy(true); setMsg(null); setAsset(null); setPhotos([])
-    const { data } = await supabase.from('assets_live')
-      .select('name,bar_code,local_code,sap_number,serial_number,external_code,asset_type,product_base,product_variant,brand_hierarchy,condition,asset_status,asset_location,assign_account,points_of_sale')
-      .or(['name', 'bar_code', 'local_code', 'serial_number', 'external_code', 'sap_number'].map(f => `${f}.in.(${list})`).join(',')).limit(5)
-    // best match: asset no. → barcode → local code → serial → external → SAP
-    const rank = a => ['name', 'bar_code', 'local_code', 'serial_number', 'external_code', 'sap_number'].findIndex(f => keys.includes(String(a[f] || '')))
-    const a = (data || []).sort((x, y) => rank(x) - rank(y))[0]
-    if (!a) { setBusy(false); setMsg({ type: 'err', text: `Not found in the asset register. Code read: "${raw.slice(0, 120)}"` }); return }
+    let a = null, fromPhone = false
+    try {
+      if (!navigator.onLine) throw new Error('offline')
+      const { data, error } = await supabase.from('assets_live')
+        .select('name,bar_code,local_code,sap_number,serial_number,external_code,asset_type,product_base,product_variant,brand_hierarchy,condition,asset_status,asset_location,assign_account,points_of_sale')
+        .or(['name', 'bar_code', 'local_code', 'serial_number', 'external_code', 'sap_number'].map(f => `${f}.in.(${list})`).join(',')).limit(5)
+      if (error) throw error
+      // best match: asset no. → barcode → local code → serial → external → SAP
+      const rank = x => ['name', 'bar_code', 'local_code', 'serial_number', 'external_code', 'sap_number'].findIndex(f => keys.includes(String(x[f] || '')))
+      a = (data || []).sort((x, y) => rank(x) - rank(y))[0]
+    } catch (err) {
+      if (!isNetErr(err)) { setBusy(false); setMsg({ type: 'err', text: err.message }); return }
+      a = await offlineLookup(keys); fromPhone = true // no signal: the warehouse list saved on this phone
+    }
+    if (!a) { setBusy(false); setMsg({ type: 'err', text: fromPhone ? `No signal and not in this phone's saved list. Code read: "${raw.slice(0, 120)}"` : `Not found in the asset register. Code read: "${raw.slice(0, 120)}"` }); return }
+    if (fromPhone) setMsg({ type: 'warn', text: '📶 No signal — asset details from the list saved on this phone' })
     touchId.current = crypto.randomUUID()
     setAsset(a)
     setFound({ condition: a.condition || '', brand: a.brand_hierarchy || '', variant: a.product_variant || '', serial: a.serial_number || '', ext: '' })
@@ -111,8 +146,8 @@ export default function Scan() {
     const suggested = bayForStatus(a.asset_status)
     setBay(SCAN_BAYS.some(b => b.key === suggested) ? suggested : '')
     setGps(undefined); getGps().then(setGps) // in the background
-    const { data: chk } = await supabase.from('coolerco_asset_location_check')
-      .select('warehouse_code,expected_location_id,expected_location').eq('name', a.name).maybeSingle()
+    const { data: chk } = fromPhone ? { data: null } : await supabase.from('coolerco_asset_location_check')
+      .select('warehouse_code,expected_location_id,expected_location').eq('name', a.name).maybeSingle().then(r => r, () => ({ data: null }))
     setBusy(false)
     setExpected(chk || null)
     if (chk?.warehouse_code) setWh(chk.warehouse_code)
@@ -126,9 +161,13 @@ export default function Scan() {
       const blob = await compressImage(file)
       const day = new Date().toISOString().slice(0, 10)
       const path = `touch/${day}/${touchId.current}/${slot}-${Date.now()}.jpg`
-      const { error } = await supabase.storage.from('coolerco-cases').upload(path, blob, { contentType: 'image/jpeg' })
-      if (error) throw error
-      setPhotos(p => [...p, { slot, path, url: URL.createObjectURL(blob) }])
+      let uploaded = false
+      if (navigator.onLine) {
+        const { error } = await supabase.storage.from('coolerco-cases').upload(path, blob, { contentType: 'image/jpeg', upsert: true })
+        if (error && !isNetErr(error)) throw error
+        uploaded = !error
+      }
+      setPhotos(p => [...p, { slot, path, url: URL.createObjectURL(blob), blob, uploaded }]) // not uploaded yet → sent with the scan
     } catch (e) { setMsg({ type: 'err', text: 'Photo not saved: ' + (e.message || e) }) }
     setUpl(false)
   }
@@ -148,8 +187,8 @@ export default function Scan() {
     if (photos.length < 3 && !confirm(`Only ${photos.length} photo(s). Save anyway?`)) return
     const loc = locs.find(l => l.id === locId)
     setBusy(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    const { error } = await supabase.from('coolerco_asset_touch').insert({
+    const user = me
+    const row = {
       id: touchId.current, tenant_id: TENANT,
       bar_code: asset.bar_code, local_code: asset.local_code, asset_name: asset.name,
       warehouse_id: whRow.id, warehouse_name: loc?.label || WH_NAMES[wh], location_id: locId, bay, scan_type: type,
@@ -161,39 +200,69 @@ export default function Scan() {
       latitude: gps?.lat ?? null, longitude: gps?.lng ?? null,
       photo_paths: photos.map(p => p.path),
       expected_bay: expectedBay, bay_ok: bayOk, expected_location_id: expected?.expected_location_id || null, location_ok: locOk,
-    })
+      created_at: new Date().toISOString(), // the time of the scan, also when it is sent later
+    }
+    const pending = photos.filter(p => !p.uploaded).map(p => ({ path: p.path, blob: p.blob }))
+    let queuedNow = false
+    try {
+      if (!navigator.onLine) throw new Error('offline')
+      for (const p of pending) {
+        const { error } = await supabase.storage.from('coolerco-cases').upload(p.path, p.blob, { contentType: 'image/jpeg', upsert: true })
+        if (error) throw error
+      }
+      const { error } = await supabase.from('coolerco_asset_touch').insert(row)
+      if (error && error.code !== '23505') throw error
+    } catch (err) {
+      if (!isNetErr(err)) { setBusy(false); setMsg({ type: 'err', text: 'Could not save the scan: ' + (err.message || err) }); return }
+      await queueAdd({ type: 'touch', row, photos: pending, label: asset.bar_code || asset.name }); queuedNow = true
+    }
     setBusy(false)
-    if (error) { setMsg({ type: 'err', text: 'Could not save the scan: ' + error.message }); return }
     const warn = [bayOk === false && `wrong bay — belongs in ${BAYS.find(b => b.key === expectedBay)?.icon} ${BAYS.find(b => b.key === expectedBay)?.label}`,
       locOk === false && `wrong area — should be in ${expected.expected_location}`].filter(Boolean)
-    setMsg({ type: warn.length ? 'warn' : 'ok', text: `✓ ${asset.bar_code || asset.name} saved as New (tap 📤 Submit when done) · ${loc?.label} · ${BAYS.find(b => b.key === bay)?.label}${warn.length ? ' — ⚠ ' + warn.join(' · ') : ''}` })
+    setMsg({ type: warn.length ? 'warn' : 'ok', text: `${queuedNow ? '📶 No signal — saved on this phone, it will send by itself.' : '✓'} ${asset.bar_code || asset.name} saved as New (tap 📤 Submit when done) · ${loc?.label} · ${BAYS.find(b => b.key === bay)?.label}${warn.length ? ' — ⚠ ' + warn.join(' · ') : ''}` })
     reset(); loadRecent(); inputRef.current?.focus()
   }
 
   async function submit(ids) {
     if (!ids.length) return
-    const { data: { user } } = await supabase.auth.getUser()
-    const { error } = await supabase.from('coolerco_asset_touch')
-      .update({ touch_status: 'Submitted', submitted_at: new Date().toISOString(), submitted_by: user?.email || null })
-      .in('id', ids).eq('touch_status', 'New')
+    const patch = { touch_status: 'Submitted', submitted_at: new Date().toISOString(), submitted_by: me?.email || null }
+    let error = null
+    try {
+      if (!navigator.onLine) throw new Error('offline')
+      ;({ error } = await supabase.from('coolerco_asset_touch').update(patch).in('id', ids).eq('touch_status', 'New'))
+      if (error && isNetErr(error)) throw error
+    } catch {
+      await queueAdd({ type: 'submit', ids, patch, label: `Submit ${ids.length}` })
+      setMsg({ type: 'warn', text: `📶 No signal — submit of ${ids.length} scan(s) saved on this phone, it will send by itself` }); return
+    }
     setMsg(error ? { type: 'err', text: error.message } : { type: 'ok', text: `📤 ${ids.length} scan(s) submitted — ready to sync to COM` })
     loadRecent()
   }
-  const newOnes = recent.filter(r => r.touch_status === 'New' && r.scanned_by_user_id === me?.id)
+  const queuedTouches = queued.filter(q => q.type === 'touch')
+  const queuedSubmitIds = new Set(queued.filter(q => q.type === 'submit').flatMap(q => q.ids))
+  const newOnes = [...queuedTouches.map(q => ({ id: q.row.id })), ...recent.filter(r => r.touch_status === 'New' && r.scanned_by_user_id === me?.id)].filter(r => !queuedSubmitIds.has(r.id))
 
   const where = whereIs(asset)
   const Changed = ({ k }) => changed(k) ? <span className="tag tag-orange" style={{ marginLeft: 6 }}>changed</span> : null
 
   return (
     <>
-      <Topbar title="Scan / Asset Touch" sub={`Bay scan + COM asset touch · you ${num(stats.today)} today · all teams ${num(stats.all)}`}
+      {!field && <Topbar title="Scan / Asset Touch" sub={`Bay scan + COM asset touch · you ${num(stats.today)} today · all teams ${num(stats.all)}`}
         actions={<>
           <a className="btn btn-ghost btn-sm" href={SMARTSCAN_URL} target="_blank" rel="noopener noreferrer" title="COM assets scanned — reporting app">📊 COM scan reports ↗</a>
           <Link className="btn btn-ghost btn-sm" to="/scan/export">⬆ COM Touch sync</Link>
-        </>} />
+        </>} />}
       <div className="page-content">
         <div className="two-col">
           <div className="card" style={{ padding: 16 }}>
+            <div className={`off-bar ${online ? '' : 'off'}`}>
+              <span>{online ? '📶 Online' : '📵 No signal — scans are saved on this phone'}</span>
+              {queued.length > 0 && <button type="button" className="btn btn-ghost btn-sm" onClick={() => flushQueue()} disabled={!online}>⏳ {queued.length} waiting{online ? ' · send now' : ''}</button>}
+              {wh && <button type="button" className="btn btn-ghost btn-sm" onClick={saveOffline} disabled={!online || saving !== null}
+                title="Keep this warehouse's asset list on the phone for scanning without signal">
+                {saving !== null ? `⬇ ${num(saving)}…` : saved ? `💾 ${num(saved.n)} saved ${new Date(saved.at).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short' })} ↻` : `⬇ Save ${WH_NAMES[wh]} list for offline`}
+              </button>}
+            </div>
             <form onSubmit={lookup} className="scan-find">
               <button type="button" className="btn btn-primary scan-cam-btn" onClick={() => setCam(true)} title="Scan a QR code or barcode with the camera">📷 Scan</button>
               <div className="search-wrap">
@@ -350,10 +419,18 @@ export default function Scan() {
               </div>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                 {newOnes.length > 0 && <button className="btn btn-primary btn-sm" onClick={() => submit(newOnes.map(r => r.id))}>📤 Submit {newOnes.length} new</button>}
-                <Link className="card-count" to="/scan/export">COM sync ›</Link>
+                {!field && <Link className="card-count" to="/scan/export">COM sync ›</Link>}
               </div>
             </div>
-            {!recent.length ? <div className="empty-state"><div className="empty-ico">📷</div><div>No scans yet</div></div> : (
+            {queuedTouches.length > 0 && (
+              <div className="q-list">
+                {queuedTouches.map(q => (
+                  <div key={q.qid} className="q-row"><span className="mono">{q.label}</span><span className="text3">{new Date(q.at).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' })}</span>
+                    <span className={`tag tag-${q.error ? 'red' : 'orange'}`} title={q.error || ''}>{q.error ? '⚠ not accepted' : '⏳ waiting to send'}</span></div>
+                ))}
+              </div>
+            )}
+            {!recent.length && !queuedTouches.length ? <div className="empty-state"><div className="empty-ico">📷</div><div>No scans yet</div></div> : (
               <div className="tbl-wrap">
                 <table className="tbl">
                   <thead><tr><th>When</th><th>Barcode</th><th>Area</th><th>Bay</th><th>📸</th><th>Status</th></tr></thead>
