@@ -7,7 +7,7 @@ import { fmt, num, condColor, WH_NAMES } from '../lib/helpers'
 // Scan report by warehouse — which assets were scanned, where, when and with what result.
 // Server-side: coolerco_scan_report() (012, read only) does the counting for the whole period
 // and returns one page of rows, so the browser never downloads thousands of scans to count them.
-// Sources: 🟦 COM touches (asset_touch at an RTMA WH/WS) + 🟩 CoolerCo bay scans (coolerco_asset_touch).
+// Sources: COM touches (asset_touch at an RTMA WH/WS) + CC = CoolerCo scans (coolerco_asset_touch).
 
 const PAGE = 100
 const MAX_EXPORT = 20000
@@ -20,7 +20,9 @@ const PRESETS = [
   ['30d', '30 days', () => [addDays(today(), -29), today()]],
   ['month', 'This month', () => [today().slice(0, 8) + '01', today()]],
 ]
-const SOURCES = [['all', 'All'], ['com', '🟦 COM'], ['coolerco', '🟩 CoolerCo']]
+const SOURCES = [['all', 'All'], ['com', 'COM'], ['coolerco', 'CC']]
+// Source chips: COM = navy, CC = CoolerCo cyan (same as the CC logo)
+const Src = ({ s, n }) => <span className={`src-chip ${s === 'COM' ? 'com' : 'cc'}`}>{s === 'COM' ? 'COM' : 'CC'}{n !== undefined && <b>{num(n)}</b>}</span>
 const RESULTS = [['all', 'All'], ['accepted', '✅ Accepted'], ['discarded', '🚫 Discarded'], ['pending', '⏳ Pending'], ['mismatch', '⚠ Mismatch'], ['wrong_area', '📍 Wrong area']]
 const resultTag = r => r === 'Accepted' ? 'green' : r === 'Discarded' ? 'red' : 'neutral'
 const fmtT = d => (d ? new Date(d).toLocaleString('en-ZA', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }) : '—')
@@ -127,7 +129,8 @@ export default function ScanReport() {
   const totals = useMemo(() => (data?.summary || []).reduce((t, s) => ({
     scans: t.scans + s.scans, assets: t.assets + s.assets, accepted: t.accepted + s.accepted,
     discarded: t.discarded + s.discarded, mismatches: t.mismatches + s.mismatches,
-  }), { scans: 0, assets: 0, accepted: 0, discarded: 0, mismatches: 0 }), [data])
+    com: t.com + s.com_scans, cc: t.cc + s.coolerco_scans,
+  }), { scans: 0, assets: 0, accepted: 0, discarded: 0, mismatches: 0, com: 0, cc: 0 }), [data])
   const maxDay = Math.max(1, ...(data?.days || []).map(d => d.scans))
   const comStale = lastCom && (source !== 'coolerco') && to > lastCom.slice(0, 10)
 
@@ -147,12 +150,12 @@ export default function ScanReport() {
             <option value="">🏢 All warehouses</option>
             {Object.entries(WH_NAMES).map(([c, n]) => <option key={c} value={c}>{n}</option>)}
           </select>
-          <div className="seg">{SOURCES.map(([k, l]) => <button key={k} className={`seg-btn${source === k ? ' on' : ''}`} onClick={() => setSource(k)}>{l}</button>)}</div>
+          <div className="seg">{SOURCES.map(([k, l]) => <button key={k} className={`seg-btn${source === k ? ' on' : ''}`} onClick={() => setSource(k)}>{k === 'all' ? l : <Src s={k === 'com' ? 'COM' : 'CC'} />}</button>)}</div>
           <div className="search-wrap" style={{ flex: 1, minWidth: 180 }}><span className="ico">🔍</span>
             <input placeholder="Asset, barcode, local code, model, user…" value={q} onChange={e => setQ(e.target.value)} /></div>
         </div>
         <div className="text3" style={{ fontSize: 10.5, marginBottom: 10 }}>
-          🟦 COM = touches in COM's Asset Touch import at an RTMA warehouse/workshop · 🟩 CoolerCo = bay scans in this app.
+          <Src s="COM" /> = touches in COM's Asset Touch import at an RTMA warehouse/workshop · <Src s="CC" /> = CoolerCo scans in this app.
           {lastCom && <> COM data up to <strong>{fmtT(lastCom)}</strong>.</>}
           {comStale && <span className="tag tag-orange" style={{ marginLeft: 6 }}>Newer COM touches appear after the next COM upload</span>}
         </div>
@@ -161,7 +164,7 @@ export default function ScanReport() {
         {/* ── Totals ── */}
         <div className="stats-row">
           <div className="stat-card c-accent"><div className="stat-label">📷 Scans</div><div className="stat-value">{data ? num(totals.scans) : '…'}</div>
-            <div className="stat-sub">{from === to ? from : `${from} → ${to}`}</div></div>
+            <div className="stat-sub" style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>{data && <><Src s="COM" n={totals.com} /><Src s="CC" n={totals.cc} /></>}</div></div>
           <div className="stat-card"><div className="stat-label">🧊 Unique assets</div><div className="stat-value">{data ? num(totals.assets) : '…'}</div>
             <div className="stat-sub">counted once per warehouse</div></div>
           <div className="stat-card c-green"><div className="stat-label">✅ Accepted by COM</div><div className="stat-value">{data ? num(totals.accepted) : '…'}</div>
@@ -192,8 +195,8 @@ export default function ScanReport() {
                     <span className="tag tag-green">✅ {num(s.accepted)}</span>
                     <span className="tag tag-red">🚫 {num(s.discarded)}</span>
                     {s.mismatches > 0 && <span className="tag tag-orange">⚠ {num(s.mismatches)}</span>}
-                    {s.com_scans > 0 && <span className="tag tag-blue">🟦 {num(s.com_scans)}</span>}
-                    {s.coolerco_scans > 0 && <span className="tag tag-teal">🟩 {num(s.coolerco_scans)}</span>}
+                    <Src s="COM" n={s.com_scans} />
+                    <Src s="CC" n={s.coolerco_scans} />
                     {s.workshop > 0 && <span className="tag tag-neutral">🔧 WS {num(s.workshop)}</span>}
                     {s.wrong_area > 0 && <span className="tag tag-red linkish" onClick={e => { e.stopPropagation(); setWh(s.code); setResult('wrong_area') }}>📍 {num(s.wrong_area)} wrong area</span>}
                   </div>
@@ -244,7 +247,7 @@ export default function ScanReport() {
                 <tbody>{rows.map((r, i) => (
                   <tr key={r.source + r.asset_key + r.at + i}>
                     {result === 'wrong_area' && <td><input type="checkbox" checked={pick.has(r.touch_id)} onChange={() => setPick(p => { const n = new Set(p); n.has(r.touch_id) ? n.delete(r.touch_id) : n.add(r.touch_id); return n })} /></td>}
-                    <td style={{ fontSize: 11, whiteSpace: 'nowrap' }}>{fmtT(r.at)}<div className="text3" style={{ fontSize: 10 }}>{r.source === 'COM' ? '🟦 COM' : '🟩 CoolerCo'}</div></td>
+                    <td style={{ fontSize: 11, whiteSpace: 'nowrap' }}>{fmtT(r.at)}<div className="text3" style={{ fontSize: 10 }}><Src s={r.source} /></div></td>
                     <td><Link to={`/assets?q=${encodeURIComponent(r.barcode || r.asset)}`} className="mono">{r.barcode || r.asset}</Link>
                       <div className="text3" style={{ fontSize: 10 }}>{r.product_base} {r.condition && <span className={`tag tag-${condColor(r.condition)}`}>{r.condition.charAt(0)}</span>}</div></td>
                     <td style={{ fontSize: 11 }}>{WH_NAMES[r.wh] || r.wh} {r.wh_ws === 'WS' && <span className="tag tag-neutral">WS</span>}{r.scanned_area && <div style={{ fontSize: 10.5 }}>{r.scanned_area}{r.area_ok === false && r.belongs_area ? <span className="tag tag-orange" style={{ marginLeft: 4 }}>→ belongs in {r.belongs_area.replace(/^\S+ · /, '')}</span> : ''}</div>}
