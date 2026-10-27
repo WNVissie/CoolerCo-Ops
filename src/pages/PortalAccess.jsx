@@ -106,8 +106,23 @@ function LinkDetail({ link, onSaved }) {
   const [msg, setMsg] = useState(null)
   const [history, setHistory] = useState([])
   const url = portalUrl(link.token)
-  const phone = waNumber(form.mobile_number || form.contact_number)
-  const waText = encodeURIComponent(`Hello ${form.contact_name || ''}, this is CoolerCo. Use this secure link to log a repair, collection or new asset request for ${link.point_of_sale}: ${url}`)
+  // Send to: any number typed here (pre-filled with the store's saved WhatsApp number). Saving it as the store contact is optional.
+  const [to, setTo] = useState({ name: link.contact_name || '', number: link.mobile_number || link.contact_number || '', keep: false })
+  const phone = waNumber(to.number)
+  const validPhone = phone.length >= 11 && phone.length <= 13
+  const waText = encodeURIComponent(`Hello ${to.name || ''}, this is CoolerCo. Use this secure link to log a repair, collection or new asset request for ${link.point_of_sale}: ${url}`)
+  async function sendWa() {
+    if (!validPhone) { setMsg({ type: 'warn', text: 'Type a full mobile number, e.g. 082 123 4567 or +27 82 123 4567' }); return }
+    window.open(`https://wa.me/${phone}?text=${waText}`, '_blank', 'noopener')
+    if (to.keep) {
+      const next = { ...form, contact_name: to.name || form.contact_name, mobile_number: to.number }
+      setForm(next)
+      const { data: { user } } = await supabase.auth.getUser()
+      const { data, error } = await supabase.from('coolerco_portal_links').update({ ...next, updated_by: user?.email }).eq('id', link.id).select().single()
+      setMsg(error ? { type: 'err', text: error.message } : { type: 'ok', text: '✓ Sent on WhatsApp and saved as the store contact (change logged)' })
+      if (!error) onSaved(data)
+    } else setMsg({ type: 'ok', text: `💬 WhatsApp opened for ${to.number}` })
+  }
 
   useEffect(() => {
     import('qrcode').then(QR => QR.toDataURL(url, { width: 220, margin: 1 })).then(setQr)
@@ -137,12 +152,28 @@ function LinkDetail({ link, onSaved }) {
           <div className="chip-row" style={{ marginTop: 8 }}>
             <button className="btn btn-ghost btn-sm" onClick={() => { navigator.clipboard?.writeText(url); setMsg({ type: 'ok', text: '✓ Link copied' }) }}>📋 Copy</button>
             <a className="btn btn-ghost btn-sm" href={url} target="_blank" rel="noreferrer">👁 Open</a>
-            {phone
-              ? <a className="btn btn-primary btn-sm" href={`https://wa.me/${phone}?text=${waText}`} target="_blank" rel="noreferrer">💬 WhatsApp</a>
-              : <span className="tag tag-orange">📵 add a number to share on WhatsApp</span>}
           </div>
         </div>
       </div>
+
+      <details className="sec" open>
+        <summary>💬 Send the link on WhatsApp</summary>
+        <div className="sec-body">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
+            <div><div className="field-lbl">To (name)</div>
+              <input className="field-ctrl" value={to.name} placeholder="e.g. Store manager" onChange={e => setTo({ ...to, name: e.target.value })} /></div>
+            <div><div className="field-lbl">WhatsApp number</div>
+              <input className="field-ctrl" type="tel" inputMode="tel" value={to.number} placeholder="082 123 4567" onChange={e => setTo({ ...to, number: e.target.value })} /></div>
+          </div>
+          <label className="text3" style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 11, marginTop: 8 }}>
+            <input type="checkbox" checked={to.keep} onChange={e => setTo({ ...to, keep: e.target.checked })} /> Also save as this store's contact
+          </label>
+          <div className="modal-btns" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+            <span className="text3" style={{ fontSize: 10.5 }}>{to.number ? (validPhone ? `Sends to +${phone}` : '⚠ number looks incomplete') : 'Type any number — e.g. the manager on duty'}</span>
+            <button className="btn btn-primary btn-sm" disabled={!to.number} onClick={sendWa}>💬 Send on WhatsApp</button>
+          </div>
+        </div>
+      </details>
 
       <details className="sec" open>
         <summary>👤 Store contact (from latest COM case — update here)</summary>
