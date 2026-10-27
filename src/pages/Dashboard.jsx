@@ -42,8 +42,8 @@ export default function Dashboard() {
         overdue: overdue.count,
         scans: scans.count,
         pickPending: (pickQueue.data || []).filter(l => !l.packed).length,
-        caseAsset: caseAsset.error ? null : (caseAsset.data || []).length,
-        caseAssetSure: caseAsset.error ? null : (caseAsset.data || []).filter(r => r.kind !== 'possible').length,
+        caseAsset: caseAsset.error ? null : (caseAsset.data || []).filter(r => ['delivered_open', 'other_pos'].includes(r.kind)).length,
+        caseAssetOther: caseAsset.error ? null : (caseAsset.data || []).filter(r => r.kind === 'other_pos').length,
       })
       setRoutes(routes.data || [])
       setRecentCases(rc.data || [])
@@ -69,7 +69,7 @@ export default function Dashboard() {
               <KPI label="Scans Today" value={num(kpi.scans)} sub="asset touches" color="teal" />
               <KPI label="📦 To load" value={num(kpi.pickPending)} sub="today onwards, not packed" color={kpi.pickPending > 20 ? 'orange' : 'green'} />
               {kpi.caseAsset != null && <Link to="/cases/asset-at-pos" style={{ textDecoration: 'none', color: 'inherit' }}>
-                <KPI label="⚠️ Open case · asset at POS" value={num(kpi.caseAsset)} sub={`${num(kpi.caseAssetSure)} sure · ${num(kpi.caseAsset - kpi.caseAssetSure)} possible ›`} color={kpi.caseAssetSure ? 'red' : 'orange'} />
+                <KPI label="⚠️ Open case · asset at POS" value={num(kpi.caseAsset)} sub={`picked asset already at a POS${kpi.caseAssetOther ? ` · ${num(kpi.caseAssetOther)} at another store` : ''} ›`} color={kpi.caseAsset ? 'red' : 'green'} />
               </Link>}
             </div>
 

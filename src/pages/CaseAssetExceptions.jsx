@@ -10,9 +10,10 @@ import { fmt, num, condColor, slaColor, WH_NAMES, whCaseName } from '../lib/help
 const KINDS = [
   ['delivered_open', '✅ Delivered, still open', 'green', 'The asset picked / prepared for this case is already at this store.'],
   ['other_pos', '⚠ At another store', 'red', 'The asset picked / prepared for this case is at a DIFFERENT store.'],
-  ['collected_open', '📦 Collected, still open', 'orange', 'The asset to remove is already back in an RTMA warehouse / workshop.'],
-  ['possible', '🔍 Possible match', 'blue', 'Nothing picked / prepared yet, but this store already has an asset of the requested product family.'],
 ]
+// Wanda 2026-10-27: ONLY flag cases where the asset picked / prepared is already at a POS.
+// (The database function also returns 'collected_open' and 'possible' — not shown.)
+const SHOWN = new Set(KINDS.map(k => k[0]))
 const KIND = Object.fromEntries(KINDS.map(k => [k[0], k]))
 const PAGE = 100
 const REFRESH_MS = 5 * 60 * 1000 // re-check every 5 minutes while the page is open and visible
@@ -46,7 +47,7 @@ export default function CaseAssetExceptions() {
     ]).then(([{ data, error }, a]) => {
       if (!live) return
       if (error) setErr(/does not exist|Could not find/i.test(error.message) ? 'This report needs database script 014 — not applied yet.' : error.message)
-      else setRows(data || [])
+      else setRows((data || []).filter(r => SHOWN.has(r.kind)))
       setComAt(a.data?.[0]?.last_synced_at || null); setCheckedAt(new Date()); setBusy(false)
     })
     return () => { live = false }
@@ -96,7 +97,7 @@ export default function CaseAssetExceptions() {
 
   return (
     <>
-      <Topbar title="Open case · asset at POS" sub="Deliver, replace & removal cases still open while COM already shows the asset in place"
+      <Topbar title="Open case · asset at POS" sub="Open deliver & replacement cases where the asset picked / prepared is already at a POS"
         actions={<button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => setTick(n => n + 1)}>{busy ? '⏳ Checking…' : '↻ Refresh'}</button>} />
       <div className="page-content">
         <div className="filters" style={{ flexWrap: 'wrap', gap: 8 }}>
@@ -173,7 +174,7 @@ export default function CaseAssetExceptions() {
             </div>
           )}
         </div>
-        <div className="text3" style={{ fontSize: 10.5, marginTop: 8 }}>Open = Open, In Progress, Waiting, In Service, On Hold. "Picked / prepared" = the routing app's warehouse prep pick, else COM's Asset Delivered. A replacement's old asset is never offered as a match. Read only — COM is not changed; close or correct the case in COM.</div>
+        <div className="text3" style={{ fontSize: 10.5, marginTop: 8 }}>Open = Open, In Progress, Waiting, In Service, On Hold. "Picked / prepared" = the routing app's warehouse prep pick, else COM's Asset Delivered. Read only — COM is not changed; close or correct the case in COM.</div>
       </div>
     </>
   )
