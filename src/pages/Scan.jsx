@@ -251,7 +251,8 @@ export default function Scan({ field = false }) {
     <>
       {!field && <Topbar title="Scan / Asset Touch" sub={`Bay scan + COM asset touch · you ${num(stats.today)} today · all teams ${num(stats.all)}`}
         actions={<>
-          <a className="btn btn-ghost btn-sm" href={SMARTSCAN_URL} target="_blank" rel="noopener noreferrer" title="COM assets scanned — reporting app">📊 COM scan reports ↗</a>
+          <Link className="btn btn-ghost btn-sm" to="/scan/report" title="Assets scanned by warehouse — COM + CoolerCo">📊 Scan report</Link>
+          <a className="btn btn-ghost btn-sm" href={SMARTSCAN_URL} target="_blank" rel="noopener noreferrer" title="COM scanning app">🔗 SmartScan ↗</a>
           <Link className="btn btn-ghost btn-sm" to="/scan/export">⬆ COM Touch sync</Link>
         </>} />}
       <div className="page-content">
