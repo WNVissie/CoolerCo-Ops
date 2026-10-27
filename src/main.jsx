@@ -2,6 +2,7 @@ import { lazyPage } from './lib/lazyPage'
 import { StrictMode, lazy, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+import './lib/install' // catch the browser's install prompt early (📲 Install app)
 
 // Public customer portal lives at /p/<link-token>: no login, its own small bundle
 const PortalApp = lazyPage(() => import('./portal/PortalApp.jsx'))
