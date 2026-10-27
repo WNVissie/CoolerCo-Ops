@@ -46,8 +46,8 @@ function buildQuery(form) {
 export default function Cases() {
   const [params] = useSearchParams()
   const [form, setForm] = useState(() => {
-    const a = params.get('asset')
-    return a ? { ...EMPTY, by: 'asset', text: a, status: 'all' } : EMPTY
+    const a = params.get('asset'), c = params.get('case')
+    return c ? { ...EMPTY, by: 'caseNumber', text: c, status: 'all' } : a ? { ...EMPTY, by: 'asset', text: a, status: 'all' } : EMPTY
   })
   const [query, setQuery] = useState(() => buildQuery(form).q)
   const [rows, setRows] = useState([])

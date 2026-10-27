@@ -23,7 +23,7 @@ export default function Dashboard() {
   useEffect(() => {
     async function load() {
       // All loads fire together (parallel) — the page waits for the slowest one only
-      const [stock, openCases, overdue, routes, scans, pickQueue, rc] = await Promise.all([
+      const [stock, openCases, overdue, routes, scans, pickQueue, rc, caseAsset] = await Promise.all([
         supabase.from('coolerco_wh_asset_stock').select('bay,assets'),
         supabase.from('cases').select('case_number', { count: 'exact', head: true }).in('status_reason', OPEN_REASONS),
         supabase.from('cases').select('case_number', { count: 'exact', head: true }).eq('sla_status', 'Open Case SLA Not Met'),
@@ -32,6 +32,7 @@ export default function Dashboard() {
         supabase.rpc('coolerco_picking_queue', { p_from: new Date().toISOString().slice(0, 10), p_warehouse: null }),
         supabase.from('cases').select('case_number,case_type,point_of_sale,warehouse_workshop,status_reason,created_on')
           .in('status_reason', OPEN_REASONS).order('created_on', { ascending: false }).limit(8),
+        supabase.rpc('coolerco_open_case_asset_exceptions', { p_since: '2026-07-01', p_warehouse: null }),
       ])
       const st = stock.data || []
       setKpi({
@@ -41,6 +42,8 @@ export default function Dashboard() {
         overdue: overdue.count,
         scans: scans.count,
         pickPending: (pickQueue.data || []).filter(l => !l.packed).length,
+        caseAsset: caseAsset.error ? null : (caseAsset.data || []).length,
+        caseAssetSure: caseAsset.error ? null : (caseAsset.data || []).filter(r => r.kind !== 'possible').length,
       })
       setRoutes(routes.data || [])
       setRecentCases(rc.data || [])
@@ -65,6 +68,9 @@ export default function Dashboard() {
               <KPI label="⏰ Overdue" value={num(kpi.overdue)} sub="open, past end date" color="red" />
               <KPI label="Scans Today" value={num(kpi.scans)} sub="asset touches" color="teal" />
               <KPI label="📦 To load" value={num(kpi.pickPending)} sub="today onwards, not packed" color={kpi.pickPending > 20 ? 'orange' : 'green'} />
+              {kpi.caseAsset != null && <Link to="/cases/asset-at-pos" style={{ textDecoration: 'none', color: 'inherit' }}>
+                <KPI label="⚠️ Open case · asset at POS" value={num(kpi.caseAsset)} sub={`${num(kpi.caseAssetSure)} sure · ${num(kpi.caseAsset - kpi.caseAssetSure)} possible ›`} color={kpi.caseAssetSure ? 'red' : 'orange'} />
+              </Link>}
             </div>
 
             <div className="two-col">
