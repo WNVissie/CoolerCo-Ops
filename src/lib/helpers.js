@@ -188,6 +188,7 @@ export function rtStatusLabel(s) {
 }
 
 export const SPARES_APP_URL = 'https://smartsparesrtma.netlify.app/'
+export const SMARTSCAN_URL = 'https://smartscanmagnum.netlify.app/' // COM asset scan reporting (SmartScan)
 
 // Kept for the (now link-only) spares pages
 export const CATS = [
