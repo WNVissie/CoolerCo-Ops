@@ -21,9 +21,10 @@ const NAV = [
   ] },
   { section: 'WMS', icon: '🏬', items: [
     { to: '/scan',          icon: '📷', label: 'Scan / Touch' },
+    { to: '/scan/report',   icon: '📊', label: 'Scan report' },
     { to: '/scan/export',   icon: '⬆️', label: 'COM Touch sync' },
     { to: '/scan/stocktake', icon: '📋', label: 'Stock take exceptions' },
-    { href: 'https://smartscanmagnum.netlify.app/', icon: '📊', label: 'COM Scan reports (SmartScan)' },
+    { href: 'https://smartscanmagnum.netlify.app/', icon: '🔗', label: 'SmartScan (COM)' },
     { to: '/wms/receiving', icon: '📥', label: 'Receiving' },
     { to: '/wms/transfers', icon: '🔄', label: 'Transfers' },
     { to: '/wms/stocktake', icon: '📋', label: 'Stocktake' },
@@ -77,7 +78,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onNavigate, u
     const done = () => { setFlyout(null); onNavigate?.() }
     return item.href
       ? <a className="nav-item" href={item.href} target="_blank" rel="noopener noreferrer" onClick={done}>{inner}</a>
-      : <NavLink to={item.to} end={item.to === '/'} onClick={done} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>{inner}</NavLink>
+      : <NavLink to={item.to} end={item.to === '/' || item.to === '/scan'} onClick={done} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>{inner}</NavLink>
   }
 
   return (
