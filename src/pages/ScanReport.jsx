@@ -21,7 +21,7 @@ const PRESETS = [
   ['month', 'This month', () => [today().slice(0, 8) + '01', today()]],
 ]
 const SOURCES = [['all', 'All'], ['com', '🟦 COM'], ['coolerco', '🟩 CoolerCo']]
-const RESULTS = [['all', 'All'], ['accepted', '✅ Accepted'], ['discarded', '🚫 Discarded'], ['pending', '⏳ Pending'], ['mismatch', '⚠ Mismatch']]
+const RESULTS = [['all', 'All'], ['accepted', '✅ Accepted'], ['discarded', '🚫 Discarded'], ['pending', '⏳ Pending'], ['mismatch', '⚠ Mismatch'], ['wrong_area', '📍 Wrong area']]
 const resultTag = r => r === 'Accepted' ? 'green' : r === 'Discarded' ? 'red' : 'neutral'
 const fmtT = d => (d ? new Date(d).toLocaleString('en-ZA', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }) : '—')
 const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0)
@@ -40,6 +40,10 @@ export default function ScanReport() {
   const [more, setMore] = useState(false)
   const [lastCom, setLastCom] = useState(null)
   const [exporting, setExporting] = useState(false)
+  const [pick, setPick] = useState(() => new Set()) // wrong-area scans ticked for "moved to correct area"
+  const [moving, setMoving] = useState(false)
+  const [note, setNote] = useState(null)
+  const [reload, setReload] = useState(0)
 
   useEffect(() => { const t = setTimeout(() => setDq(q.trim()), 380); return () => clearTimeout(t) }, [q])
 
@@ -59,7 +63,36 @@ export default function ScanReport() {
       setData(data); setRows(data.rows || [])
     })
     return () => { live = false }
-  }, [from, to, wh, source, result, dq]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [from, to, wh, source, result, dq, reload]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => setPick(new Set()), [from, to, wh, source, result, dq, reload])
+
+  // ✅ Moved to correct area: records a new CoolerCo scan in the area where the asset belongs.
+  // Status "Internal" = a move inside the warehouse — never sent to COM. The latest scan counts, so the exception clears.
+  async function markMoved() {
+    const ids = [...pick]
+    if (!ids.length || !confirm(`Record ${ids.length} asset(s) as moved to the area where they belong?`)) return
+    setMoving(true); setNote(null)
+    const [{ data: src, error }, { data: sess }] = await Promise.all([
+      supabase.from('coolerco_asset_touch').select('*').in('id', ids),
+      supabase.auth.getSession(),
+    ])
+    const { data: places } = error ? { data: [] } : await supabase.from('coolerco_wh_locations').select('id,label').in('id', [...new Set((src || []).map(t => t.expected_location_id).filter(Boolean))])
+    const label = Object.fromEntries((places || []).map(l => [l.id, l.label]))
+    const me = sess?.session?.user
+    const now = new Date().toISOString()
+    const rows = (src || []).filter(t => t.expected_location_id).map(t => ({
+      id: crypto.randomUUID(), tenant_id: t.tenant_id, bar_code: t.bar_code, local_code: t.local_code, asset_name: t.asset_name,
+      warehouse_id: t.warehouse_id, warehouse_name: label[t.expected_location_id] || t.warehouse_name,
+      location_id: t.expected_location_id, expected_location_id: t.expected_location_id, location_ok: true,
+      bay: t.bay, expected_bay: t.expected_bay, bay_ok: t.bay_ok, scan_type: 'daily', touch_status: 'Internal',
+      com_location: t.com_location, scanned_by: me?.email || 'ops-hub', scanned_by_user_id: me?.id || null,
+      notes: `Moved to correct area (was ${t.warehouse_name})`, created_at: now,
+    }))
+    const ins = error || !rows.length ? { error: error || { message: 'Nothing to move' } } : await supabase.from('coolerco_asset_touch').insert(rows)
+    setMoving(false)
+    setNote(ins.error ? { type: 'err', text: ins.error.message } : { type: 'ok', text: `✅ ${rows.length} asset(s) recorded in the right area — removed from the exception list.` })
+    if (!ins.error) setReload(n => n + 1)
+  }
 
   async function loadMore() {
     setMore(true)
@@ -77,7 +110,7 @@ export default function ScanReport() {
     ])
     const list = (d?.rows || []).map(r => ({
       'Scanned at': r.at ? new Date(r.at).toLocaleString('en-ZA', { hour12: false }) : '', Source: r.source, Warehouse: WH_NAMES[r.wh] || r.wh, 'WH / WS': r.wh_ws,
-      Asset: r.asset, Barcode: r.barcode, 'Local code': r.local_code, 'Product base': r.product_base, Condition: r.condition,
+      Asset: r.asset, Barcode: r.barcode, 'Scanned in area': r.scanned_area || '', 'Belongs in area': r.area_ok === false ? (r.belongs_area || '') : '', 'Local code': r.local_code, 'Product base': r.product_base, Condition: r.condition,
       'Scanned by': r.scanned_by, Bay: r.bay || '', Result: r.result || '', Mismatch: r.mismatch ? 'Yes' : 'No', Note: r.note || '',
     }))
     const sum = (d?.summary || []).map(s => ({
@@ -162,6 +195,7 @@ export default function ScanReport() {
                     {s.com_scans > 0 && <span className="tag tag-blue">🟦 {num(s.com_scans)}</span>}
                     {s.coolerco_scans > 0 && <span className="tag tag-teal">🟩 {num(s.coolerco_scans)}</span>}
                     {s.workshop > 0 && <span className="tag tag-neutral">🔧 WS {num(s.workshop)}</span>}
+                    {s.wrong_area > 0 && <span className="tag tag-red linkish" onClick={e => { e.stopPropagation(); setWh(s.code); setResult('wrong_area') }}>📍 {num(s.wrong_area)} wrong area</span>}
                   </div>
                 </div>))}</div>}
           </div>
@@ -193,20 +227,28 @@ export default function ScanReport() {
           <div className="card-header" style={{ flexWrap: 'wrap', gap: 6 }}>
             <div className="seg">{RESULTS.map(([k, l]) => <button key={k} className={`seg-btn${result === k ? ' on' : ''}`} onClick={() => setResult(k)}>{l}</button>)}</div>
             <span className="text3" style={{ fontSize: 11 }}>{data ? `${num(data.total)} scans` : ''}</span>
+            {result === 'wrong_area' && <button className="btn btn-primary btn-sm" disabled={!pick.size || moving} onClick={markMoved}>{moving ? '⏳' : `✅ Moved to correct area (${pick.size})`}</button>}
             <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} disabled={!data?.total || exporting} onClick={exportXlsx}>{exporting ? '⏳ Preparing…' : `⬇ Excel (${num(data?.total || 0)})`}</button>
           </div>
+          {result === 'wrong_area' && <div className="text3" style={{ fontSize: 10.5, padding: '0 12px 8px' }}>CoolerCo scans accepted in the wrong area (latest scan per asset). Tick the ones you moved → ✅ records them in the right area (inside the warehouse only, not sent to COM).</div>}
+          {note && <div className={`form-msg ${note.type}`} style={{ margin: '0 12px 8px' }}>{note.text}</div>}
           {!data ? <div className="load-state"><span className="spinner" /> Loading scans…</div> : !rows.length ? (
             <div className="empty-state"><div className="empty-ico">📭</div><div>No scans match these filters.</div></div>
           ) : (
             <div className="tbl-wrap">
               <table className="tbl">
-                <thead><tr><th>When</th><th>Asset</th><th>Warehouse</th><th>Scanned by</th><th>Result</th></tr></thead>
+                <thead><tr>{result === 'wrong_area' && <th style={{ width: 28 }}><input type="checkbox" aria-label="Tick all"
+                  checked={rows.length > 0 && rows.every(r => pick.has(r.touch_id))}
+                  onChange={e => setPick(e.target.checked ? new Set(rows.map(r => r.touch_id)) : new Set())} /></th>}
+                  <th>When</th><th>Asset</th><th>Warehouse / area</th><th>Scanned by</th><th>Result</th></tr></thead>
                 <tbody>{rows.map((r, i) => (
                   <tr key={r.source + r.asset_key + r.at + i}>
+                    {result === 'wrong_area' && <td><input type="checkbox" checked={pick.has(r.touch_id)} onChange={() => setPick(p => { const n = new Set(p); n.has(r.touch_id) ? n.delete(r.touch_id) : n.add(r.touch_id); return n })} /></td>}
                     <td style={{ fontSize: 11, whiteSpace: 'nowrap' }}>{fmtT(r.at)}<div className="text3" style={{ fontSize: 10 }}>{r.source === 'COM' ? '🟦 COM' : '🟩 CoolerCo'}</div></td>
                     <td><Link to={`/assets?q=${encodeURIComponent(r.barcode || r.asset)}`} className="mono">{r.barcode || r.asset}</Link>
                       <div className="text3" style={{ fontSize: 10 }}>{r.product_base} {r.condition && <span className={`tag tag-${condColor(r.condition)}`}>{r.condition.charAt(0)}</span>}</div></td>
-                    <td style={{ fontSize: 11 }}>{WH_NAMES[r.wh] || r.wh} {r.wh_ws === 'WS' && <span className="tag tag-neutral">WS</span>}{r.bay && <div className="text3" style={{ fontSize: 10 }}>Bay {r.bay}{r.bay_ok === false ? ' ⚠' : ''}</div>}</td>
+                    <td style={{ fontSize: 11 }}>{WH_NAMES[r.wh] || r.wh} {r.wh_ws === 'WS' && <span className="tag tag-neutral">WS</span>}{r.scanned_area && <div style={{ fontSize: 10.5 }}>{r.scanned_area}{r.area_ok === false && r.belongs_area ? <span className="tag tag-orange" style={{ marginLeft: 4 }}>→ belongs in {r.belongs_area.replace(/^\S+ · /, '')}</span> : ''}</div>}
+                      {r.bay && <div className="text3" style={{ fontSize: 10 }}>Bay {r.bay}{r.bay_ok === false ? ' ⚠' : ''}</div>}</td>
                     <td style={{ fontSize: 11 }}>{r.scanned_by || '—'}</td>
                     <td><span className={`tag tag-${resultTag(r.result)}`}>{r.result || '—'}</span>{r.mismatch && <span className="tag tag-orange" style={{ marginLeft: 4 }}>⚠</span>}
                       {r.note && <div className="text3 trunc" style={{ fontSize: 10, maxWidth: 220 }} title={r.note}>{r.note}</div>}</td>
