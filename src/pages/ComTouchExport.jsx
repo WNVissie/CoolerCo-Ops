@@ -82,7 +82,7 @@ export default function ComTouchExport() {
   useEffect(() => { load() }, [wh, from, to, show, latest, mismatchOnly])
 
   const picked = useMemo(() => (rows || []).filter(r => sel[r.id]), [rows, sel])
-  const syncable = picked.filter(r => r.touch_status !== 'New')
+  const syncable = picked.filter(r => r.touch_status !== 'New' && r.touch_status !== 'Internal') // Internal = moved inside the warehouse, never sent to COM
   const all = rows?.length && picked.length === rows.length
 
   function download() {

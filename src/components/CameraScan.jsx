@@ -5,20 +5,33 @@ import { useEffect, useRef, useState } from 'react'
 // otherwise ZXing (iPhone Safari, older phones) — loaded only when the camera opens.
 const FORMATS = ['qr_code', 'code_128', 'code_39', 'code_93', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'itf', 'codabar', 'data_matrix']
 
-export default function CameraScan({ onResult, onClose }) {
+// continuous: keep the camera open after a read (Quick scan) — the same code is ignored for 4 s,
+// and while `paused` (a decision is waiting) nothing is read. `children` are shown over the camera.
+export default function CameraScan({ onResult, onClose, continuous = false, paused = false, children }) {
   const videoRef = useRef(null)
   const [err, setErr] = useState(null)
   const [torch, setTorch] = useState(null) // null = not supported
   const stop = useRef(() => {})
   const done = useRef(false)
+  const pausedRef = useRef(paused)
+  const last = useRef({ text: '', at: 0 })
+  const resume = useRef(() => {})
+  const onResultRef = useRef(onResult)
+  onResultRef.current = onResult // latest handler without restarting the camera on every render
+  useEffect(() => { pausedRef.current = paused }, [paused])
 
   useEffect(() => {
     let alive = true
     const finish = text => {
-      if (done.current || !text) return
+      if (done.current || !text || pausedRef.current) return
+      const t = String(text).trim()
+      if (continuous && t === last.current.text && Date.now() - last.current.at < 4000) return
       done.current = true
       try { navigator.vibrate?.(80) } catch { /* ignore */ }
-      stop.current(); onResult(String(text).trim())
+      if (!continuous) { stop.current(); onResultRef.current(t); return }
+      last.current = { text: t, at: Date.now() }
+      onResultRef.current(t)
+      setTimeout(() => { done.current = false; resume.current() }, 1200)
     }
     ;(async () => {
       try {
@@ -34,9 +47,10 @@ export default function CameraScan({ onResult, onClose }) {
           let raf
           const tick = async () => {
             if (!alive || done.current) return
-            try { const codes = await det.detect(v); if (codes[0]?.rawValue) return finish(codes[0].rawValue) } catch { /* frame not ready */ }
-            raf = setTimeout(tick, 120)
+            try { const codes = await det.detect(v); if (codes[0]?.rawValue) finish(codes[0].rawValue) } catch { /* frame not ready */ }
+            if (!done.current) raf = setTimeout(tick, 120) // keeps looking while paused or after an ignored repeat
           }
+          resume.current = () => { clearTimeout(raf); tick() }
           tick()
           stop.current = () => { clearTimeout(raf); stream.getTracks().forEach(t => t.stop()) }
         } else {
@@ -57,7 +71,7 @@ export default function CameraScan({ onResult, onClose }) {
       }
     })()
     return () => { alive = false; stop.current() }
-  }, [onResult])
+  }, [continuous]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function toggleTorch() {
     const track = videoRef.current?.srcObject?.getVideoTracks?.()[0]
@@ -73,6 +87,7 @@ export default function CameraScan({ onResult, onClose }) {
         <span>📷 Point at the QR code or barcode</span>
         <button className="cam-btn" onClick={() => { stop.current(); onClose() }} aria-label="Close">✕</button>
       </div>
+      {children && <div className="cam-card">{children}</div>}
       <div className="cam-bottom">
         {err ? <div className="cam-err">{err}</div> : <small>Hold steady about 10–20 cm away · it reads automatically</small>}
         {torch !== null && <button className="cam-btn" onClick={toggleTorch}>{torch ? '🔦 Light off' : '🔦 Light on'}</button>}
