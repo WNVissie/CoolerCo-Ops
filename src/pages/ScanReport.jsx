@@ -20,9 +20,15 @@ const PRESETS = [
   ['30d', '30 days', () => [addDays(today(), -29), today()]],
   ['month', 'This month', () => [today().slice(0, 8) + '01', today()]],
 ]
-const SOURCES = [['all', 'All'], ['com', 'COM'], ['coolerco', 'CC']]
+// Who scanned: one entry per source. A future client (e.g. a client's own scan feed) is one more line here
+// plus its branch in the report function (p_source) — the filters, chips and counts follow automatically.
 // Source chips: COM = navy, CC = CoolerCo cyan (same as the CC logo)
-const Src = ({ s, n }) => <span className={`src-chip ${s === 'COM' ? 'com' : 'cc'}`}>{s === 'COM' ? 'COM' : 'CC'}{n !== undefined && <b>{num(n)}</b>}</span>
+const SOURCE_LIST = [
+  { key: 'com', chip: 'COM', cls: 'com', label: 'COM scanned', count: s => s.com_scans, desc: "touches in COM's Asset Touch import" },
+  { key: 'coolerco', chip: 'CC', cls: 'cc', label: 'CoolerCo scanned', count: s => s.coolerco_scans, desc: 'scans made in this app' },
+]
+const SOURCES = [['all', 'All'], ...SOURCE_LIST.map(x => [x.key, x.chip])]
+const Src = ({ s, n }) => { const x = SOURCE_LIST.find(v => v.chip === s) || SOURCE_LIST[1]; return <span className={`src-chip ${x.cls}`}>{x.chip}{n !== undefined && <b>{num(n)}</b>}</span> }
 const RESULTS = [['all', 'All'], ['accepted', '✅ Accepted'], ['discarded', '🚫 Discarded'], ['pending', '⏳ Pending'], ['mismatch', '⚠ Mismatch'], ['wrong_area', '📍 Wrong area']]
 const resultTag = r => r === 'Accepted' ? 'green' : r === 'Discarded' ? 'red' : 'neutral'
 const fmtT = d => (d ? new Date(d).toLocaleString('en-ZA', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }) : '—')
@@ -150,7 +156,7 @@ export default function ScanReport() {
             <option value="">🏢 All warehouses</option>
             {Object.entries(WH_NAMES).map(([c, n]) => <option key={c} value={c}>{n}</option>)}
           </select>
-          <div className="seg">{SOURCES.map(([k, l]) => <button key={k} className={`seg-btn${source === k ? ' on' : ''}`} onClick={() => setSource(k)}>{k === 'all' ? l : <Src s={k === 'com' ? 'COM' : 'CC'} />}</button>)}</div>
+          <div className="seg">{SOURCES.map(([k, l]) => <button key={k} className={`seg-btn${source === k ? ' on' : ''}`} onClick={() => setSource(k)}>{k === 'all' ? l : <Src s={l} />}</button>)}</div>
           <div className="search-wrap" style={{ flex: 1, minWidth: 180 }}><span className="ico">🔍</span>
             <input placeholder="Asset, barcode, local code, model, user…" value={q} onChange={e => setQ(e.target.value)} /></div>
         </div>
@@ -227,6 +233,15 @@ export default function ScanReport() {
 
         {/* ── Scanned assets list ── */}
         <div className="card">
+          <div className="src-filter">
+            <span className="text3">Scanned by</span>
+            <button className={`src-opt${source === 'all' ? ' on' : ''}`} onClick={() => setSource('all')}>All{data?.summary ? <b>{num(data.summary.reduce((a, x) => a + SOURCE_LIST.reduce((b, v) => b + (v.count(x) || 0), 0), 0))}</b> : null}</button>
+            {SOURCE_LIST.map(v => (
+              <button key={v.key} className={`src-opt${source === v.key ? ' on' : ''}`} onClick={() => setSource(v.key)} title={v.desc}>
+                <span className={`src-chip ${v.cls}`}>{v.chip}</span> {v.label}{data?.summary ? <b>{num(data.summary.reduce((a, x) => a + (v.count(x) || 0), 0))}</b> : null}
+              </button>
+            ))}
+          </div>
           <div className="card-header" style={{ flexWrap: 'wrap', gap: 6 }}>
             <div className="seg">{RESULTS.map(([k, l]) => <button key={k} className={`seg-btn${result === k ? ' on' : ''}`} onClick={() => setResult(k)}>{l}</button>)}</div>
             <span className="text3" style={{ fontSize: 11 }}>{data ? `${num(data.total)} scans` : ''}</span>
