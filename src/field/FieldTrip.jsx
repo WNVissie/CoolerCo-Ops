@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { statusColor, CASE_TYPE_ICON } from '../lib/helpers'
 import { cachedQuery, kvGet, kvSet } from '../lib/offline'
+import { rpcRead } from '../lib/rpcRetry'
 
 // My trip — read view of the routing app's route for this driver (planned + finalised in the routing app).
 // Live case status from COM, routing outcome, warehouse prep, assets. Outcomes are recorded in the routing
@@ -17,9 +18,10 @@ const fmtDay = s => new Date(s + 'T12:00:00').toLocaleDateString('en-ZA', { week
 const fmtTime = t => (t ? new Date(t).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' }) : '')
 const waNo = n => { const d = String(n || '').replace(/\D/g, ''); return !d ? '' : d.startsWith('0') ? '27' + d.slice(1) : d }
 
-export default function FieldTrip() {
-  const [driver, setDriver] = useState(() => { try { return JSON.parse(localStorage.getItem('cc_field_driver')) } catch { return null } })
-  const [picking, setPicking] = useState(!driver)
+// code = driver's personal code (driver mode, no login): trip comes from coolerco_field_trip(code, date)
+export default function FieldTrip({ code = null, onBadCode }) {
+  const [driver, setDriver] = useState(() => { try { return code ? JSON.parse(localStorage.getItem('cc_field_code_driver')) : JSON.parse(localStorage.getItem('cc_field_driver')) } catch { return null } })
+  const [picking, setPicking] = useState(!code && !driver)
   const [date, setDate] = useState(() => iso(new Date()))
   const [trip, setTrip] = useState(null)
   const [err, setErr] = useState(null)
@@ -27,11 +29,19 @@ export default function FieldTrip() {
   const [open, setOpen] = useState(null)
 
   const load = useCallback(async () => {
-    if (!driver) return
+    if (!driver && !code) return
     setTrip(null); setErr(null); setFromPhone(false)
-    const key = `trip:${driver.username}:${date}`
+    const key = `trip:${code ? 'code-' + code : driver.username}:${date}`
     try {
       if (!navigator.onLine) throw new Error('offline')
+      if (code) { // driver mode: one server call returns the whole trip (only this driver's)
+        const { data, error } = await rpcRead('coolerco_field_trip', { p_code: code, p_date: date })
+        if (error) throw error
+        if (data?.error === 'invalid_code') { onBadCode?.(); return }
+        setDriver(data.driver); try { localStorage.setItem('cc_field_code_driver', JSON.stringify(data.driver)) } catch { /* ignore */ }
+        const t = { routes: data.routes || [], stops: data.stops || [], cases: data.cases || [], contacts: data.contacts || [], prep: data.prep || [], at: Date.now() }
+        setTrip(t); kvSet(key, t); return
+      }
       const { data: routes, error } = await supabase.from('routing_routes')
         .select('id,route_number,route_date,status,vehicle_code,warehouse_group,planned_start_at,planned_return_at,planned_distance_km,dispatched_at,completed_at')
         .eq('resource_username', driver.username).eq('route_date', date).neq('status', 'not_used').order('route_number')
@@ -60,7 +70,7 @@ export default function FieldTrip() {
       const saved = await kvGet(key)
       if (saved) { setTrip(saved); setFromPhone(true) } else setErr(!navigator.onLine ? 'No signal and this day is not saved on the phone yet. Open it once with signal.' : (e.message || String(e)))
     }
-  }, [driver, date])
+  }, [driver?.username, date, code])
   useEffect(() => { load() }, [load])
 
   const byCase = useMemo(() => Object.fromEntries((trip?.cases || []).map(c => [c.case_number, c])), [trip])
@@ -77,8 +87,8 @@ export default function FieldTrip() {
     <div className="f-pad">
       <div className="f-card">
         <div className="f-row">
-          <div className="f-grow"><strong>🚚 {driver.display}</strong><small>{driver.username} · {driver.wh?.replace('RTMA ', '')}</small></div>
-          <button className="btn btn-ghost btn-sm" onClick={() => setPicking(true)}>Change</button>
+          <div className="f-grow"><strong>🚚 {driver?.display || 'My trip'}</strong><small>{driver?.username || ''}{driver?.wh ? ' · ' + driver.wh.replace('RTMA ', '') : ''}</small></div>
+          {!code && <button className="btn btn-ghost btn-sm" onClick={() => setPicking(true)}>Change</button>}
         </div>
         <div className="f-date" style={{ marginTop: 10 }}>
           <button className="btn btn-ghost btn-sm" onClick={() => setDate(d => addDays(d, -1))}>‹</button>
