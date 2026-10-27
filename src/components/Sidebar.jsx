@@ -9,6 +9,7 @@ const NAV = [
   ] },
   { section: 'Field Ops', icon: '🚚', items: [
     { to: '/cases',    icon: '🔧', label: 'Cases' },
+    { to: '/cases/asset-at-pos', icon: '⚠️', label: 'Open case · asset at POS' },
     { to: '/assets',   icon: '🏭', label: 'Assets' },
     { to: '/picking',  icon: '📦', label: 'Warehouse Prep' },
     { to: '/routes',   icon: '🗺️', label: 'Routes' },
@@ -82,7 +83,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onNavigate, u
     if (item.action === 'install') return <button type="button" className="nav-item nav-btn" onClick={() => { done(); setInstall(true) }}>{inner}</button>
     return item.href
       ? <a className="nav-item" href={item.href} target="_blank" rel="noopener noreferrer" onClick={done}>{inner}</a>
-      : <NavLink to={item.to} end={item.to === '/' || item.to === '/scan'} onClick={done} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>{inner}</NavLink>
+      : <NavLink to={item.to} end={item.to === '/' || item.to === '/scan' || item.to === '/cases'} onClick={done} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>{inner}</NavLink>
   }
 
   return (

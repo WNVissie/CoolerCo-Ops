@@ -13,6 +13,7 @@ const Scan = lazyPage(() => import('./pages/Scan'))
 const ComTouchExport = lazyPage(() => import('./pages/ComTouchExport'))
 const StocktakeExceptions = lazyPage(() => import('./pages/StocktakeExceptions'))
 const ScanReport = lazyPage(() => import('./pages/ScanReport'))
+const CaseAssetExceptions = lazyPage(() => import('./pages/CaseAssetExceptions'))
 const Picking = lazyPage(() => import('./pages/Picking'))
 const Routes_ = lazyPage(() => import('./pages/Routes'))
 const AssetStock = lazyPage(() => import('./pages/AssetStock'))
@@ -64,6 +65,7 @@ export default function App() {
               <Route path="/scan/export" element={<ComTouchExport />} />
               <Route path="/scan/stocktake" element={<StocktakeExceptions />} />
               <Route path="/scan/report" element={<ScanReport />} />
+              <Route path="/cases/asset-at-pos" element={<CaseAssetExceptions />} />
               <Route path="/picking" element={<Picking />} />
               <Route path="/routes" element={<Routes_ />} />
               <Route path="/stock" element={<AssetStock />} />
