@@ -38,6 +38,11 @@ async function queuePut(item) { await tx('queue', 'readwrite', s => req(s.put(it
 
 export const isNetErr = e => /failed to fetch|networkerror|load failed|network request failed|fetch failed|timeout|offline/i.test(String(e?.message || e || '')) || e?.status >= 500 || !navigator.onLine
 
+// The table only accepts these scan types (database check): daily, monthly, receiving, dispatch, stocktake.
+// Older app versions used count / receive / move — translate so those saved scans still go through.
+export const SCAN_TYPE_DB = { count: 'stocktake', receive: 'receiving', move: 'daily', quick: 'stocktake' }
+export const dbScanType = t => SCAN_TYPE_DB[t] || t
+
 let flushing = false
 export async function flushQueue() {
   if (flushing || !navigator.onLine) return { sent: 0 }
@@ -51,7 +56,7 @@ export async function flushQueue() {
             const { error } = await supabase.storage.from('coolerco-cases').upload(p.path, p.blob, { contentType: 'image/jpeg', upsert: true })
             if (error) throw error
           }
-          const { error } = await supabase.from('coolerco_asset_touch').insert(it.row)
+          const { error } = await supabase.from('coolerco_asset_touch').insert({ ...it.row, scan_type: dbScanType(it.row.scan_type) })
           if (error && error.code !== '23505') throw error // 23505 = already there (sent before) → fine
         } else if (it.type === 'submit') {
           const { error } = await supabase.from('coolerco_asset_touch').update(it.patch).in('id', it.ids).eq('touch_status', 'New')

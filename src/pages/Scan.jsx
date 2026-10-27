@@ -12,7 +12,8 @@ import { queueAdd, queueAll, flushQueue, startAutoFlush, isNetErr, offlineLookup
 // Sent to COM (CSV, see /scan/export): location, condition, brand, model, serial, external status, comments.
 // CoolerCo only (never sent to COM): building/area + bay and whether they are right.
 const SCAN_BAYS = BAYS.filter(b => ['RED', 'ORANGE', 'GREEN', 'YELLOW', 'PENDING', 'SCRAP'].includes(b.key))
-const SCAN_TYPES = [['count', '🔢 Stock count'], ['receive', '📥 Received'], ['move', '🔀 Moved bay'], ['dispatch', '📤 Dispatched']]
+// values = what the database accepts (daily, monthly, receiving, dispatch, stocktake)
+const SCAN_TYPES = [['stocktake', '🔢 Stock count'], ['receiving', '📥 Received'], ['daily', '🔀 Moved bay'], ['dispatch', '📤 Dispatched']]
 const EXTERNAL = [ // COM's list (Asset Touch → External Status)
   'Asset Found in Expected Location', 'Asset Not in Expected Location', 'Asset Found with Casualty / Damaged',
   'Asset Found with No Plate / Plate not OK', 'Asset Found with no identifier', 'Asset Inactive Found', 'New Asset Found in Location',
@@ -27,7 +28,7 @@ export default function Scan({ field = false }) {
   const [wh, setWh] = useState(() => { try { return localStorage.getItem('cc_scan_wh') || '' } catch { return '' } })
   const [ws, setWs] = useState(false) // COM location: WH or WS
   const [bay, setBay] = useState('')
-  const [type, setType] = useState('count')
+  const [type, setType] = useState('stocktake')
   const [found, setFound] = useState({}) // condition, brand, variant, serial, ext
   const [notes, setNotes] = useState('')
   const [photos, setPhotos] = useState([]) // { slot, path, url }
