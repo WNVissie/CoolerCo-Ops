@@ -15,6 +15,11 @@ const KINDS = [
 ]
 const KIND = Object.fromEntries(KINDS.map(k => [k[0], k]))
 const PAGE = 100
+const REFRESH_MS = 5 * 60 * 1000 // re-check every 5 minutes while the page is open and visible
+const SEEN_KEY = 'cc_case_asset_seen'
+const keyOf = r => `${r.kind}|${r.case_number}`
+const loadSeen = () => { try { return new Set(JSON.parse(localStorage.getItem(SEEN_KEY) || '[]')) } catch { return new Set() } }
+const hhmm = d => d ? new Date(d).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' }) : ''
 
 export default function CaseAssetExceptions() {
   const [since, setSince] = useState('2026-07-01')
@@ -25,17 +30,39 @@ export default function CaseAssetExceptions() {
   const [q, setQ] = useState('')
   const [shown, setShown] = useState(PAGE)
   const [open, setOpen] = useState(null) // case with candidates unfolded
+  const [tick, setTick] = useState(0)     // bump = check again
+  const [checkedAt, setCheckedAt] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [seen, setSeen] = useState(loadSeen) // exceptions already looked at on this device → the rest show 🆕
+  const [comAt, setComAt] = useState(null)
 
+  // Live: every load reads the latest COM upload. Re-checks every 5 min (only while visible) and when you come back to the tab.
   useEffect(() => {
     let live = true
-    setRows(null); setErr(null); setShown(PAGE)
-    supabase.rpc('coolerco_open_case_asset_exceptions', { p_since: since, p_warehouse: wh ? whCaseName(wh) : null }).then(({ data, error }) => {
+    setErr(null); setBusy(true)
+    Promise.all([
+      supabase.rpc('coolerco_open_case_asset_exceptions', { p_since: since, p_warehouse: wh ? whCaseName(wh) : null }),
+      supabase.from('assets_live').select('last_synced_at').order('last_synced_at', { ascending: false, nullsFirst: false }).limit(1),
+    ]).then(([{ data, error }, a]) => {
       if (!live) return
       if (error) setErr(/does not exist|Could not find/i.test(error.message) ? 'This report needs database script 014 — not applied yet.' : error.message)
-      setRows(data || [])
+      else setRows(data || [])
+      setComAt(a.data?.[0]?.last_synced_at || null); setCheckedAt(new Date()); setBusy(false)
     })
     return () => { live = false }
-  }, [since, wh])
+  }, [since, wh, tick])
+  useEffect(() => { setRows(null); setShown(PAGE) }, [since, wh])
+  useEffect(() => {
+    const t = setInterval(() => { if (document.visibilityState === 'visible') setTick(n => n + 1) }, REFRESH_MS)
+    const back = () => { if (document.visibilityState === 'visible' && checkedAt && Date.now() - checkedAt > 60000) setTick(n => n + 1) }
+    document.addEventListener('visibilitychange', back)
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', back) }
+  }, [checkedAt])
+  const newCount = (rows || []).filter(r => !seen.has(keyOf(r))).length
+  function markSeen() {
+    const next = new Set([...seen, ...(rows || []).map(keyOf)])
+    setSeen(next); try { localStorage.setItem(SEEN_KEY, JSON.stringify([...next].slice(-3000))) } catch { /* ignore */ }
+  }
 
   const counts = useMemo(() => Object.fromEntries(KINDS.map(([k]) => [k, (rows || []).filter(r => r.kind === k).length])), [rows])
   const byWh = useMemo(() => {
@@ -69,7 +96,8 @@ export default function CaseAssetExceptions() {
 
   return (
     <>
-      <Topbar title="Open case · asset at POS" sub="Deliver, replace & removal cases still open while COM already shows the asset in place" />
+      <Topbar title="Open case · asset at POS" sub="Deliver, replace & removal cases still open while COM already shows the asset in place"
+        actions={<button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => setTick(n => n + 1)}>{busy ? '⏳ Checking…' : '↻ Refresh'}</button>} />
       <div className="page-content">
         <div className="filters" style={{ flexWrap: 'wrap', gap: 8 }}>
           <label className="text3" style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 6 }}>Cases created since
@@ -80,6 +108,12 @@ export default function CaseAssetExceptions() {
           </select>
           <div className="search-wrap" style={{ flex: 1, minWidth: 180 }}><span className="ico">🔍</span>
             <input placeholder="Case no., store, L-code, barcode, concessionaire…" value={q} onChange={e => { setQ(e.target.value); setShown(PAGE) }} /></div>
+        </div>
+        <div className="text3" style={{ fontSize: 10.5, marginBottom: 8, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span>🔄 Checked {checkedAt ? hhmm(checkedAt) : '…'} · re-checks every 5 min while open</span>
+          {comAt && <span>· COM data from the upload of <b>{fmt(comAt)} {hhmm(comAt)}</b></span>}
+          {rows && newCount > 0 && <><span className="tag tag-red">🆕 {num(newCount)} new since you last looked</span>
+            <button className="btn btn-ghost btn-sm" onClick={markSeen}>✓ Mark all as seen</button></>}
         </div>
         {err && <div className="form-msg err">{err}</div>}
 
@@ -109,7 +143,7 @@ export default function CaseAssetExceptions() {
                   const k = KIND[r.kind], c = r.candidates || []
                   return (
                     <tr key={r.kind + r.case_number}>
-                      <td><span className={`tag tag-${k[2]}`}>{k[1]}</span></td>
+                      <td><span className={`tag tag-${k[2]}`}>{k[1]}</span>{!seen.has(keyOf(r)) && <div><span className="tag tag-red" style={{ marginTop: 3 }}>🆕 new</span></div>}</td>
                       <td><Link className="mono" to={`/cases?case=${encodeURIComponent(r.case_number)}`}>{r.case_number}</Link>
                         <div className="text3" style={{ fontSize: 10 }}>{r.case_type} · {r.status_reason}</div>
                         <div className="text3" style={{ fontSize: 10 }}>opened {fmt(r.created_on)}{r.sla_status && <> · <span className={`tag tag-${slaColor(r.sla_status)}`}>{r.sla_status}</span></>}</div></td>
