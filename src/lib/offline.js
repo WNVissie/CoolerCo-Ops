@@ -75,6 +75,26 @@ export function startAutoFlush() {
   window.addEventListener('online', () => flushQueue())
   setInterval(() => flushQueue(), 30000)
   flushQueue(); emit()
+  // ask the phone not to clear our saved data (waiting scans) when space runs low
+  navigator.storage?.persist?.().catch(() => {})
+  purgeOld()
+}
+
+// Saved trip copies older than 7 days are removed (asset lists are replaced, never added to)
+async function purgeOld() {
+  try {
+    const keys = await tx('kv', 'readonly', s => req(s.getAllKeys()))
+    const cutoff = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10)
+    for (const k of keys || []) {
+      const d = String(k).match(/^trip:.*:(\d{4}-\d{2}-\d{2})$/)?.[1]
+      if (d && d < cutoff) await tx('kv', 'readwrite', s => req(s.delete(k)))
+    }
+  } catch { /* ignore */ }
+}
+
+// How much this app keeps on the phone (MB)
+export async function storageUsed() {
+  try { const e = await navigator.storage.estimate(); return Math.round((e.usage || 0) / 1e5) / 10 } catch { return null }
 }
 
 // ── offline asset list (per warehouse) ───────────────────────────────

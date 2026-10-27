@@ -1,5 +1,6 @@
-// Shrink a phone photo before upload (saves mobile data and storage): max 1280px, JPEG 75%.
-export async function compressImage(file, max = 1280, quality = 0.75) {
+// Shrink a phone photo BEFORE it is stored or sent: longest side 1024 px, JPEG 70%
+// (a 3–6 MB camera photo becomes roughly 100–200 KB; barcodes and plates stay readable).
+export async function compressImage(file, max = 1024, quality = 0.7) {
   const url = URL.createObjectURL(file)
   try {
     const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url })

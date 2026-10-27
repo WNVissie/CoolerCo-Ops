@@ -6,7 +6,7 @@ import { fmt, num, BAYS, WAREHOUSES, WH_NAMES, bayForStatus, condColor, CONDITIO
 import { compressImage, getGps } from '../lib/photos'
 import { whereIs } from './Assets'
 import CameraScan, { codeCandidates } from '../components/CameraScan'
-import { queueAdd, queueAll, flushQueue, startAutoFlush, isNetErr, offlineLookup, cachedQuery, kvGet, kvSet, saveWarehouseAssets, savedAssetsInfo } from '../lib/offline'
+import { queueAdd, queueAll, flushQueue, startAutoFlush, isNetErr, offlineLookup, cachedQuery, saveWarehouseAssets, savedAssetsInfo, storageUsed } from '../lib/offline'
 
 // Bay scan = COM Asset Touch. Saves to public.coolerco_asset_touch (CoolerCo table).
 // Sent to COM (CSV, see /scan/export): location, condition, brand, model, serial, external status, comments.
@@ -47,6 +47,7 @@ export default function Scan({ field = false }) {
   const [queued, setQueued] = useState([]) // waiting to send (this phone)
   const [saved, setSaved] = useState(null) // offline asset list info
   const [saving, setSaving] = useState(null)
+  const [used, setUsed] = useState(null) // MB kept on this phone
 
   const [locs, setLocs] = useState([])
   const [whs, setWhs] = useState([])
@@ -77,7 +78,7 @@ export default function Scan({ field = false }) {
   useEffect(() => { if (me) loadRecent() }, [me, scope, wh])
   useEffect(() => {
     startAutoFlush()
-    const refreshQ = () => queueAll().then(setQueued)
+    const refreshQ = () => { queueAll().then(setQueued); storageUsed().then(setUsed) }
     const on = () => { setOnline(true); flushQueue() }, off = () => setOnline(false)
     const sent = e => { setMsg({ type: 'ok', text: `📶 Back online — ${e.detail} saved item(s) sent` }); loadRecent() }
     window.addEventListener('online', on); window.addEventListener('offline', off)
@@ -111,6 +112,7 @@ export default function Scan({ field = false }) {
   }
 
   function reset() {
+    photos.forEach(p => p.url && URL.revokeObjectURL(p.url)) // release on-screen previews
     setAsset(null); setCode(''); setNotes(''); setExpected(null); setPhotos([]); setFound({}); setGps(undefined); touchId.current = null
   }
 
@@ -256,7 +258,7 @@ export default function Scan({ field = false }) {
         <div className="two-col">
           <div className="card" style={{ padding: 16 }}>
             <div className={`off-bar ${online ? '' : 'off'}`}>
-              <span>{online ? '📶 Online' : '📵 No signal — scans are saved on this phone'}</span>
+              <span>{online ? '📶 Online' : '📵 No signal — scans are saved on this phone'}{field && used != null ? <small style={{ opacity: .7 }}> · 💾 {used} MB on phone</small> : null}</span>
               {queued.length > 0 && <button type="button" className="btn btn-ghost btn-sm" onClick={() => flushQueue()} disabled={!online}>⏳ {queued.length} waiting{online ? ' · send now' : ''}</button>}
               {wh && <button type="button" className="btn btn-ghost btn-sm" onClick={saveOffline} disabled={!online || saving !== null}
                 title="Keep this warehouse's asset list on the phone for scanning without signal">
