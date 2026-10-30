@@ -35,9 +35,20 @@ export default function App() {
   // Desktop: collapse to icons (remembered). Phone: menu slides in over the page.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => { try { return localStorage.getItem('cc_nav_collapsed') === '1' } catch { return false } })
   const [mobileOpen, setMobileOpen] = useState(false)
+  // Menu style (remembered): 'sidebar' = fixed bar on the left · 'menu' = ☰ button, menu slides in over the page
+  const [navMode, setNavMode] = useState(() => { try { return localStorage.getItem('cc_nav_mode') === 'menu' ? 'menu' : 'sidebar' } catch { return 'sidebar' } })
   const isPhone = () => window.matchMedia('(max-width: 768px)').matches
   useEffect(() => { try { localStorage.setItem('cc_nav_collapsed', sidebarCollapsed ? '1' : '0') } catch { /* ignore */ } }, [sidebarCollapsed])
-  const toggleNav = () => (isPhone() ? setMobileOpen(o => !o) : setSidebarCollapsed(c => !c))
+  useEffect(() => { try { localStorage.setItem('cc_nav_mode', navMode) } catch { /* ignore */ } }, [navMode])
+  // Escape closes the slide-in menu
+  useEffect(() => {
+    if (!mobileOpen) return
+    const esc = e => e.key === 'Escape' && setMobileOpen(false)
+    document.addEventListener('keydown', esc)
+    return () => document.removeEventListener('keydown', esc)
+  }, [mobileOpen])
+  const toggleNav = () => (isPhone() || navMode === 'menu' ? setMobileOpen(o => !o) : setSidebarCollapsed(c => !c))
+  const switchNavMode = () => { setMobileOpen(false); setNavMode(m => (m === 'menu' ? 'sidebar' : 'menu')) }
   const [session, setSession] = useState(undefined) // undefined = still checking
 
   useEffect(() => {
@@ -51,8 +62,8 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <div className="app-shell">
-        <Sidebar collapsed={sidebarCollapsed} onToggle={toggleNav} mobileOpen={mobileOpen} onNavigate={() => setMobileOpen(false)}
+      <div className={`app-shell${navMode === 'menu' ? ' nav-menu-mode' : ''}`}>
+        <Sidebar collapsed={navMode === 'sidebar' && sidebarCollapsed} navMode={navMode} onSwitchMode={switchNavMode} onToggle={toggleNav} mobileOpen={mobileOpen} onNavigate={() => setMobileOpen(false)}
           user={session.user} onSignOut={() => supabase.auth.signOut()} />
         {mobileOpen && <div className="nav-scrim" onClick={() => setMobileOpen(false)} />}
         <div className="main-area">

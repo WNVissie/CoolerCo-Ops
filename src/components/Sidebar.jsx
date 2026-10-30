@@ -49,7 +49,7 @@ const NAV = [
 const matches = (item, path) => item.to && (item.to === '/' ? path === '/' : path === item.to || path.startsWith(item.to + '/'))
 const groupOf = path => NAV.find(g => g.items.some(i => matches(i, path)))?.section
 
-export default function Sidebar({ collapsed, onToggle, mobileOpen, onNavigate, user, onSignOut }) {
+export default function Sidebar({ collapsed, navMode, onSwitchMode, onToggle, mobileOpen, onNavigate, user, onSignOut }) {
   const { pathname } = useLocation()
   const showText = !collapsed || mobileOpen
   const [open, setOpen] = useState(() => groupOf(pathname) || 'Overview')
@@ -144,6 +144,14 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onNavigate, u
             <div className="footer-name trunc">{user?.email || 'RTMA Ops'}</div>
             <div className="footer-status"><span className="live-dot" />Live data</div>
           </div>
+        )}
+        {onSwitchMode && (
+          <button className="nav-mode-btn" onClick={onSwitchMode}
+            onMouseEnter={e => showTip(e, navMode === 'menu' ? 'Show as sidebar' : 'Use ☰ menu')} onMouseLeave={hideTip}
+            title={navMode === 'menu' ? 'Show as sidebar' : 'Use ☰ menu (hide the sidebar)'}
+            aria-label={navMode === 'menu' ? 'Show as sidebar' : 'Use hamburger menu'}>
+            {navMode === 'menu' ? '📌' : '☰'}
+          </button>
         )}
         {showText && onSignOut && <button className="btn btn-ghost btn-sm nav-signout" onClick={onSignOut} title="Sign out">⏻</button>}
       </div>
