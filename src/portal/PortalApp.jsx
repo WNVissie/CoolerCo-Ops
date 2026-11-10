@@ -4,7 +4,8 @@ import { rpcRead, isNetErr, NET_MSG } from '../lib/rpcRetry'
 import './portal.css'
 
 // Public customer portal — no login. The link token identifies the store.
-// Only two server functions are used: coolerco_portal_context + coolerco_portal_submit.
+// Server functions used: coolerco_portal_context, coolerco_portal_options (symptom lists) and
+// coolerco_portal_submit_v2 (falls back to coolerco_portal_submit where 017 is not installed).
 const KINDS = [
   { key: 'repair',     icon: '🔧', label: 'Repair',     desc: 'An asset is not working properly' },
   { key: 'collection', icon: '📦', label: 'Collection', desc: 'Remove an asset from the store' },
@@ -18,6 +19,8 @@ const ERRORS = {
   no_warehouse: 'Your store is not linked to a CoolerCo warehouse yet. Please call CoolerCo.',
   asset_not_at_store: 'That asset is no longer listed at your store.',
   bad_family: 'That item is no longer in the catalogue.',
+  symptom_required: 'Please choose what is wrong with the asset.',
+  impact_required: 'Please tell us what is happening to your product.',
 }
 const fmtDate = d => (d ? new Date(d).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' }) : '')
 
@@ -47,6 +50,9 @@ export default function PortalApp({ token }) {
   const [famPhotos, setFamPhotos] = useState({})
   const [dupAck, setDupAck] = useState(false) // customer confirmed it is a different problem
   const [stopped, setStopped] = useState(null) // customer said the existing case covers it
+  const [opts, setOpts] = useState(null)       // symptom + product lists (null = old screen)
+  const [symptom, setSymptom] = useState(null)
+  const [impact, setImpact] = useState(null)
 
   async function load() {
     setErr(null)
@@ -62,6 +68,12 @@ export default function PortalApp({ token }) {
     }
   }
   useEffect(() => { load() }, [token])
+  // Symptom lists load alongside the store (parallel). If they are not available the old free-text screen is used.
+  useEffect(() => {
+    rpcRead('coolerco_portal_options', { p_token: token }).then(({ data, error }) => {
+      if (!error && data && !data.error && data.symptoms?.length) setOpts(data)
+    })
+  }, [token])
 
   // Already-logged work for the chosen asset (repair/collection) or any open delivery (new asset)
   const openFor = a => (ctx?.open_cases || []).filter(o => (o.assets || []).includes(a))
@@ -69,7 +81,7 @@ export default function PortalApp({ token }) {
     ? (ctx.open_cases || []).filter(o => /deliver|replacement/i.test(o.case_type))
     : asset ? openFor(asset.asset) : []
 
-  function reset() { setStep(0); setKind(null); setAsset(null); setFamily(null); setDesc(''); setPhotos([]); setDone(null); setDupAck(false); setStopped(null) }
+  function reset() { setStep(0); setKind(null); setAsset(null); setFamily(null); setDesc(''); setPhotos([]); setDone(null); setDupAck(false); setStopped(null); setSymptom(null); setImpact(null) }
 
   async function addPhotos(files) {
     for (const f of [...files].slice(0, 3 - photos.length)) {
@@ -82,17 +94,22 @@ export default function PortalApp({ token }) {
 
   async function submit() {
     setBusy(true)
-    const { data, error } = await supabase.rpc('coolerco_portal_submit', {
-      p_token: token,
-      p_request: { kind, asset: asset?.asset, family_id: family?.id, description: desc, contact_name: name, contact_phone: phone, photos: photos.map(p => p.path) },
-    })
+    setErr(null)
+    const request = { kind, asset: asset?.asset, family_id: family?.id, description: desc, contact_name: name, contact_phone: phone, photos: photos.map(p => p.path) }
+    if (guided) { request.symptom = symptom.code; request.product_impact = needImpact ? impact?.code : null }
+    // Writes are never retried (no duplicates)
+    const { data, error } = await supabase.rpc(opts ? 'coolerco_portal_submit_v2' : 'coolerco_portal_submit', { p_token: token, p_request: request })
     setBusy(false)
-    if (error) { setErr(error.message); return }
+    if (error) { setErr(isNetErr(error) ? NET_MSG + ' Your request was not sent yet.' : error.message); return }
     if (data?.error) { setErr(ERRORS[data.error] || data.error); return }
-    setDone(data.case_number); load()
+    setDone({ case_number: data.case_number, status: data.status || 'Waiting for Approval', priority: data.priority }); load()
   }
 
-  const canNext = [!!kind, (kind === 'new' ? !!family : !!asset) && (!dup.length || dupAck), desc.trim().length >= 5 && name.trim() && phone.trim(), true][step]
+  // Repair with symptom lists: pick what is wrong (+ what is happening to the product); typing is optional
+  const guided = kind === 'repair' && !!opts
+  const needImpact = guided && !!symptom?.ask_product
+  const detailsOk = guided ? !!symptom && (!needImpact || !!impact) : desc.trim().length >= 5
+  const canNext = [!!kind, (kind === 'new' ? !!family : !!asset) && (!dup.length || dupAck), detailsOk && name.trim() && phone.trim(), true][step]
 
   if (err && !ctx) return <Shell><div className="p-card p-center"><div className="p-big">{err === NET_MSG ? '📶' : '⚠️'}</div><p>{err}</p>{err === NET_MSG && <button className="p-btn" onClick={load}>↻ Try again</button>}</div></Shell>
   if (!ctx) return <Shell><div className="p-center"><span className="p-spin" /> Loading your store…</div></Shell>
@@ -133,12 +150,16 @@ export default function PortalApp({ token }) {
           <div className="p-done">✓</div>
           <h2>Request received</h2>
           <p className="p-muted">Your reference number</p>
-          <div className="p-ref">{done}</div>
+          <div className="p-ref">{done.case_number}</div>
           <div className="p-tl">
-            {STATUS_TL.map((s, i) => (
-              <div key={s} className={`p-tl-item ${i === 0 ? 'now' : ''}`}><span className="p-tl-dot">{i === 0 ? '●' : '○'}</span>{s === 'Open' ? 'Approved' : s === 'Planned' ? 'Scheduled' : s === 'Completed' ? 'Done' : s}</div>
-            ))}
+            {STATUS_TL.map((s, i) => {
+              const at = Math.max(0, STATUS_TL.indexOf(done.status))
+              // a repair that opens straight away never waits for approval → show "Received" instead
+              const label = i === 0 && at > 0 ? 'Received' : s === 'Open' ? (at > 0 ? 'Accepted' : 'Approved') : s === 'Planned' ? 'Scheduled' : s === 'Completed' ? 'Done' : s
+              return <div key={s} className={`p-tl-item ${i === at ? 'now' : ''}`}><span className="p-tl-dot">{i < at ? '✓' : i === at ? '●' : '○'}</span>{label}</div>
+            })}
           </div>
+          {done.priority === 'High' && <p className="p-tag bad" style={{ alignSelf: 'center' }}>⚡ Marked urgent</p>}
           <p className="p-muted" style={{ fontSize: 12 }}>We will contact you on {phone}. Keep this reference number.</p>
           <button className="p-btn" onClick={reset}>Log another request</button>
         </div>
@@ -219,8 +240,30 @@ export default function PortalApp({ token }) {
           {step === 2 && (
             <div className="p-card">
               <h3>{kind === 'repair' ? 'What is wrong?' : kind === 'collection' ? 'Why must it be collected?' : 'Anything we should know?'}</h3>
-              <textarea rows={4} value={desc} onChange={e => setDesc(e.target.value)}
-                placeholder={kind === 'repair' ? 'e.g. Not cooling, light not working, door does not close' : kind === 'collection' ? 'e.g. Store closing, not needed any more' : 'e.g. Space available near the till'} />
+              {guided && (
+                <>
+                  <div className="p-chips" role="radiogroup" aria-label="What is wrong?">
+                    {opts.symptoms.map(o => (
+                      <button key={o.code} type="button" role="radio" aria-checked={symptom?.code === o.code}
+                        className={`p-chip ${symptom?.code === o.code ? 'sel' : ''}`} onClick={() => { setSymptom(o); if (!o.ask_product) setImpact(null) }}>{o.label}</button>
+                    ))}
+                  </div>
+                  {needImpact && (
+                    <>
+                      <div className="p-label">🧊 What is happening to your product?</div>
+                      <div className="p-chips col" role="radiogroup" aria-label="What is happening to your product?">
+                        {opts.impacts.map(o => (
+                          <button key={o.code} type="button" role="radio" aria-checked={impact?.code === o.code}
+                            className={`p-chip ${impact?.code === o.code ? 'sel' : ''}`} onClick={() => setImpact(o)}>{o.label}</button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  <div className="p-label">📝 Anything else we should know? (optional)</div>
+                </>
+              )}
+              <textarea rows={guided ? 2 : 4} value={desc} onChange={e => setDesc(e.target.value)}
+                placeholder={guided ? 'e.g. Started yesterday, makes a clicking sound' : kind === 'repair' ? 'e.g. Not cooling, light not working, door does not close' : kind === 'collection' ? 'e.g. Store closing, not needed any more' : 'e.g. Space available near the till'} />
               <div className="p-label">📷 Photos (optional, up to 3)</div>
               <div className="p-photos">
                 {photos.map(p => <img key={p.path} src={p.url} alt="" />)}
@@ -241,7 +284,9 @@ export default function PortalApp({ token }) {
               <div className="p-sum">
                 <div><span>Request</span><strong>{KINDS.find(k => k.key === kind)?.label}</strong></div>
                 <div><span>{kind === 'new' ? 'Item' : 'Asset'}</span><strong>{kind === 'new' ? family?.name : `${asset?.family || asset?.family_name || asset?.product} · ${asset?.barcode || ''}`}</strong></div>
-                <div><span>Details</span><strong>{desc}</strong></div>
+                {guided && <div><span>Problem</span><strong>{symptom?.label}</strong></div>}
+                {needImpact && <div><span>Product</span><strong>{impact?.label}</strong></div>}
+                {(!guided || desc.trim()) && <div><span>Details</span><strong>{desc}</strong></div>}
                 <div><span>Photos</span><strong>{photos.length}</strong></div>
                 <div><span>Contact</span><strong>{name} · {phone}</strong></div>
                 <div><span>Store</span><strong>{ctx.pos.name}</strong></div>

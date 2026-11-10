@@ -128,3 +128,10 @@
 .c-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .c-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px 3px 3px; border: 1.5px solid var(--line); border-radius: 14px; background: var(--card); color: var(--fg); cursor: pointer; font-size: 12px; }
 .c-chip.on { border-color: var(--cyan); background: var(--cyan-l); }
+
+/* Repair: choose what is wrong (symptoms) and what is happening to the product */
+.p-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+.p-chips.col { flex-direction: column; }
+.p-chip { min-height: 44px; padding: 10px 14px; border: 2px solid var(--line); border-radius: 10px; background: var(--card); color: var(--fg); font: inherit; font-weight: 600; font-size: 13.5px; text-align: left; cursor: pointer; }
+.p-chip.sel { border-color: var(--cyan); background: var(--cyan-l); }
+.p-chip:focus-visible { outline: 3px solid var(--cyan); outline-offset: 2px; }
