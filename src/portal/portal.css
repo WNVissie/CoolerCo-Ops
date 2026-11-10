@@ -135,3 +135,17 @@
 .p-chip { min-height: 44px; padding: 10px 14px; border: 2px solid var(--line); border-radius: 10px; background: var(--card); color: var(--fg); font: inherit; font-weight: 600; font-size: 13.5px; text-align: left; cursor: pointer; }
 .p-chip.sel { border-color: var(--cyan); background: var(--cyan-l); }
 .p-chip:focus-visible { outline: 3px solid var(--cyan); outline-offset: 2px; }
+
+/* My requests rows that open a case; case messages; confirm-contact line */
+.p-req-btn { width: 100%; background: none; border: 0; border-bottom: 1px solid var(--line); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.p-req-btn:last-of-type { border-bottom: 0; }
+.p-req-btn:focus-visible, .p-link:focus-visible { outline: 3px solid var(--cyan); outline-offset: 2px; border-radius: 6px; }
+.p-req-end { display: flex; align-items: center; gap: 8px; color: var(--fg2); font-size: 18px; }
+.p-link { background: none; border: 0; padding: 8px 4px; min-height: 44px; color: var(--cyan); font: inherit; font-weight: 700; cursor: pointer; }
+.p-contact { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.p-checkline { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; }
+.p-checkline input { width: 20px; height: 20px; }
+.p-msg { max-width: 88%; margin: 0 0 8px; padding: 8px 12px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); }
+.p-msg.me { margin-left: auto; background: var(--cyan-l); border-color: var(--cyan); }
+.p-msg-body { white-space: pre-wrap; font-size: 13.5px; }
+.p-msg small { color: var(--fg2); font-size: 10.5px; }

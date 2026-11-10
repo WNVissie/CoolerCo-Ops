@@ -6,6 +6,9 @@ import { supabase } from '../lib/supabase'
 import { fmt, num, PS, statusColor, condColor, CASE_TYPE_ICON, WAREHOUSES, WH_NAMES } from '../lib/helpers'
 
 // CoolerCo's own cases (portal requests first). Approve → Open, Reject with a reason.
+// Priority is set by the server from the customer's symptom + product answers (and raised by a customer query).
+const PRIORITY = { High: ['⚡ High', 'red'], Medium: ['Medium', 'orange'], Low: ['Low', 'neutral'] }
+const PriorityTag = ({ p }) => (p && PRIORITY[p] ? <span className={`tag tag-${PRIORITY[p][1]}`}>{PRIORITY[p][0]}</span> : null)
 const VIEWS = [
   { key: 'Waiting for Approval', icon: '⏳', label: 'Waiting for approval' },
   { key: 'Open', icon: '📂', label: 'Approved / open' },
@@ -46,6 +49,7 @@ export default function Requests() {
     { key: 'case_number', label: 'Case #', cls: 'mono', render: v => <strong style={{ fontSize: 11 }}>{v}</strong> },
     { key: 'case_type', label: 'Request', render: v => <span>{CASE_TYPE_ICON[v] || '•'} {v}</span> },
     { key: 'status_reason', label: 'Status', render: v => <span className={`tag tag-${statusColor(v === 'Waiting for Approval' ? 'waiting' : v)}`}>{v}</span> },
+    { key: 'priority', label: 'Priority', render: (v, r) => <span><PriorityTag p={v} />{r.repeat_of_case ? <span className="tag tag-purple" style={{ marginLeft: 4 }} title={`Repeat of ${r.repeat_of_case}`}>🔁 Repeat</span> : null}</span> },
     { key: 'originator', label: 'From', render: (v, r) => <span>{v}<div className="text3" style={{ fontSize: 10 }}>{r.origin}</div></span> },
     { key: 'point_of_sale', label: 'Store', render: (v, r) => <span className="trunc" style={{ maxWidth: 180, display: 'block' }} title={v}>{v}<span className="text3"> · {r.pos_local_code}</span></span> },
     { key: 'warehouse_code', label: 'WH', render: v => WH_NAMES[v] || v || '—' },
@@ -96,6 +100,12 @@ function RequestDetail({ c, onChanged }) {
   const [notes, setNotes] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
+  const [labels, setLabels] = useState({})     // symptom + product impact wording
+  const [msgs, setMsgs] = useState(null)       // messages on this case
+  const [reply, setReply] = useState('')
+  const [vis, setVis] = useState('customer')   // who may read the reply
+
+  const loadMsgs = () => supabase.from('coolerco_case_comments').select('*').eq('case_number', c.case_number).order('created_at').then(({ data }) => setMsgs(data || []))
 
   // Everything for the drawer loads together
   useEffect(() => {
@@ -104,8 +114,11 @@ function RequestDetail({ c, onChanged }) {
       c.photo_paths?.length ? supabase.storage.from('coolerco-cases').createSignedUrls(c.photo_paths, 3600) : Promise.resolve({ data: [] }),
       c.mapped_asset ? supabase.from('assets_live').select('name,bar_code,local_code,product_base,condition,asset_status').eq('name', c.mapped_asset).maybeSingle() : Promise.resolve({ data: null }),
       supabase.from('coolerco_reason_codes').select('*').eq('status', 'Rejected').eq('active', true).order('sort_order'),
-    ]).then(([e, p, a, r]) => { setEvents(e.data || []); setPhotos((p.data || []).map(x => x.signedUrl).filter(Boolean)); setAsset(a.data); setReasons(r.data || []) })
-  }, [c])
+      c.symptom_code ? supabase.from('coolerco_symptoms').select('label').eq('code', c.symptom_code).maybeSingle() : Promise.resolve({ data: null }),
+      c.product_impact ? supabase.from('coolerco_product_impacts').select('label').eq('code', c.product_impact).maybeSingle() : Promise.resolve({ data: null }),
+      loadMsgs(),
+    ]).then(([e, p, a, r, sy, im]) => { setLabels({ symptom: sy?.data?.label, impact: im?.data?.label }); setEvents(e.data || []); setPhotos((p.data || []).map(x => x.signedUrl).filter(Boolean)); setAsset(a.data); setReasons(r.data || []) })
+  }, [c]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function setStatus(status, reason) {
     setBusy(true); setErr(null)
@@ -114,10 +127,23 @@ function RequestDetail({ c, onChanged }) {
     if (error) setErr(error.message); else onChanged()
   }
 
+  async function sendReply() {
+    if (!reply.trim()) return
+    setBusy(true); setErr(null)
+    const { data: u } = await supabase.auth.getUser()
+    const { error } = await supabase.from('coolerco_case_comments').insert({
+      case_number: c.case_number, case_source: 'CoolerCo', author_type: 'staff', author_label: u?.user?.email || 'staff', body: reply.trim().slice(0, 2000), visibility: vis,
+    })
+    setBusy(false)
+    if (error) setErr(error.message); else { setReply(''); loadMsgs() }
+  }
+
   return (
     <div>
       <div className="chip-row">
         <span className="tag tag-neutral">{c.case_type}</span>
+        <PriorityTag p={c.priority} />
+        {c.repeat_of_case && <span className="tag tag-purple">🔁 Repeat of {c.repeat_of_case}{c.repeat_days != null ? ` · ${c.repeat_days} d` : ''}</span>}
         <span className={`tag tag-${c.status_reason === 'Waiting for Approval' ? 'orange' : statusColor(c.status_reason)}`}>{c.status_reason}</span>
         <span className="tag tag-blue">{c.originator} · {c.origin}</span>
       </div>
@@ -150,8 +176,43 @@ function RequestDetail({ c, onChanged }) {
       <details className="sec" open>
         <summary>📝 Request</summary>
         <div className="sec-body">
+          {(labels.symptom || labels.impact) && (
+            <div className="dl-grid" style={{ marginBottom: 8 }}>
+              <Field label="Problem">{labels.symptom}</Field>
+              <Field label="Product">{labels.impact}</Field>
+              <Field label="Priority">{c.priority && <><PriorityTag p={c.priority} /> <span className="text3" style={{ fontSize: 10.5 }}>{c.priority_source === 'customer_query' ? 'raised by customer query' : c.priority_source === 'auto' ? 'set automatically' : c.priority_source || ''}</span></>}</Field>
+            </div>
+          )}
           <div className="note-box">{c.description || '—'}</div>
           {photos.length > 0 && <div className="p-thumbs">{photos.map(u => <a key={u} href={u} target="_blank" rel="noreferrer"><img src={u} alt="" style={{ width: 84, height: 84, objectFit: 'cover', borderRadius: 7, marginRight: 6 }} /></a>)}</div>}
+        </div>
+      </details>
+
+      <details className="sec" open>
+        <summary>💬 Messages {msgs?.length ? `(${msgs.length})` : ''}</summary>
+        <div className="sec-body">
+          {!msgs ? <div className="load-state"><span className="spinner" /></div> : !msgs.length ? <div className="text3" style={{ fontSize: 11.5 }}>No messages on this case.</div> : (
+            <div className="timeline">
+              {msgs.map(m => (
+                <div key={m.id} className="tl-item">
+                  <span className="tl-dot">{m.author_type === 'customer' ? '👤' : m.author_type === 'staff' ? '🧑‍💼' : '🤝'}</span>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 11.5, whiteSpace: 'pre-wrap' }}>{m.body}</div>
+                    <div className="text3" style={{ fontSize: 10.5 }}>{new Date(m.created_at).toLocaleString('en-ZA')} · {m.author_label} · <span className={`tag tag-${m.visibility === 'customer' ? 'blue' : 'neutral'}`}>{m.visibility === 'customer' ? 'customer can see' : m.visibility === 'internal' ? 'internal' : 'concessionaire'}</span></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <textarea className="field-ctrl" rows={2} style={{ marginTop: 8 }} placeholder="Reply or add a note…" value={reply} onChange={e => setReply(e.target.value)} />
+          <div className="modal-btns" style={{ justifyContent: 'flex-start' }}>
+            <select className="field-ctrl" style={{ width: 'auto' }} value={vis} onChange={e => setVis(e.target.value)} aria-label="Who can see this">
+              <option value="customer">👤 Customer can see</option>
+              <option value="internal">🔒 Internal only</option>
+            </select>
+            <button className="btn btn-primary btn-sm" disabled={busy || !reply.trim()} onClick={sendReply}>➤ Send</button>
+          </div>
+          {err && c.status_reason !== 'Waiting for Approval' && <div className="form-msg err">{err}</div>}
         </div>
       </details>
 

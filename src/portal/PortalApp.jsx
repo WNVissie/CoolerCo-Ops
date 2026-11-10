@@ -4,8 +4,9 @@ import { rpcRead, isNetErr, NET_MSG } from '../lib/rpcRetry'
 import './portal.css'
 
 // Public customer portal — no login. The link token identifies the store.
-// Server functions used: coolerco_portal_context, coolerco_portal_options (symptom lists) and
-// coolerco_portal_submit_v2 (falls back to coolerco_portal_submit where 017 is not installed).
+// Server functions used: coolerco_portal_context, coolerco_portal_options (symptom + query lists, saved contact),
+// coolerco_portal_submit_v2 (falls back to coolerco_portal_submit where 017 is not installed),
+// coolerco_portal_case + coolerco_portal_case_query (ask about an open case) and coolerco_portal_propose_contact.
 const KINDS = [
   { key: 'repair',     icon: '🔧', label: 'Repair',     desc: 'An asset is not working properly' },
   { key: 'collection', icon: '📦', label: 'Collection', desc: 'Remove an asset from the store' },
@@ -21,6 +22,11 @@ const ERRORS = {
   bad_family: 'That item is no longer in the catalogue.',
   symptom_required: 'Please choose what is wrong with the asset.',
   impact_required: 'Please tell us what is happening to your product.',
+  not_found: 'We could not find that case for your store.',
+  case_closed: 'That case is already closed. You can log a new request for the asset.',
+  query_limit: 'You have reached today\'s limit of messages for this case. Please call your CoolerCo warehouse if it is urgent.',
+  reason_required: 'Please choose what you want to ask.',
+  note_required: 'Please type a short message.',
 }
 const fmtDate = d => (d ? new Date(d).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' }) : '')
 
@@ -53,6 +59,11 @@ export default function PortalApp({ token }) {
   const [opts, setOpts] = useState(null)       // symptom + product lists (null = old screen)
   const [symptom, setSymptom] = useState(null)
   const [impact, setImpact] = useState(null)
+  const [caseView, setCaseView] = useState(null) // case number being viewed / asked about
+  const [email, setEmail] = useState('')
+  const [editContact, setEditContact] = useState(false)
+  const [saveContact, setSaveContact] = useState(true) // keep changed details for next time (supervisor approves)
+  const [contactNote, setContactNote] = useState(null)
 
   async function load() {
     setErr(null)
@@ -71,7 +82,7 @@ export default function PortalApp({ token }) {
   // Symptom lists load alongside the store (parallel). If they are not available the old free-text screen is used.
   useEffect(() => {
     rpcRead('coolerco_portal_options', { p_token: token }).then(({ data, error }) => {
-      if (!error && data && !data.error && data.symptoms?.length) setOpts(data)
+      if (!error && data && !data.error && data.symptoms?.length) { setOpts(data); setEmail(e => e || data.contact?.email || '') }
     })
   }, [token])
 
@@ -81,7 +92,7 @@ export default function PortalApp({ token }) {
     ? (ctx.open_cases || []).filter(o => /deliver|replacement/i.test(o.case_type))
     : asset ? openFor(asset.asset) : []
 
-  function reset() { setStep(0); setKind(null); setAsset(null); setFamily(null); setDesc(''); setPhotos([]); setDone(null); setDupAck(false); setStopped(null); setSymptom(null); setImpact(null) }
+  function reset() { setStep(0); setKind(null); setAsset(null); setFamily(null); setDesc(''); setPhotos([]); setDone(null); setDupAck(false); setStopped(null); setSymptom(null); setImpact(null); setEditContact(false); setContactNote(null) }
 
   async function addPhotos(files) {
     for (const f of [...files].slice(0, 3 - photos.length)) {
@@ -101,15 +112,31 @@ export default function PortalApp({ token }) {
     const { data, error } = await supabase.rpc(opts ? 'coolerco_portal_submit_v2' : 'coolerco_portal_submit', { p_token: token, p_request: request })
     setBusy(false)
     if (error) { setErr(isNetErr(error) ? NET_MSG + ' Your request was not sent yet.' : error.message); return }
+    if (data?.error === 'already_open') { setErr(`There is already an open case for this asset: ${data.case_number}. You can ask about it under "My requests".`); load(); return }
     if (data?.error) { setErr(ERRORS[data.error] || data.error); return }
-    setDone({ case_number: data.case_number, status: data.status || 'Waiting for Approval', priority: data.priority }); load()
+    setDone({ case_number: data.case_number, status: data.status || 'Waiting for Approval', priority: data.priority, repeat_of: data.repeat_of }); load()
+    // Changed contact details: used on this request straight away; saved for the store once a supervisor approves
+    if (contactChanged && saveContact && opts) {
+      const changes = {}
+      if (name.trim() !== (saved.name || '')) changes.contact_name = name.trim()
+      if (phone.trim() !== (saved.phone || '')) { changes.contact_number = phone.trim(); changes.mobile_number = phone.trim() }
+      if (email.trim() !== (saved.email || '')) { changes.email = email.trim(); if (email.trim()) changes.notify_email = true }
+      supabase.rpc('coolerco_portal_propose_contact', { p_token: token, p_values: changes }).then(({ data: r }) => {
+        setContactNote(r?.ok || r?.error === 'already_pending' ? 'Your updated contact details were sent to CoolerCo to confirm.' : null)
+      }, () => {})
+    }
   }
 
   // Repair with symptom lists: pick what is wrong (+ what is happening to the product); typing is optional
   const guided = kind === 'repair' && !!opts
   const needImpact = guided && !!symptom?.ask_product
   const detailsOk = guided ? !!symptom && (!needImpact || !!impact) : desc.trim().length >= 5
-  const canNext = [!!kind, (kind === 'new' ? !!family : !!asset) && (!dup.length || dupAck), detailsOk && name.trim() && phone.trim(), true][step]
+  // One open case per asset: an asset with an open case cannot get a second one (the customer asks about the open case instead)
+  const blocked = kind !== 'new' && dup.length > 0 && !!opts
+  const saved = opts?.contact || ctx?.contact || {}
+  const contactChanged = name.trim() !== (saved.name || '') || phone.trim() !== (saved.phone || '') || email.trim() !== (saved.email || '')
+  const haveContact = !!(saved.name && saved.phone)
+  const canNext = [!!kind, (kind === 'new' ? !!family && (!dup.length || dupAck) : !!asset && (opts ? !dup.length : !dup.length || dupAck)), detailsOk && name.trim() && phone.trim(), true][step]
 
   if (err && !ctx) return <Shell><div className="p-card p-center"><div className="p-big">{err === NET_MSG ? '📶' : '⚠️'}</div><p>{err}</p>{err === NET_MSG && <button className="p-btn" onClick={load}>↻ Try again</button>}</div></Shell>
   if (!ctx) return <Shell><div className="p-center"><span className="p-spin" /> Loading your store…</div></Shell>
@@ -121,31 +148,28 @@ export default function PortalApp({ token }) {
         <button className={tab === 'mine' ? 'on' : ''} onClick={() => setTab('mine')}>📋 My requests {ctx.requests?.length ? <span className="p-count">{ctx.requests.length}</span> : null}</button>
       </div>
 
-      {tab === 'mine' && (ctx.open_cases || []).some(o => o.source === 'COM') && (
+      {caseView && <CaseView token={token} caseNo={caseView} reasons={opts?.query_reasons || []} onBack={() => { setCaseView(null); load() }} />}
+
+      {!caseView && tab === 'mine' && (ctx.open_cases || []).some(o => o.source === 'COM') && (
         <div className="p-card">
           <h3>🔧 Open work for your store</h3>
           {(ctx.open_cases || []).filter(o => o.source === 'COM').map(o => (
-            <div key={o.case_number} className="p-req">
-              <div><strong>{o.case_number}</strong><div className="p-muted">{o.case_type} · {fmtDate(o.created_on)}</div></div>
-              <span className="p-tag ok">{o.status}</span>
-            </div>
+            <CaseRow key={o.case_number} r={o} canOpen={!!opts} onOpen={() => setCaseView(o.case_number)} />
           ))}
         </div>
       )}
 
-      {tab === 'mine' && (
+      {!caseView && tab === 'mine' && (
         <div className="p-card">
           <h3>📋 Requests you logged</h3>
           {!ctx.requests?.length ? <p className="p-muted">No requests yet.</p> : ctx.requests.map(r => (
-            <div key={r.case_number} className="p-req">
-              <div><strong>{r.case_number}</strong><div className="p-muted">{r.case_type} · {fmtDate(r.created_on)}</div></div>
-              <span className={`p-tag ${r.status === 'Waiting for Approval' ? 'warn' : r.status === 'Rejected' ? 'bad' : 'ok'}`}>{r.status}</span>
-            </div>
+            <CaseRow key={r.case_number} r={r} canOpen={!!opts} onOpen={() => setCaseView(r.case_number)} />
           ))}
+          {!!opts && !!ctx.requests?.length && <p className="p-muted" style={{ fontSize: 11.5 }}>Tap a case to see it or to ask about it.</p>}
         </div>
       )}
 
-      {tab === 'new' && done && (
+      {!caseView && tab === 'new' && done && (
         <div className="p-card p-center">
           <div className="p-done">✓</div>
           <h2>Request received</h2>
@@ -160,12 +184,14 @@ export default function PortalApp({ token }) {
             })}
           </div>
           {done.priority === 'High' && <p className="p-tag bad" style={{ alignSelf: 'center' }}>⚡ Marked urgent</p>}
+          {done.repeat_of && <p className="p-muted" style={{ fontSize: 12 }}>We see this asset was repaired recently ({done.repeat_of}). We have flagged this as a repeat repair.</p>}
+          {contactNote && <p className="p-muted" style={{ fontSize: 12 }}>✓ {contactNote}</p>}
           <p className="p-muted" style={{ fontSize: 12 }}>We will contact you on {phone}. Keep this reference number.</p>
           <button className="p-btn" onClick={reset}>Log another request</button>
         </div>
       )}
 
-      {tab === 'new' && !done && stopped && (
+      {!caseView && tab === 'new' && !done && stopped && (
         <div className="p-card p-center">
           <div className="p-done">✓</div>
           <h2>No new request needed</h2>
@@ -176,7 +202,7 @@ export default function PortalApp({ token }) {
         </div>
       )}
 
-      {tab === 'new' && !done && !stopped && (
+      {!caseView && tab === 'new' && !done && !stopped && (
         <>
           <div className="p-steps">{STEPS.map((s, i) => <div key={s} className={`p-step ${i < step ? 'done' : i === step ? 'on' : ''}`}><span>{i < step ? '✓' : i + 1}</span>{s}</div>)}</div>
 
@@ -220,7 +246,24 @@ export default function PortalApp({ token }) {
             <Catalogue items={ctx.catalogue} photos={famPhotos} value={family} onChange={f => { setFamily(f); setDupAck(false) }} />
           )}
 
-          {step === 1 && dup.length > 0 && !dupAck && (
+          {step === 1 && blocked && (
+            <div className="p-card p-dup">
+              <strong>ℹ️ There is already an open case for this asset</strong>
+              {dup.slice(0, 3).map(o => (
+                <div key={o.case_number} className="p-req">
+                  <div><strong>{o.case_number}</strong><div className="p-muted">{o.case_type} · logged {fmtDate(o.created_on)}</div></div>
+                  <span className="p-tag ok">{o.status}</span>
+                </div>
+              ))}
+              <p className="p-muted">We can only have one open case per asset. You can ask about this case or add information to it — a new request is possible once it is closed.</p>
+              <div className="p-nav" style={{ position: 'static', padding: 0 }}>
+                <button className="p-btn ghost" onClick={() => setStopped(dup[0])}>👍 OK, thanks</button>
+                <button className="p-btn" onClick={() => setCaseView(dup[0].case_number)}>💬 Ask about this case</button>
+              </div>
+            </div>
+          )}
+
+          {step === 1 && !blocked && dup.length > 0 && !dupAck && (
             <div className="p-card p-dup">
               <strong>ℹ️ This is already logged</strong>
               {dup.slice(0, 3).map(o => (
@@ -271,10 +314,28 @@ export default function PortalApp({ token }) {
                   <label className="p-add-photo">＋<input type="file" accept="image/*" capture="environment" multiple hidden onChange={e => addPhotos(e.target.files)} /></label>
                 )}
               </div>
-              <div className="p-label">👤 Your name</div>
-              <input value={name} onChange={e => setName(e.target.value)} />
-              <div className="p-label">📞 Contact number</div>
-              <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} />
+              <div className="p-label">👤 Your contact details</div>
+              {haveContact && !editContact ? (
+                <div className="p-contact">
+                  <div><strong>{name}</strong><div className="p-muted">📞 {phone}{email ? ` · ✉️ ${email}` : ''}</div></div>
+                  <button type="button" className="p-link" onClick={() => setEditContact(true)}>✏️ Change</button>
+                </div>
+              ) : (
+                <>
+                  <div className="p-label">Name</div>
+                  <input value={name} onChange={e => setName(e.target.value)} autoComplete="name" />
+                  <div className="p-label">Contact number</div>
+                  <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} autoComplete="tel" />
+                  {!!opts && <>
+                    <div className="p-label">Email (optional — for updates on your request)</div>
+                    <input type="email" value={email} onChange={e => setEmail(e.target.value)} autoComplete="email" placeholder="name@example.com" />
+                    {contactChanged && !opts.contact?.update_pending && (
+                      <label className="p-checkline"><input type="checkbox" checked={saveContact} onChange={e => setSaveContact(e.target.checked)} /> Use these details for my store from now on</label>
+                    )}
+                    {opts.contact?.update_pending && <p className="p-muted" style={{ fontSize: 11.5 }}>An earlier update of your details is still waiting for CoolerCo to confirm.</p>}
+                  </>}
+                </>
+              )}
             </div>
           )}
 
@@ -305,6 +366,106 @@ export default function PortalApp({ token }) {
         </>
       )}
     </Shell>
+  )
+}
+
+// One row in "My requests" — opens the case when the query functions are available
+function CaseRow({ r, canOpen, onOpen }) {
+  const tag = <span className={`p-tag ${r.status === 'Waiting for Approval' ? 'warn' : r.status === 'Rejected' ? 'bad' : 'ok'}`}>{r.status}</span>
+  const body = <div><strong>{r.case_number}</strong><div className="p-muted">{r.case_type} · {fmtDate(r.created_on)}</div></div>
+  if (!canOpen) return <div className="p-req">{body}{tag}</div>
+  return <button type="button" className="p-req p-req-btn" onClick={onOpen}>{body}<span className="p-req-end">{tag}<span aria-hidden="true">›</span></span></button>
+}
+
+// One case: what was logged, messages the customer may see, and "Ask about this case"
+function CaseView({ token, caseNo, reasons, onBack }) {
+  const [d, setD] = useState(null)
+  const [err, setErr] = useState(null)
+  const [reason, setReason] = useState(null)
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [sent, setSent] = useState(null)
+
+  async function load() {
+    const { data, error } = await rpcRead('coolerco_portal_case', { p_token: token, p_case: caseNo })
+    if (error) { setErr(isNetErr(error) ? NET_MSG : error.message); return }
+    if (data?.error) { setErr(ERRORS[data.error] || data.error); return }
+    setErr(null); setD(data)
+  }
+  useEffect(() => { load() }, [caseNo]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function send() {
+    setBusy(true); setErr(null)
+    // a write: never retried (no duplicate messages)
+    const { data, error } = await supabase.rpc('coolerco_portal_case_query', { p_token: token, p_case: caseNo, p_reason: reason.code, p_note: note })
+    setBusy(false)
+    if (error) { setErr(isNetErr(error) ? NET_MSG + ' Your message was not sent yet.' : error.message); return }
+    if (data?.error) { setErr(ERRORS[data.error] || data.error); return }
+    setSent(data); setReason(null); setNote(''); load()
+  }
+
+  const needNote = !!reason?.needs_note
+  return (
+    <>
+      <button type="button" className="p-link" style={{ marginBottom: 8 }} onClick={onBack}>← Back</button>
+      {!d && !err && <div className="p-center"><span className="p-spin" /> Loading…</div>}
+      {!d && err && <div className="p-card p-center"><p>{err}</p><button className="p-btn" onClick={load}>↻ Try again</button></div>}
+      {d && (
+        <>
+          <div className="p-card">
+            <div className="p-req" style={{ border: 0, padding: 0 }}>
+              <div><strong>{d.case_number}</strong><div className="p-muted">{d.case_type} · logged {fmtDate(d.created_on)}</div></div>
+              <span className={`p-tag ${d.open ? 'ok' : ''}`}>{d.status}</span>
+            </div>
+            <div className="p-sum" style={{ marginTop: 10 }}>
+              {d.barcode && <div><span>Asset</span><strong>Barcode {d.barcode}</strong></div>}
+              {d.symptom && <div><span>Problem</span><strong>{d.symptom}</strong></div>}
+              {d.product_impact && <div><span>Product</span><strong>{d.product_impact}</strong></div>}
+              {d.description && <div><span>Details</span><strong>{d.description}</strong></div>}
+              {d.due && d.open && <div><span>Planned by</span><strong>{fmtDate(d.due)}</strong></div>}
+            </div>
+            {d.priority === 'High' && <span className="p-tag bad">⚡ Marked urgent</span>}
+          </div>
+
+          <div className="p-card">
+            <h3>💬 Messages</h3>
+            {!d.messages.length && <p className="p-muted">No messages yet.</p>}
+            {d.messages.map((m, i) => (
+              <div key={i} className={`p-msg ${m.mine ? 'me' : ''}`}>
+                <div className="p-msg-body">{m.body}</div>
+                <small>{m.from} · {new Date(m.at).toLocaleString('en-ZA', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</small>
+              </div>
+            ))}
+          </div>
+
+          {d.open && reasons.length > 0 && (
+            <div className="p-card">
+              <h3>Ask about this case</h3>
+              {sent && <p className="p-tag ok" style={{ marginBottom: 8 }}>✓ Sent{sent.priority_raised ? ' — we have marked this case urgent' : ''}</p>}
+              {d.queries_left <= 0 ? <p className="p-muted">{ERRORS.query_limit}</p> : (
+                <>
+                  <div className="p-chips col" role="radiogroup" aria-label="What do you want to ask?">
+                    {reasons.map(o => (
+                      <button key={o.code} type="button" role="radio" aria-checked={reason?.code === o.code}
+                        className={`p-chip ${reason?.code === o.code ? 'sel' : ''}`} onClick={() => { setReason(o); setSent(null) }}>{o.label}</button>
+                    ))}
+                  </div>
+                  {reason && (
+                    <>
+                      <div className="p-label">📝 {needNote ? 'Your message' : 'Add a note (optional)'}</div>
+                      <textarea rows={2} value={note} onChange={e => setNote(e.target.value)} />
+                      {err && <p className="p-err">{err}</p>}
+                      <button className="p-btn" style={{ width: '100%', marginTop: 10 }} disabled={busy || (needNote && !note.trim())} onClick={send}>{busy ? 'Sending…' : '➤ Send'}</button>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+          {!d.open && <p className="p-muted" style={{ textAlign: 'center' }}>This case is closed. If the problem is back, log a new request.</p>}
+        </>
+      )}
+    </>
   )
 }
 
