@@ -132,11 +132,12 @@ export default function PortalApp({ token }) {
   const needImpact = guided && !!symptom?.ask_product
   const detailsOk = guided ? !!symptom && (!needImpact || !!impact) : desc.trim().length >= 5
   // One open case per asset: an asset with an open case cannot get a second one (the customer asks about the open case instead)
-  const blocked = kind !== 'new' && dup.length > 0 && !!opts
+  const canQuery = !!opts?.query_reasons?.length // script 018 installed
+  const blocked = kind !== 'new' && dup.length > 0 && canQuery
   const saved = opts?.contact || ctx?.contact || {}
   const contactChanged = name.trim() !== (saved.name || '') || phone.trim() !== (saved.phone || '') || email.trim() !== (saved.email || '')
   const haveContact = !!(saved.name && saved.phone)
-  const canNext = [!!kind, (kind === 'new' ? !!family && (!dup.length || dupAck) : !!asset && (opts ? !dup.length : !dup.length || dupAck)), detailsOk && name.trim() && phone.trim(), true][step]
+  const canNext = [!!kind, (kind === 'new' ? !!family && (!dup.length || dupAck) : !!asset && (canQuery ? !dup.length : !dup.length || dupAck)), detailsOk && name.trim() && phone.trim(), true][step]
 
   if (err && !ctx) return <Shell><div className="p-card p-center"><div className="p-big">{err === NET_MSG ? '📶' : '⚠️'}</div><p>{err}</p>{err === NET_MSG && <button className="p-btn" onClick={load}>↻ Try again</button>}</div></Shell>
   if (!ctx) return <Shell><div className="p-center"><span className="p-spin" /> Loading your store…</div></Shell>
@@ -154,7 +155,7 @@ export default function PortalApp({ token }) {
         <div className="p-card">
           <h3>🔧 Open work for your store</h3>
           {(ctx.open_cases || []).filter(o => o.source === 'COM').map(o => (
-            <CaseRow key={o.case_number} r={o} canOpen={!!opts} onOpen={() => setCaseView(o.case_number)} />
+            <CaseRow key={o.case_number} r={o} canOpen={canQuery} onOpen={() => setCaseView(o.case_number)} />
           ))}
         </div>
       )}
@@ -163,9 +164,9 @@ export default function PortalApp({ token }) {
         <div className="p-card">
           <h3>📋 Requests you logged</h3>
           {!ctx.requests?.length ? <p className="p-muted">No requests yet.</p> : ctx.requests.map(r => (
-            <CaseRow key={r.case_number} r={r} canOpen={!!opts} onOpen={() => setCaseView(r.case_number)} />
+            <CaseRow key={r.case_number} r={r} canOpen={canQuery} onOpen={() => setCaseView(r.case_number)} />
           ))}
-          {!!opts && !!ctx.requests?.length && <p className="p-muted" style={{ fontSize: 11.5 }}>Tap a case to see it or to ask about it.</p>}
+          {canQuery && !!ctx.requests?.length && <p className="p-muted" style={{ fontSize: 11.5 }}>Tap a case to see it or to ask about it.</p>}
         </div>
       )}
 
