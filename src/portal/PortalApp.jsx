@@ -113,7 +113,6 @@ export default function PortalApp({ token }) {
     const { data, error } = await supabase.rpc(opts ? 'coolerco_portal_submit_v2' : 'coolerco_portal_submit', { p_token: token, p_request: request })
     setBusy(false)
     if (error) { setErr(isNetErr(error) ? NET_MSG + ' Your request was not sent yet.' : error.message); return }
-    if (data?.error === 'already_requested') { setErr(`There is already an open request for this item at your store: ${data.case_number}. You can ask about it under "My requests".`); setHit(data.case_number); load(); return }
     if (data?.error === 'already_open') { setHit(data.case_number); setErr(`There is already an open case for this asset: ${data.case_number}. You can ask about it under "My requests".`); load(); return }
     if (data?.error) { setErr(ERRORS[data.error] || data.error); return }
     setDone({ case_number: data.case_number, status: data.status || 'Waiting for Approval', priority: data.priority, repeat_of: data.repeat_of }); load()

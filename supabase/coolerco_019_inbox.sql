@@ -1,31 +1,13 @@
--- CoolerCo-Ops · 019 · Staff inbox (alerts, customer queries incl. COM cases, contact updates) · new-asset duplicate rule
--- Additive only (coolerco_ objects). Replaces our own coolerco_portal_submit_v2 (018) with one extra check.
--- Needs 016, 017, 018. Rollback: coolerco_019_rollback.sql (then re-run 018 to restore its submit function).
+-- CoolerCo-Ops · 019 · Staff inbox: alerts, customer queries (CoolerCo + COM cases), contact updates
+-- Additive only (coolerco_ objects). Needs 016, 017, 018. Safe to run more than once. Rollback: coolerco_019_rollback.sql
 
 -- ---------------------------------------------------------------------
--- 1. New asset: is there already an open request for this catalogue item at this store?
+-- 1. Rule (Wanda 2026-11-10): an ASSET can have only one open case; a STORE can have several cases for
+--    different assets. A new-asset request has no asset yet, so it is never blocked (the portal still shows
+--    "already logged" as a reminder and lets the customer continue).
+--    The submit function below is the 018 version, written again so this script also removes an earlier
+--    draft of 019 that blocked a second request for the same catalogue item.
 -- ---------------------------------------------------------------------
-create or replace function public.coolerco_store_open_new_request(p_pos text, p_family uuid)
-returns jsonb language sql stable security definer set search_path = public, pg_temp as $$
-  select o from (
-    select jsonb_build_object('source', 'CoolerCo', 'case_number', k.case_number, 'case_type', k.case_type,
-                              'status', k.status_reason, 'created_on', k.created_on) o, k.created_on
-      from public.coolerco_cases k
-     where k.pos_local_code = p_pos and k.requested_family_id = p_family
-       and not public.coolerco_case_is_closed(k.status_reason)
-    union all
-    select jsonb_build_object('source', 'COM', 'case_number', c.case_number, 'case_type', c.case_type,
-                              'status', c.status_reason, 'created_on', c.created_on), c.created_on
-      from public.cases c
-      join public.coolerco_product_base_family bf on bf.product_base = c.requested_product_base
-     where c.pos_local_code = p_pos and bf.family_id = p_family
-       and (c.case_type ilike 'Deliver%' or c.case_type ilike 'Replacement%')
-       and lower(trim(c.status_reason)) in ('open', 'in progress', 'waiting', 'in service', 'on hold')
-  ) x
-  where p_pos is not null and p_family is not null
-  order by created_on limit 1;
-$$;
-
 create or replace function public.coolerco_portal_submit_v2(p_token text, p_request jsonb)
 returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -68,13 +50,6 @@ begin
     perform pg_advisory_xact_lock(hashtext('coolerco_asset:' || v_asset));
     v_open := public.coolerco_asset_open_case(v_asset);
     if v_open is not null then return jsonb_build_object('error', 'already_open') || v_open; end if;
-  end if;
-
-  -- New asset: one open request per store for the same catalogue item (COM delivery / replacement or CoolerCo request)
-  if kind = 'new' and nullif(p_request ->> 'family_id', '') is not null then
-    perform pg_advisory_xact_lock(hashtext('coolerco_new:' || l.pos_local_code || ':' || (p_request ->> 'family_id')));
-    v_open := public.coolerco_store_open_new_request(l.pos_local_code, (p_request ->> 'family_id')::uuid);
-    if v_open is not null then return jsonb_build_object('error', 'already_requested') || v_open; end if;
   end if;
 
   -- the existing function does all the other checks and creates the case
@@ -135,6 +110,8 @@ begin
 
   return v_res || jsonb_build_object('status', v_status, 'priority', v_pri, 'repeat_of', v_prev);
 end $$;
+
+drop function if exists public.coolerco_store_open_new_request(text, uuid);
 
 -- ---------------------------------------------------------------------
 -- 2. Customer queries for staff: one row per case that has a customer message (CoolerCo and COM cases)
@@ -203,8 +180,6 @@ end $$;
 -- ---------------------------------------------------------------------
 -- 5. Who may call what
 -- ---------------------------------------------------------------------
-revoke all on function public.coolerco_store_open_new_request(text, uuid) from public, anon;
-grant execute on function public.coolerco_store_open_new_request(text, uuid) to authenticated;
 revoke all on function public.coolerco_portal_submit_v2(text, jsonb) from public;
 grant execute on function public.coolerco_portal_submit_v2(text, jsonb) to anon, authenticated;
 revoke all on function public.coolerco_query_inbox(boolean, int) from public, anon;
