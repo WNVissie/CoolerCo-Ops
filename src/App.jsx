@@ -2,6 +2,7 @@ import { lazyPage } from './lib/lazyPage'
 import { useState, useEffect, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Sidebar from './components/Sidebar'
+import InboxAlarm from './components/InboxAlarm'
 import { supabase } from './lib/supabase'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -22,6 +23,7 @@ const LocationCheck = lazyPage(() => import('./pages/LocationCheck'))
 const Setup = lazyPage(() => import('./pages/Setup'))
 const Catalogue = lazyPage(() => import('./pages/Catalogue'))
 const Requests = lazyPage(() => import('./pages/Requests'))
+const Inbox = lazyPage(() => import('./pages/Inbox'))
 const PortalAccess = lazyPage(() => import('./pages/PortalAccess'))
 const Concessionaires = lazyPage(() => import('./pages/Concessionaires'))
 const NewCase = lazyPage(() => import('./pages/NewCase'))
@@ -50,6 +52,7 @@ export default function App() {
   const toggleNav = () => (isPhone() || navMode === 'menu' ? setMobileOpen(o => !o) : setSidebarCollapsed(c => !c))
   const switchNavMode = () => { setMobileOpen(false); setNavMode(m => (m === 'menu' ? 'sidebar' : 'menu')) }
   const [session, setSession] = useState(undefined) // undefined = still checking
+  const [inbox, setInbox] = useState({})            // what is waiting (from the alarm's 30 s check)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session))
@@ -64,10 +67,11 @@ export default function App() {
     <BrowserRouter>
       <div className={`app-shell${navMode === 'menu' ? ' nav-menu-mode' : ''}`}>
         <Sidebar collapsed={navMode === 'sidebar' && sidebarCollapsed} navMode={navMode} onSwitchMode={switchNavMode} onToggle={toggleNav} mobileOpen={mobileOpen} onNavigate={() => setMobileOpen(false)}
-          user={session.user} onSignOut={() => supabase.auth.signOut()} />
+          user={session.user} onSignOut={() => supabase.auth.signOut()} inboxCount={inbox.alerts || 0} inboxUrgent={!!inbox.urgent} />
         {mobileOpen && <div className="nav-scrim" onClick={() => setMobileOpen(false)} />}
         <div className="main-area">
-          <button className="topbar-hamburger" onClick={() => setMobileOpen(true)} aria-label="Open menu">☰</button>
+          <button className="topbar-hamburger" onClick={() => setMobileOpen(true)} aria-label={inbox.alerts ? `Open menu, ${inbox.alerts} alerts waiting` : 'Open menu'}>☰{inbox.alerts > 0 && <span className={`nav-badge on-btn${inbox.urgent ? ' urgent' : ''}`}>{inbox.alerts}</span>}</button>
+          <InboxAlarm onCounts={setInbox} />
           <Suspense fallback={<div className="load-state"><span className="spinner" /> Loading…</div>}>
             <Routes>
               <Route path="/" element={<Dashboard />} />
@@ -86,6 +90,7 @@ export default function App() {
               <Route path="/setup" element={<Setup />} />
               <Route path="/catalogue" element={<Catalogue />} />
               <Route path="/requests" element={<Requests />} />
+              <Route path="/inbox" element={<Inbox />} />
               <Route path="/portal-access" element={<PortalAccess />} />
               <Route path="/concessionaires" element={<Concessionaires />} />
               <Route path="/wms/receiving" element={<Receiving />} />

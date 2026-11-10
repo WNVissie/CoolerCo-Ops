@@ -6,6 +6,7 @@ const InstallApp = lazy(() => import('./InstallApp'))
 const NAV = [
   { section: 'Overview', icon: '📊', items: [
     { to: '/',         icon: '🏠', label: 'Dashboard' },
+    { to: '/inbox',    icon: '📥', label: 'Inbox', badge: true },
   ] },
   { section: 'Field Ops', icon: '🚚', items: [
     { to: '/cases',    icon: '🔧', label: 'Cases' },
@@ -49,7 +50,7 @@ const NAV = [
 const matches = (item, path) => item.to && (item.to === '/' ? path === '/' : path === item.to || path.startsWith(item.to + '/'))
 const groupOf = path => NAV.find(g => g.items.some(i => matches(i, path)))?.section
 
-export default function Sidebar({ collapsed, navMode, onSwitchMode, onToggle, mobileOpen, onNavigate, user, onSignOut }) {
+export default function Sidebar({ collapsed, navMode, onSwitchMode, onToggle, mobileOpen, onNavigate, user, onSignOut, inboxCount = 0, inboxUrgent = false }) {
   const { pathname } = useLocation()
   const showText = !collapsed || mobileOpen
   const [open, setOpen] = useState(() => groupOf(pathname) || 'Overview')
@@ -77,6 +78,7 @@ export default function Sidebar({ collapsed, navMode, onSwitchMode, onToggle, mo
       <>
         <span className="nav-icon">{item.icon}</span>
         <span className="nav-label">{item.label}</span>
+        {item.badge && inboxCount > 0 && <span className={`nav-badge${inboxUrgent ? ' urgent' : ''}`} aria-label={`${inboxCount} waiting`}>{inboxCount}</span>}
         {item.href && <span className="nav-ext-arrow">↗</span>}
       </>
     )
@@ -117,6 +119,7 @@ export default function Sidebar({ collapsed, navMode, onSwitchMode, onToggle, mo
                 onMouseEnter={e => !flyout && showTip(e, g.section)} onMouseLeave={hideTip}
                 onClick={e => { hideTip(); const r = e.currentTarget.getBoundingClientRect(); setFlyout(f => f?.section === g.section ? null : { section: g.section, top: r.top }) }}>
                 {g.icon}
+                {g.items.some(i => i.badge) && inboxCount > 0 && <span className={`nav-badge on-btn${inboxUrgent ? ' urgent' : ''}`}>{inboxCount}</span>}
               </button>
             )
           }
@@ -126,7 +129,9 @@ export default function Sidebar({ collapsed, navMode, onSwitchMode, onToggle, mo
               <button className={`nav-cat-hd${hasActive ? ' has-active' : ''}`} onClick={() => setOpen(isOpen ? null : g.section)} aria-expanded={isOpen}>
                 <span className="nav-icon">{g.icon}</span>
                 <span className="nav-label">{g.section}</span>
-                <span className="nav-cat-count">{g.items.length}</span>
+                {g.items.some(i => i.badge) && inboxCount > 0 && !isOpen
+                  ? <span className={`nav-badge${inboxUrgent ? ' urgent' : ''}`}>{inboxCount}</span>
+                  : <span className="nav-cat-count">{g.items.length}</span>}
                 <span className="nav-chev">{isOpen ? '▾' : '▸'}</span>
               </button>
               {isOpen && <div className="nav-cat-items">{g.items.map(i => <Item key={i.label} item={i} />)}</div>}

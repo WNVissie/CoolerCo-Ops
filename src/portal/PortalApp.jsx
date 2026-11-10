@@ -64,6 +64,7 @@ export default function PortalApp({ token }) {
   const [editContact, setEditContact] = useState(false)
   const [saveContact, setSaveContact] = useState(true) // keep changed details for next time (supervisor approves)
   const [contactNote, setContactNote] = useState(null)
+  const [hit, setHit] = useState(null) // open case that stopped this request
 
   async function load() {
     setErr(null)
@@ -92,7 +93,7 @@ export default function PortalApp({ token }) {
     ? (ctx.open_cases || []).filter(o => /deliver|replacement/i.test(o.case_type))
     : asset ? openFor(asset.asset) : []
 
-  function reset() { setStep(0); setKind(null); setAsset(null); setFamily(null); setDesc(''); setPhotos([]); setDone(null); setDupAck(false); setStopped(null); setSymptom(null); setImpact(null); setEditContact(false); setContactNote(null) }
+  function reset() { setStep(0); setKind(null); setAsset(null); setFamily(null); setDesc(''); setPhotos([]); setDone(null); setDupAck(false); setStopped(null); setSymptom(null); setImpact(null); setEditContact(false); setContactNote(null); setHit(null) }
 
   async function addPhotos(files) {
     for (const f of [...files].slice(0, 3 - photos.length)) {
@@ -112,7 +113,8 @@ export default function PortalApp({ token }) {
     const { data, error } = await supabase.rpc(opts ? 'coolerco_portal_submit_v2' : 'coolerco_portal_submit', { p_token: token, p_request: request })
     setBusy(false)
     if (error) { setErr(isNetErr(error) ? NET_MSG + ' Your request was not sent yet.' : error.message); return }
-    if (data?.error === 'already_open') { setErr(`There is already an open case for this asset: ${data.case_number}. You can ask about it under "My requests".`); load(); return }
+    if (data?.error === 'already_requested') { setErr(`There is already an open request for this item at your store: ${data.case_number}. You can ask about it under "My requests".`); setHit(data.case_number); load(); return }
+    if (data?.error === 'already_open') { setHit(data.case_number); setErr(`There is already an open case for this asset: ${data.case_number}. You can ask about it under "My requests".`); load(); return }
     if (data?.error) { setErr(ERRORS[data.error] || data.error); return }
     setDone({ case_number: data.case_number, status: data.status || 'Waiting for Approval', priority: data.priority, repeat_of: data.repeat_of }); load()
     // Changed contact details: used on this request straight away; saved for the store once a supervisor approves
@@ -355,6 +357,7 @@ export default function PortalApp({ token }) {
               </div>
               {kind !== 'repair' && <p className="p-muted" style={{ fontSize: 12 }}>ℹ️ {kind === 'new' ? 'New assets' : 'Collections'} need approval before they are scheduled.</p>}
               {err && <p className="p-err">{err}</p>}
+              {hit && canQuery && <button type="button" className="p-btn" style={{ width: '100%' }} onClick={() => { setErr(null); setCaseView(hit) }}>💬 Ask about {hit}</button>}
             </div>
           )}
 
