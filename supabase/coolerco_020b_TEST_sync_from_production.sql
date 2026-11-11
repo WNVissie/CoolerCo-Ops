@@ -202,15 +202,14 @@ drop policy if exists coolerco_sync_runs_read on public.coolerco_sync_runs;
 create policy coolerco_sync_runs_read on public.coolerco_sync_runs for select to authenticated using (true);
 
 -- ---------------------------------------------------------------------
--- 5. Schedule (pg_cron runs in UTC; South Africa = UTC+2)
---    07:30, 12:30, 15:30, 19:30 SA time → 05:30, 10:30, 13:30, 17:30 UTC
---    Sunday 01:00 SA time (Saturday 23:00 UTC): full copy as a safety net
+-- 5. Schedule (pg_cron runs in UTC; South Africa = UTC+2). Wanda 2026-11-11: uploads at 08:00, 12:00, 15:00
+--    (sometimes ~19:00); for testing, morning and evening is enough:
+--    08:30 and 19:30 SA time → 06:30 and 17:30 UTC; Sunday 01:00 SA time (Saturday 23:00 UTC) full copy.
+--    Run by hand any time on TEST:   select public.coolerco_sync_from_prod();
 -- ---------------------------------------------------------------------
---    Wanda 2026-11-11: MANUAL ONLY for now. Run on TEST when wanted:   select public.coolerco_sync_from_prod();
---    To switch the schedule on later, run these two lines on TEST:
---      select cron.schedule('coolerco_sync_from_prod',      '30 5,10,13,17 * * *', 'select public.coolerco_sync_from_prod(false)');
---      select cron.schedule('coolerco_sync_from_prod_full', '0 23 * * 6',          'select public.coolerco_sync_from_prod(true)');
 select cron.unschedule(jobid) from cron.job where jobname in ('coolerco_sync_from_prod', 'coolerco_sync_from_prod_full');
+select cron.schedule('coolerco_sync_from_prod',      '30 6,17 * * *', 'select public.coolerco_sync_from_prod(false)');
+select cron.schedule('coolerco_sync_from_prod_full', '0 23 * * 6',    'select public.coolerco_sync_from_prod(true)');
 
 -- ---------------------------------------------------------------------
 -- 6. Connection test: should show the number of cases in PRODUCTION (about 22,800), not an error
