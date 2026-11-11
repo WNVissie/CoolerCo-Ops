@@ -1,6 +1,6 @@
 # CoolerCo-Ops — Project Overview & Hand-over
 
-**Last updated:** 2026-10-25 · **Repo:** https://github.com/WNVissie/CoolerCo-Ops (branch `main`)
+**Last updated:** 2026-11-11 · **Repo:** https://github.com/WNVissie/CoolerCo-Ops (branch `main`)
 **Stack:** React 18 + Vite 5 · React Router v6 · Supabase JS v2 · Netlify · SheetJS (lazy, export only)
 **Owner:** Wanda (SMART Project Partners). Explain in plain language, simple modern UI, icons, collapsible sections, small fonts, responsive, parallel + lazy loading, say whether server or browser is better.
 
@@ -10,7 +10,12 @@ Related docs (in the claude.ai project): `coolerco-field-mapping.md`, `coolerco-
 
 ## 1. Golden rules
 
-- **Database = RTMA_Ops PRODUCTION `abgxjfeofgvimmimxvpa`**, shared with the RTMA dashboard (`rtma-cases-dashboard-netlify` / SMARTDash_RTMA), routing app and SmartSpares. **Append/add only** — never alter, rename or drop existing objects. Show the script and get approval before applying.
+- **Two databases (since 2026-11-10):**
+  - **TEST = `🟢[TEST] RTMA_Ops` `laljfgwngculogdzmqiu`** (paid project in the PROD organisation; cloned from production with Supabase "Restore to a New Project" on 2026-11-10 — one day behind at that moment; photos/files not copied; month-end billing cron switched **off**). **The UAT Netlify site points here.** All new work is applied and tested here first.
+  - **PRODUCTION = RTMA_Ops `abgxjfeofgvimmimxvpa`**, shared with the RTMA dashboard (`rtma-cases-dashboard-netlify` / SMARTDash_RTMA), routing app and SmartSpares. **Scripts 016–019 are NOT applied in production yet.** Production only gets a script when Wanda says so, with its rollback.
+- **Append/add only** — never alter, rename or drop existing objects of other apps. Show the script and get approval before applying.
+- **Applying scripts:** the Supabase connector asks Wanda to confirm DDL and times out after 2 minutes. What works: Claude writes the script → **Wanda runs it in the SQL editor of the TEST project** ("Run and enable RLS", confirm the destructive-operations prompt) → Claude verifies with read-only checks and a `do $$ … raise exception … $$` test block (rolls itself back, leaves no test data).
+- **Code workflow:** Claude has push access. Each change goes on a `claude/<topic>` branch; Wanda says **"merge"** → fast-forward to `main` → Netlify deploys. The app must keep working against a database that does not have the newer scripts (it falls back to the older screens) — keep that rule.
 - Everything CoolerCo adds is prefixed **`coolerco_`** (planned WMS tables: `coolerco_wms_*`).
 - **COM (Magnum's D365, built by Noesis) data is one-way**: `cases` and `assets_live` are imported by the dashboard; CoolerCo never writes to them.
 - Do **not** change the dashboard repo. Its `CLAUDE.md` + `netlify/functions/upload-cases.js` are the reference for mapping rules.
@@ -183,6 +188,54 @@ Helpers in `src/lib/helpers.js` (single source: statuses, SLA, case types, `case
 
 **Then (agreed order):** COM matching after upload (same store + asset/family + compatible type, ~14 days) · combined COM + CoolerCo cases view · **conversion stats** (portal requests → COM cases) · WhatsApp via Meta Cloud API (after Wanda's Meta setup) · tenant/client structure (Magnum, Tiger Brands) · route QR sheet + bulk send queue · staff Delivery wizard · routing app job card / tripsheet · WMS tables.
 
-**Open questions for Wanda (unanswered):** Magnum second approval for some types? Customers see concessionaire comments? Concessionaires log requests in v1? Several users per concessionaire? Replacement on the customer portal? Auto-link exact COM matches? Match window 14 days? Block or warn on duplicates? Approver sets condition/branding?
+**Open questions — ANSWERED by Wanda 2026-11-10 (see section 7):** approvals, comments visibility, several users per concessionaire, replacement on the portal, duplicates (block per asset), condition/branding. Still open: auto-link exact COM matches (rule explained, not yet confirmed) and the 14-day match window.
 
 **Open risk:** `cases` table has RLS disabled (readable with the anon key incl. contact numbers) — plan a fix with the other apps.
+
+---
+
+## 7. ▶ RESUME HERE — 2026-11-10 / 11 (review, test database, roles foundation, portal rules, inbox)
+
+**Direction (Wanda):** CoolerCo-Ops becomes the one app for end-to-end asset management — client portal, customer link, technician/driver mobile app, warehouse picking from routing; later Spares, dashboard, POS mapping, Inspection (+ admin) folded in so it feels like one app. Fleet: 3 trucks + bakkie in Gauteng and Durban, 1 truck + bakkie in the other warehouses; 4 technicians in the larger warehouses, 1 elsewhere; technicians repair at stores, one is usually warehouse-based.
+
+**Clients** (`coolerco_clients`, called "client" because `tenant_id` already means something else):
+- **MAGNUM** — COM (Dynamics 365 by Noesis, on Unilever's `unilevercrm` environment) is the master; cases are closed in COM; CoolerCo never writes to it. Magnum is moving COM to Salesforce (so `external_system` is a setting).
+- **TIGER** (Tiger Brands, second client) — no system of their own: **CoolerCo is the master**, cases are closed here; integration to their sales/customers later.
+
+**Roles** (`coolerco_roles` + `coolerco_user_access` = role + scope client / warehouse / contractor; helper `coolerco_has_role`, `coolerco_my_access`):
+system_admin (Wanda only) · administrator (uploads, edit records) · manager (supplier + approvals) · supplier (RTMA/CoolerCo: sees all, updates, audited, no delete) · client (Magnum / Tiger users: log, view, reports, approve delivery/removal/replacement) · viewer (executives) · contractor_admin (own company's cases, own technicians, tripsheets) · technician / driver (own cases only, job card, own stats). Customers and concessionaires / representatives keep their personal links (no login). **Role checks are NOT enforced on the existing pages yet** (any signed-in user still sees everything) — needs users to be given roles first, and a screen to do that. Only the new tables (alerts, feedback, contact updates) are role-protected. Wanda = system_admin on TEST.
+
+**Rules decided by Wanda (2026-11-10):**
+- **One open case per ASSET**, whatever the request type (COM or CoolerCo). A store can have several cases for different assets. A new-asset request has no asset yet → never blocked (portal only reminds).
+- While a case is open the customer **asks about it** (query = comment on the case, no new case). Once closed, a new request is allowed; a repair within **30 days** of the last repair = **repeat repair** (linked to the earlier case, works across COM).
+- **Repairs need no approval** (option per client: `repair_needs_approval`). Priority comes from **symptom + product impact** (customer never picks High/Medium/Low); "My product is now spoiling" raises to High and alerts the supervisor; client/supplier may override (audited).
+- **Approvals:** concessionaire / representative approves only their own customers' requests; Magnum / Tiger (client) can approve delivery, removal, replacement; approver may edit the replacement asset, condition and branding from available stock at the chosen warehouse. Replacement allowed on the customer portal.
+- **Comments:** concessionaire comments hidden from customers; supplier and client see them. Several users per concessionaire.
+- **Customer history:** a customer sees only their own store; asset history only for the time the asset stood in their store (needs placement periods — not built).
+- **Notifications:** new request → concessionaire + supervisor alarm; customer on approval and on closure (email if registered and opted in, WhatsApp later); closure message carries a **feedback survey** (1–5 stars, working now? on time/professional? comment) — scores for the supplier only unless shared per client (`coolerco_clients.share_feedback`).
+- **Contact details:** customer confirms at a glance when logging; changes go to a supervisor to approve; for Magnum stores approved changes land on a "to capture in COM" list.
+- **Contractors:** managed even if they do not use the app — contractor admin picks own technicians, builds the tripsheet, RTMA monitors (tables exist; screens not built). Job card + outcomes belong in the mobile app; the routing app keeps the tripsheet.
+
+**Scripts (all in `supabase/`, each with a rollback; applied on TEST only):**
+- **016** `coolerco_016_roles_priority_notifications_feedback.sql` — clients, roles, user access, contractors (+ technicians), symptoms, product impacts, `coolerco_priority_for`, notification rules + queue (`coolerco_notifications`, `coolerco_notify`, trigger `coolerco_cases_notify` on `coolerco_cases` — can never block a save), contact update requests (`coolerco_portal_propose_contact`, `coolerco_contact_update_decide`), feedback (`coolerco_case_feedback`, `coolerco_feedback_context` / `_submit`), new columns on `coolerco_cases` (client_code, symptom_code, product_impact, priority_source/set_by/set_at), `coolerco_portal_links` (client_code, email, notify_email, notify_whatsapp, trading_hours, delivery_notes), `coolerco_concessionaires` (client_code, kind). Existing rows tagged MAGNUM.
+- **017** `coolerco_017_portal_symptoms_priority.sql` — `coolerco_portal_options(token)`, `coolerco_portal_submit_v2(token, request)` (wraps the unchanged `coolerco_portal_submit`).
+- **018** `coolerco_018_one_case_per_asset_queries.sql` — `coolerco_case_is_closed`, `coolerco_asset_open_case` (COM + CoolerCo), block in submit_v2 (advisory lock per asset), repeat flag (`repeat_of_case`, `repeat_days`; setting `repeat_repair_days` 30), `coolerco_query_reasons`, `coolerco_portal_case(token, case)`, `coolerco_portal_case_query(token, case, reason, note)` (limit `portal_daily_query_limit` 3 per case per day), options now return saved contact + query reasons.
+- **019** `coolerco_019_inbox.sql` — `coolerco_query_inbox`, `coolerco_inbox_counts`, `coolerco_contact_update_captured`. (An earlier draft blocked a second new-asset request per catalogue item — removed; the script drops that function.)
+- Test pattern used for each: a `do $$` block that exercises the functions and ends with `raise exception` carrying the results → everything rolls back.
+
+**App changes (live on `main`, UAT):**
+- **Customer portal** (`src/portal/PortalApp.jsx`): Repair asks *What is wrong?* (symptom buttons) + *What is happening to your product?*; description optional; repair shows Received → Accepted, "⚡ Marked urgent". Asset with an open case → the case + **💬 Ask about this case** (no second case). *My requests* rows open the case (`CaseView`): details, messages the customer may see, query form. Contact details shown as one line with ✏️ Change; changed details used on the request and proposed for approval. Falls back to the old screens where 017 / 018 are not installed (`opts`, `canQuery`).
+- **Requests** (`src/pages/Requests.jsx`): Priority + 🔁 Repeat badges; problem / product impact / who set the priority; 💬 Messages with reply (customer can see / internal only).
+- **📥 Inbox** (`src/pages/Inbox.jsx`, `/inbox`, first menu group): 🔔 Alerts (mark read) · 💬 Customer queries on CoolerCo **and COM** cases with reply (COM is never changed) · 👤 Contact updates (approve / reject, "To capture in COM").
+- **Supervisor alarm** (`src/components/InboxAlarm.jsx`, mounted in `App.jsx`): asks `coolerco_inbox_counts` every 30 s while the app is open; new alert → sound + buzz + banner (urgent = red), count badge on the Inbox menu item, the ☰ button and the tab title; 🔔/🔕 mute per device; goes silent where 019 is not installed.
+
+**Not built yet / known limits:** role checks on existing pages + a screen to give users roles · warehouse filter on alerts · push to a closed phone · **sending** email/WhatsApp (queued only) · feedback survey page + closure message · contractor screens · customer history by placement period · SLA rules per priority · pick/load scanning + `coolerco_asset_movements` · job card/outcomes in the Field app · staff Delivery wizard · Tiger case lifecycle (closing in the app). None of the 2026-11-10/11 screens were visually checked by Claude — Wanda tests on UAT.
+
+**Resend (email):** connected; one domain `smartpartners.co.za` with **verification failed** — Wanda's domain at domains.co.za is spelled differently (she wrote "smartprojectapartners.co.za"; exact name to be confirmed) so the Resend domain is probably not hers. Next: add the correct domain (a subdomain such as `notify.` keeps it away from normal mail), add the 3 sending DNS records at domains.co.za (**never** the root "receiving" MX — it would divert her normal email), verify, then build the sender (Edge Function reading `coolerco_notifications` where channel = email, API key as a Supabase secret).
+
+**Magnum COM exports (parked, files with Wanda):** exports fail on bulk days (2-minute export limit); asset touch is the biggest. `WhoAmI` works for Wanda's user on the Web API. `com_pull_v2.js` = console snippet run on a signed-in Dynamics page: reads her saved personal views (cases `ca772141-a774-f111-ab0e-0022489b662f` on `incident`, assets `517261e4-a374-f111-ab0e-0022489b662f` on `noesis_asset`, asset touch `39d50f10-d4cd-f111-a05c-70a8a5304fbd` on `noesis_assettouch`) page by page and saves an `.xlsx` like the normal export (labels, SA-time date cells, numbers). v1 (CSV) pulled assets successfully; v2 not yet run by Wanda. Still needed: cases + asset touch Excel headings, repairs view saved as a personal view, the dashboard repo to check how its upload reads dates, a cell-by-cell comparison before any upload. Wanted: pulls at 07:00, 12:00, 15:00, 19:00 feeding the dashboard and UAT — fully hands-off needs an app registration from Magnum/Noesis (ask them); do not automate her personal sign-in.
+
+**Open risks:** `cases` has RLS disabled (see above) · the 48 old `st_*` tables (earlier AssetFlow start, not used by CoolerCo) have RLS off incl. `st_users` with password hashes — Wanda to decide: switch RLS on for all of them (separate small script) · TEST holds real customer data (contact numbers).
+
+**Suggested next (not yet agreed):** Resend sender → feedback survey → roles screen + enforcing roles → pick/load scanning with the movement ledger → job card in the Field app.
+
