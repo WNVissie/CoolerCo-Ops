@@ -9,6 +9,16 @@
 -- Rollback: coolerco_020_rollback_TEST.sql
 
 -- ---------------------------------------------------------------------
+-- 0. STOP if this is PRODUCTION. Production has the coolerco_export schema (from 020a); TEST does not.
+-- ---------------------------------------------------------------------
+do $$
+begin
+  if to_regnamespace('coolerco_export') is not null then
+    raise exception 'STOP: this is the PRODUCTION database (it has coolerco_export). Run 020b in the TEST project (🟢[TEST] RTMA_Ops).';
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------
 -- 1. Safety: this database is the TEST copy (the copy job refuses to run anywhere else)
 -- ---------------------------------------------------------------------
 insert into public.coolerco_settings (key, value) values ('sync_role', '"TEST"'::jsonb)
@@ -99,7 +109,8 @@ declare
   v_cols   text; v_upd text; v_pk text; v_where text; v_sql text; v_max text; v_ids uuid[];
   v_rel    regclass; v_frel regclass;
 begin
-  if coalesce((select value #>> '{}' from public.coolerco_settings where key = 'sync_role'), '') <> 'TEST' then
+  if coalesce((select value #>> '{}' from public.coolerco_settings where key = 'sync_role'), '') <> 'TEST'
+     or to_regnamespace('coolerco_export') is not null then
     raise exception 'coolerco_sync_from_prod only runs on the TEST database';
   end if;
   insert into public.coolerco_sync_runs (full_copy) values (p_full) returning id into v_run;
