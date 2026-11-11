@@ -12,6 +12,7 @@ const NAV = [
     { to: '/cases',    icon: '🔧', label: 'Cases' },
     { to: '/cases/asset-at-pos', icon: '⚠️', label: 'Open case · asset at POS' },
     { to: '/cases/closure-discrepancies', icon: '🔀', label: 'Closure discrepancies' },
+    { to: '/cases/flags', icon: '🚩', label: 'Case flags' },
     { to: '/assets',   icon: '🏭', label: 'Assets' },
     { to: '/picking',  icon: '📦', label: 'Warehouse Prep' },
     { to: '/routes',   icon: '🗺️', label: 'Routes' },
