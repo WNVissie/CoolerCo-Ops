@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import Topbar from '../components/Topbar'
 import { supabase } from '../lib/supabase'
 import { fmt, num, OPEN_REASONS, statusColor, CASE_TYPE_ICON } from '../lib/helpers'
@@ -19,6 +19,9 @@ export default function Dashboard() {
   const [recentCases, setRecentCases] = useState([])
   const [routes, setRoutes] = useState([])
   const [loading, setLoading] = useState(true)
+  const navigate = useNavigate()
+  // a table row that opens something: click or Enter
+  const rowLink = to => ({ onClick: () => navigate(to), onKeyDown: e => { if (e.key === 'Enter') navigate(to) }, tabIndex: 0, role: 'link', className: 'row-link' })
 
   useEffect(() => {
     async function load() {
@@ -92,7 +95,7 @@ export default function Dashboard() {
                     </thead>
                     <tbody>
                       {recentCases.map(c => (
-                        <tr key={c.case_number}>
+                        <tr key={c.case_number} {...rowLink(`/cases?case=${encodeURIComponent(c.case_number)}`)} title="Open this case">
                           <td className="mono" style={{ fontSize: 11 }}>{c.case_number}</td>
                           <td className="trunc" style={{ maxWidth: 150 }} title={c.point_of_sale}>{CASE_TYPE_ICON[c.case_type] || '•'} {c.case_type}</td>
                           <td><span className={`tag tag-${statusColor(c.status_reason)}`}>{c.status_reason}</span></td>
@@ -124,7 +127,7 @@ export default function Dashboard() {
                       {routes.length === 0 ? (
                         <tr><td colSpan={4} className="text3" style={{ textAlign: 'center', padding: 24 }}>No routes found</td></tr>
                       ) : routes.map(r => (
-                        <tr key={r.id}>
+                        <tr key={r.id} {...rowLink(`/routes?route=${encodeURIComponent(r.id)}`)} title="Open this route">
                           <td className="trunc" style={{ maxWidth: 140 }}>{r.route_number || `Route ${r.id}`}</td>
                           <td>{r.warehouse_group}</td>
                           <td>
@@ -144,6 +147,7 @@ export default function Dashboard() {
             {/* Quick Links */}
             <div className="mt-16" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
               {[
+                { to: '/cases', icon: '📂', label: 'Cases', sub: `${num(kpi.openCases)} open` },
                 { to: '/assets', icon: '🏭', label: 'Assets', sub: 'Find any asset' },
                 { to: '/stock', icon: '🧊', label: 'Asset Stock', sub: 'By bay' },
                 { to: '/picking', icon: '📦', label: 'Picking', sub: `${num(kpi.pickPending)} pending` },

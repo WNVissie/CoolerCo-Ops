@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import Topbar from '../components/Topbar'
 import DataTable from '../components/DataTable'
 import Drawer from '../components/Drawer'
@@ -14,6 +15,7 @@ export default function Routes() {
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState(null)
   const [stops, setStops] = useState([])
+  const [params, setParams] = useSearchParams()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -34,6 +36,21 @@ export default function Routes() {
 
   useEffect(() => { load() }, [load])
   useEffect(() => { setPage(0) }, [status, wh])
+
+  // Opened from the Dashboard (/routes?route=<id>): show that route's details straight away
+  useEffect(() => {
+    const id = params.get('route')
+    if (!id) return
+    supabase.from('routing_routes')
+      .select('id,route_number,route_date,status,warehouse_group,resource_display_name,vehicle_code,planned_stop_count,planned_asset_count,created_at,dispatched_at,completed_at')
+      .eq('id', id).maybeSingle()
+      .then(({ data }) => { if (data) openRoute(data) })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function closeRoute() {
+    setSelected(null)
+    if (params.get('route')) setParams({}, { replace: true })
+  }
 
   async function openRoute(row) {
     setSelected(row)
@@ -95,7 +112,7 @@ export default function Routes() {
         </div>
       </div>
 
-      <Drawer open={!!selected} onClose={() => setSelected(null)} title={selected?.route_number || 'Route Detail'} icon="🗺️">
+      <Drawer open={!!selected} onClose={closeRoute} title={selected?.route_number || 'Route Detail'} icon="🗺️">
         {selected && (
           <>
             <div style={{ marginBottom: 14 }}>

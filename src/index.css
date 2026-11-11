@@ -583,3 +583,22 @@ input.field-ctrl:focus, textarea.field-ctrl:focus { border-color: var(--accent);
 .alarm-x { background: none; border: 0; color: inherit; font-size: 15px; min-width: 36px; min-height: 36px; cursor: pointer; }
 @keyframes alarm-pulse { 50% { box-shadow: 0 0 0 8px rgba(220,38,38,.35); } }
 @media (prefers-reduced-motion: reduce) { .alarm-banner.urgent { animation: none; } }
+
+/* Clickable table rows (Dashboard) */
+.tbl tr.row-link { cursor: pointer; }
+.tbl tr.row-link:hover td { background: var(--accent-l); }
+.tbl tr.row-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* Cases: open cases per warehouse */
+.wh-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; margin-bottom: 12px; }
+.wh-card { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); cursor: pointer; text-align: left; font: inherit; min-height: 44px; }
+.wh-card:hover { border-color: var(--accent); }
+.wh-card.on { border-color: var(--accent); background: var(--accent-l); }
+.wh-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wh-card-n { font-size: 17px; font-weight: 700; color: var(--orange); }
+.wh-card.on .wh-card-n { color: var(--accent); }
+.wh-card-l { font-size: 11px; color: var(--text2); }
+@media (max-width: 640px) {
+  /* phones: warehouse cards in one row you swipe sideways, so the list stays near the top */
+  .wh-cards { display: flex; overflow-x: auto; scroll-snap-type: x proximity; padding-bottom: 4px; }
+  .wh-card { flex: 0 0 112px; scroll-snap-align: start; }
+}

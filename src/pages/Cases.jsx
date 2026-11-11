@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import Topbar from '../components/Topbar'
@@ -7,7 +7,7 @@ import Drawer from '../components/Drawer'
 import { searchCases, countCases, exportCases } from '../lib/caseSearch'
 import {
   fmt, num, PS, slaColor, slaLabel, statusColor, isOpenCase,
-  SLA_OPTIONS, CASE_TYPES, CASE_TYPE_ICON, DATE_FIELDS, WAREHOUSES, WH_NAMES, whCaseName,
+  SLA_OPTIONS, CASE_TYPES, CASE_TYPE_ICON, DATE_FIELDS, WAREHOUSES, WH_NAMES, whCaseName, OPEN_REASONS,
   caseAssets, caseAssetText, condColor,
 } from '../lib/helpers'
 
@@ -58,6 +58,15 @@ export default function Cases() {
   const [more, setMore] = useState(false)
   const [selected, setSelected] = useState(null)
   const [exp, setExp] = useState(null) // export dialog state
+  const [whCounts, setWhCounts] = useState(null) // open cases per warehouse (cards at the top)
+  const openFromLink = useRef(params.get('case')) // opened from the Dashboard: show that case straight away
+
+  // Open cases per warehouse: 9 tiny count-only requests, all at once
+  useEffect(() => {
+    Promise.all(WAREHOUSES.map(w => supabase.from('cases').select('case_number', { count: 'exact', head: true })
+      .in('status_reason', OPEN_REASONS).eq('warehouse_workshop', whCaseName(w))))
+      .then(res => setWhCounts(Object.fromEntries(WAREHOUSES.map((w, i) => [w, res[i].error ? null : res[i].count]))))
+  }, [])
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
@@ -66,15 +75,26 @@ export default function Cases() {
     const { rows, count, error } = await searchCases(query, { limit: PS, offset: page * PS })
     if (error) setMsg({ type: 'err', text: error.message })
     setRows(rows); setCount(count); setLoading(false)
+    if (openFromLink.current && rows.length) {
+      setSelected(rows.find(r => r.case_number === openFromLink.current) || rows[0])
+      openFromLink.current = null
+    }
   }, [query, page])
 
   useEffect(() => { load() }, [load])
 
-  function runSearch(e) {
+  // Filters apply as soon as they are chosen; typed text applies on Search / Enter
+  function setAndRun(k, v) {
+    const f = { ...form, [k]: v }
+    setForm(f)
+    runSearch(null, f)
+  }
+
+  function runSearch(e, f = form) {
     e?.preventDefault()
-    const { q, error } = buildQuery(form)
+    const { q, error } = buildQuery(f)
     if (error) { setMsg({ type: 'warn', text: error }); return }
-    if (q.from && q.to && !(q.caseNumber || q.pos || q.asset) && dayDiff(q.from, q.to) > MAX_VIEW_DAYS && form.status !== 'open') {
+    if (q.from && q.to && !(q.caseNumber || q.pos || q.asset) && dayDiff(q.from, q.to) > MAX_VIEW_DAYS && f.status !== 'open') {
       setMsg({ type: 'warn', text: 'On-screen searches are limited to 2 months. Shorten the dates, or use ⬇ Export for a longer period.' })
       return
     }
@@ -132,12 +152,27 @@ export default function Cases() {
         sub={isOpenView ? 'Showing open cases · search to include closed cases' : 'Search results'}
       />
       <div className="page-content">
+        {/* ── Open cases per warehouse: tap to show only that warehouse (tap again for all) ── */}
+        <div className="wh-cards" role="group" aria-label="Open cases per warehouse">
+          <button type="button" className={`wh-card${!form.warehouse ? ' on' : ''}`} onClick={() => setAndRun('warehouse', '')}>
+            <span className="wh-card-n">{whCounts ? num(Object.values(whCounts).reduce((t, n) => t + (n || 0), 0)) : '…'}</span>
+            <span className="wh-card-l">All warehouses</span>
+          </button>
+          {WAREHOUSES.map(w => (
+            <button type="button" key={w} className={`wh-card${form.warehouse === w ? ' on' : ''}`} aria-pressed={form.warehouse === w}
+              onClick={() => { const f = { ...form, warehouse: form.warehouse === w ? '' : w, status: 'open' }; setForm(f); runSearch(null, f) }}>
+              <span className="wh-card-n">{whCounts ? num(whCounts[w] ?? 0) : '…'}</span>
+              <span className="wh-card-l">{WH_NAMES[w]}</span>
+            </button>
+          ))}
+        </div>
+
         {/* ── Search panel ── */}
         <form className="card search-panel" onSubmit={runSearch}>
           <div className="sp-row">
             <div className="seg">
               {[['open', '📂 Open'], ['closed', '✅ Closed'], ['all', '🗂️ All']].map(([k, l]) => (
-                <button type="button" key={k} className={`seg-btn${form.status === k ? ' on' : ''}`} onClick={() => set('status', k)}>{l}</button>
+                <button type="button" key={k} className={`seg-btn${form.status === k ? ' on' : ''}`} onClick={() => setAndRun('status', k)}>{l}</button>
               ))}
             </div>
             <select value={form.by} onChange={e => set('by', e.target.value)} className="sp-by">
@@ -154,30 +189,30 @@ export default function Cases() {
           {more && (
             <div className="sp-more">
               <label><span>🏢 Warehouse</span>
-                <select value={form.warehouse} onChange={e => set('warehouse', e.target.value)}>
+                <select value={form.warehouse} onChange={e => setAndRun('warehouse', e.target.value)}>
                   <option value="">All</option>
                   {WAREHOUSES.map(w => <option key={w} value={w}>{WH_NAMES[w]}</option>)}
                 </select>
               </label>
               <label><span>📋 Case type</span>
-                <select value={form.caseType} onChange={e => set('caseType', e.target.value)}>
+                <select value={form.caseType} onChange={e => setAndRun('caseType', e.target.value)}>
                   <option value="">All</option>
                   {CASE_TYPES.map(t => <option key={t} value={t}>{CASE_TYPE_ICON[t]} {t}</option>)}
                 </select>
               </label>
               <label><span>⏱️ SLA</span>
-                <select value={form.sla} onChange={e => set('sla', e.target.value)}>
+                <select value={form.sla} onChange={e => setAndRun('sla', e.target.value)}>
                   <option value="">All</option>
                   {SLA_OPTIONS.map(s => <option key={s} value={s}>{slaLabel(s)}</option>)}
                 </select>
               </label>
               <label><span>📅 Date field</span>
-                <select value={form.dateField} onChange={e => set('dateField', e.target.value)}>
+                <select value={form.dateField} onChange={e => setAndRun('dateField', e.target.value)}>
                   {DATE_FIELDS.map(d => <option key={d.key} value={d.key}>{d.label}</option>)}
                 </select>
               </label>
-              <label><span>From</span><input type="date" value={form.from} onChange={e => set('from', e.target.value)} /></label>
-              <label><span>To</span><input type="date" value={form.to} onChange={e => set('to', e.target.value)} /></label>
+              <label><span>From</span><input type="date" value={form.from} onChange={e => set('from', e.target.value)} onBlur={() => runSearch()} /></label>
+              <label><span>To</span><input type="date" value={form.to} onChange={e => set('to', e.target.value)} onBlur={() => runSearch()} /></label>
               <div className="sp-actions">
                 <button type="button" className="btn btn-ghost btn-sm" onClick={clearAll}>✕ Clear</button>
                 <button type="button" className="btn btn-ghost btn-sm" onClick={startExport}>⬇ Export to Excel</button>
