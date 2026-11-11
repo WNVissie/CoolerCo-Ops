@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import Topbar from '../components/Topbar'
+import Drawer from '../components/Drawer'
+import CaseActions from '../components/CaseActions'
 import { supabase } from '../lib/supabase'
 import { fmt, num, statusColor, CASE_TYPE_ICON, WH_NAMES, whCaseName } from '../lib/helpers'
 
@@ -17,7 +19,45 @@ const TABS = [
 const PAGE = 100
 const monthsAgo = n => { const d = new Date(); d.setMonth(d.getMonth() - n); return d.toLocaleDateString('en-CA') }
 const needsScript = e => (/does not exist|Could not find/i.test(e.message) ? 'This report needs database script 021 — not applied on this database yet.' : e.message)
-const CaseLink = ({ no }) => <Link className="mono" to={`/cases?case=${encodeURIComponent(no)}`}>{no}</Link>
+// Clicking a case number opens a pop-out: summary + Open in COM / Cancel (CoolerCo cases) + open the full case
+const CaseLink = ({ no, onOpen }) => <button className="linkish mono" onClick={() => onOpen(no)} title="Case actions">{no}</button>
+
+function CasePop({ no, onClose, onChanged }) {
+  const [c, setC] = useState(null)
+  useEffect(() => {
+    if (!no) return
+    setC(null)
+    const cols = 'case_number,case_type,status_reason,point_of_sale,pos_local_code,warehouse_workshop,created_on,service_closure_date,asset_repaired,asset_removed,asset_delivered,mapped_asset'
+    Promise.all([
+      supabase.from('cases').select(cols + ',sla_status').eq('case_number', no).maybeSingle(),
+      supabase.from('coolerco_cases').select(cols).eq('case_number', no).maybeSingle(),
+    ]).then(([a, b]) => setC(a.data || b.data || {}))
+  }, [no])
+  const asset = c && (c.asset_repaired || c.asset_removed || c.asset_delivered || c.mapped_asset)
+  return (
+    <Drawer open={!!no} onClose={onClose} title={no || 'Case'} icon={CASE_TYPE_ICON[c?.case_type] || '🔧'}>
+      {!c ? <div className="load-state"><span className="spinner" /> Loading…</div> : (
+        <div>
+          <div className="chip-row">
+            {c.case_type && <span className="tag tag-neutral">{c.case_type}</span>}
+            {c.status_reason && <span className={`tag tag-${statusColor(c.status_reason)}`}>{c.status_reason}</span>}
+          </div>
+          <div className="dl-grid" style={{ margin: '8px 0' }}>
+            <div className="dl-field"><div className="lbl">Store</div><div className="val">{c.point_of_sale || '—'} <span className="mono text3">{c.pos_local_code}</span></div></div>
+            <div className="dl-field"><div className="lbl">Warehouse</div><div className="val">{(c.warehouse_workshop || '—').replace(/^RTMA /, '')}</div></div>
+            <div className="dl-field"><div className="lbl">Created</div><div className="val">{fmt(c.created_on)}</div></div>
+            <div className="dl-field"><div className="lbl">Closed</div><div className="val">{fmt(c.service_closure_date) || '—'}</div></div>
+            <div className="dl-field"><div className="lbl">Asset</div><div className="val mono">{asset || '—'}</div></div>
+          </div>
+          <CaseActions caseNumber={no} onChanged={onChanged} />
+          <div style={{ marginTop: 12 }}>
+            <Link className="btn btn-ghost btn-sm" to={`/cases?case=${encodeURIComponent(no)}`}>📂 Open full case</Link>
+          </div>
+        </div>
+      )}
+    </Drawer>
+  )
+}
 
 export default function CaseFlags() {
   const [params, setParams] = useSearchParams()
@@ -30,6 +70,7 @@ export default function CaseFlags() {
   const [dup, setDup] = useState(null)
   const [err, setErr] = useState(null)
   const [tick, setTick] = useState(0)
+  const [pop, setPop] = useState(null)
 
   // Both reports load together (parallel); the counts on the cards stay right whichever tab is open
   useEffect(() => {
@@ -123,8 +164,8 @@ export default function CaseFlags() {
                     <td style={{ fontSize: 11 }}><Link className="mono" to={`/assets?q=${encodeURIComponent(r.bar_code || r.asset)}`}>{r.bar_code || r.asset}</Link>
                       <div className="text3" style={{ fontSize: 10 }}>{r.product_base}</div>
                       {r.repairs_in_period > 1 && <span className="tag tag-red">🔁 {r.repairs_in_period}× in period</span>}</td>
-                    <td style={{ fontSize: 11 }}><CaseLink no={r.first_case} /><div className="text3" style={{ fontSize: 10 }}>solved {fmt(r.first_closed)}</div></td>
-                    <td style={{ fontSize: 11 }}><CaseLink no={r.second_case} /><div className="text3" style={{ fontSize: 10 }}>created {fmt(r.second_created)}</div>
+                    <td style={{ fontSize: 11 }}><CaseLink onOpen={setPop} no={r.first_case} /><div className="text3" style={{ fontSize: 10 }}>solved {fmt(r.first_closed)}</div></td>
+                    <td style={{ fontSize: 11 }}><CaseLink onOpen={setPop} no={r.second_case} /><div className="text3" style={{ fontSize: 10 }}>created {fmt(r.second_created)}</div>
                       <span className={`tag tag-${statusColor(r.second_status)}`}>{r.second_status}</span></td>
                     <td>{r.days_after_closure != null ? <span className={`tag tag-${r.days_after_closure <= 7 ? 'red' : r.days_after_closure <= 30 ? 'orange' : 'neutral'}`}>{num(r.days_after_closure)} d</span> : '—'}</td>
                     <td className="text2">{(r.warehouse || '—').replace(/^RTMA /, '')}</td>
@@ -142,7 +183,7 @@ export default function CaseFlags() {
                       <span className="tag tag-red">{r.open_cases} open cases</span> {r.has_coolerco && <span className="tag tag-blue">incl. CoolerCo</span>}</td>
                     <td style={{ fontSize: 11 }}>{(r.cases || []).map(c => (
                       <div key={c.case_number} style={{ marginBottom: 4 }}>
-                        <CaseLink no={c.case_number} /> <span className="text3" style={{ fontSize: 10 }}>{c.source}</span>
+                        <CaseLink onOpen={setPop} no={c.case_number} /> <span className="text3" style={{ fontSize: 10 }}>{c.source}</span>
                         <div className="text3" style={{ fontSize: 10 }}>{CASE_TYPE_ICON[c.case_type] || '•'} {c.case_type} · <span className={`tag tag-${statusColor(c.status)}`}>{c.status}</span> · {fmt(c.created_on)}</div>
                         {c.point_of_sale && <div className="text3 trunc" style={{ fontSize: 10, maxWidth: 260 }} title={c.point_of_sale}>{c.point_of_sale}</div>}
                       </div>))}</td>
@@ -155,9 +196,10 @@ export default function CaseFlags() {
         </div>
         <div className="text3" style={{ fontSize: 10.5, marginTop: 8 }}>
           Asset on a case = Asset Repaired / Removed / Delivered (Mapped Asset only when none of those is filled). &ldquo;In between&rdquo; = any case on that asset, COM or CoolerCo, created after the first repair and before the follow-on.
-          Open = Open, In Progress, Waiting, In Service, On Hold. Read only — correct cases in COM.
+          Open = Open, In Progress, Waiting, In Service, On Hold. Click a case number to open it in COM (COM cases are cancelled there) or to cancel a CoolerCo case.
         </div>
       </div>
+      <CasePop no={pop} onClose={() => setPop(null)} onChanged={() => setTick(t => t + 1)} />
     </>
   )
 }

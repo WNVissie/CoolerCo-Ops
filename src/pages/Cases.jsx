@@ -4,6 +4,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import Topbar from '../components/Topbar'
 import DataTable from '../components/DataTable'
 import Drawer from '../components/Drawer'
+import CaseActions from '../components/CaseActions'
 import { searchCases, countCases, exportCases } from '../lib/caseSearch'
 import {
   fmt, num, PS, slaColor, slaLabel, statusColor, isOpenCase,
@@ -304,6 +305,7 @@ function CaseDetail({ c, onAsset }) {
         <span className={`tag tag-${slaColor(c.sla_status)}`}>{slaLabel(c.sla_status)}</span>
         {isOpenCase(c.status_reason) && c.sla_days_late > 0 && <span className="tag tag-red">{c.sla_days_late} days late</span>}
       </div>
+      <CaseActions caseNumber={c.case_number} />
 
       <Section title={`🧊 Assets on this case (${assets.length})`} open>
         {!assets.length && <div className="text3">No asset recorded on this case.</div>}

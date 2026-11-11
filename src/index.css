@@ -602,3 +602,8 @@ input.field-ctrl:focus, textarea.field-ctrl:focus { border-color: var(--accent);
   .wh-cards { display: flex; overflow-x: auto; scroll-snap-type: x proximity; padding-bottom: 4px; }
   .wh-card { flex: 0 0 112px; scroll-snap-align: start; }
 }
+
+/* Case actions (Open in COM / Cancel) — CaseActions.jsx */
+.case-actions { margin: 8px 0 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface2); }
+.case-actions-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 4px; }
+.case-actions a.btn { text-decoration: none; }

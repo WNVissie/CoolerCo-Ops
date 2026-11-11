@@ -12,7 +12,7 @@ Related docs (in the claude.ai project): `coolerco-field-mapping.md`, `coolerco-
 
 - **Two databases (since 2026-11-10):**
   - **TEST = `🟢[TEST] RTMA_Ops` `laljfgwngculogdzmqiu`** (paid project in the PROD organisation; cloned from production with Supabase "Restore to a New Project" on 2026-11-10 — one day behind at that moment; photos/files not copied; month-end billing cron switched **off**). **The UAT Netlify site points here.** All new work is applied and tested here first.
-  - **PRODUCTION = RTMA_Ops `abgxjfeofgvimmimxvpa`**, shared with the RTMA dashboard (`rtma-cases-dashboard-netlify` / SMARTDash_RTMA), routing app and SmartSpares. **Scripts 016–019 are NOT applied in production yet.** Production only gets a script when Wanda says so, with its rollback.
+  - **PRODUCTION = RTMA_Ops `abgxjfeofgvimmimxvpa`**, shared with the RTMA dashboard (`rtma-cases-dashboard-netlify` / SMARTDash_RTMA), routing app and SmartSpares. **Scripts 016–019, 021, 022 are NOT applied in production yet** (020a/020c = the read-only export for the copy job, applied there). Production only gets a script when Wanda says so, with its rollback.
 - **Append/add only** — never alter, rename or drop existing objects of other apps. Show the script and get approval before applying.
 - **Applying scripts:** the Supabase connector asks Wanda to confirm DDL and times out after 2 minutes. What works: Claude writes the script → **Wanda runs it in the SQL editor of the TEST project** ("Run and enable RLS", confirm the destructive-operations prompt) → Claude verifies with read-only checks and a `do $$ … raise exception … $$` test block (rolls itself back, leaves no test data).
 - **Code workflow:** Claude has push access. Each change goes on a `claude/<topic>` branch; Wanda says **"merge"** → fast-forward to `main` → Netlify deploys. The app must keep working against a database that does not have the newer scripts (it falls back to the older screens) — keep that rule.
@@ -239,3 +239,25 @@ system_admin (Wanda only) · administrator (uploads, edit records) · manager (s
 
 **Suggested next (not yet agreed):** Resend sender → feedback survey → roles screen + enforcing roles → pick/load scanning with the movement ledger → job card in the Field app.
 
+---
+
+## 8. ▶ RESUME HERE — 2026-11-11 evening (batch 2, merged to main)
+
+**TEST follows production (020):**
+- Production: `020a_PRODUCTION_read_only_export.sql` adds login role `coolerco_test_reader` (read-only) and schema `coolerco_export` with 20 `select *` views of the COM/dashboard tables. `020c_PRODUCTION_cleanup.sql` removed 020b objects that were run on prod by mistake (the job never ran there).
+- TEST: `020b_TEST_sync_from_production.sql` sets up postgres_fdw server `coolerco_prod` (pooler, user `coolerco_test_reader.abgxjfeofgvimmimxvpa`), tables `coolerco_sync_tables` (since / all / newer_id / periods) and `coolerco_sync_runs`, and function `coolerco_sync_from_prod(p_full)`. The function refuses to run where `coolerco_export` exists (= production). It switches dashboard triggers off per table (`session_replication_role` is not allowed on Supabase), upserts, then refreshes `mv_supplier_view_cases`.
+- pg_cron (UTC): `coolerco_sync_from_prod` at `30 6,17 * * *` = **08:30 and 19:30 SA**; `coolerco_sync_from_prod_full` Sunday 01:00 SA. Manual run: `select public.coolerco_sync_from_prod();` Counts matched production on 11 Nov.
+- Rollbacks: `020_rollback_TEST.sql`, `020_rollback_PRODUCTION.sql`.
+
+**Dashboard / Cases:**
+- 📂 Cases quick link first. Latest open cases → `/cases?case=` (drawer opens). Recent routes → `/routes?route=` (route opens).
+- Cases page: open-cases-per-warehouse cards (click = filter); filters apply as you pick, dates apply on blur.
+
+**🚩 Case flags (021)** `/cases/flags` (`CaseFlags.jsx`, Field Ops menu, Excel):
+- `coolerco_repeat_workshop_repairs(since, warehouse)`: a Repair at Workshop that follows a **Solved** Repair at Workshop on the same asset, with no other COM/CoolerCo case in between; follow-on created in the last 3 months by default. TEST 11 Nov: 337.
+- `coolerco_duplicate_open_cases(warehouse)`: assets with 2+ open cases (COM + CoolerCo). TEST 11 Nov: 15, all COM.
+
+**Case actions (022)** `coolerco_022_case_actions.sql` (rollback `022_rollback`), applied on TEST and tested with the roll-back block:
+- `coolerco_case_actions(case)` → source COM/CoolerCo, open?, `com_url`, `can_cancel`. `com_url` = setting `com_case_url` + `cases.raw_case->>'(Do Not Modify) Case'` (Dynamics GUID; change the setting when Magnum moves to Salesforce).
+- `coolerco_case_cancel(case, reason, note)`: CoolerCo cases only, roles system_admin / administrator / manager / supplier, reasons `CAN_*` (status Cancelled; CAN_OTHER needs a note). Sets status Cancelled, motive, service_closure_date; logged in `coolerco_case_events`. COM cases are refused: cancel them in COM.
+- UI: `src/components/CaseActions.jsx` (🟦 COM / 🟩 CoolerCo tag, 📋 Copy no., **Open in COM ↗**, 🚫 Cancel case with reason). Shown in the Cases drawer and in a pop-out when a case number is clicked on Case flags (+ 📂 Open full case). Without 022 the block is simply hidden.
