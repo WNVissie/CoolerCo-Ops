@@ -93,8 +93,10 @@ create table if not exists public.coolerco_sync_runs (
 
 -- ---------------------------------------------------------------------
 -- 4. The copy job. One table failing never stops the others; every run is logged.
---    Triggers on the TEST tables are switched off for the copy (session_replication_role = replica), so the
---    dashboard's audit triggers do not write a second history row — history is copied from production.
+--    The dashboard's own triggers on these TEST tables (audit history, asset movements, condition clean-up,
+--    stock-take capture) are switched off only while that table is being copied and switched back on straight
+--    after, so they do not write a second history row — history is copied from production. Nothing else writes
+--    these tables on TEST. (session_replication_role is not allowed on Supabase, so this is done per table.)
 -- ---------------------------------------------------------------------
 create or replace function public.coolerco_sync_from_prod(p_full boolean default false)
 returns jsonb language plpgsql set search_path = public, extensions, pg_temp as $fn$
@@ -107,14 +109,13 @@ declare
   v_ok     boolean := true;
   v_det    jsonb := '{}'::jsonb;
   v_cols   text; v_upd text; v_pk text; v_where text; v_sql text; v_max text; v_ids uuid[];
-  v_rel    regclass; v_frel regclass;
+  v_rel    regclass; v_frel regclass; v_trg boolean;
 begin
   if coalesce((select value #>> '{}' from public.coolerco_settings where key = 'sync_role'), '') <> 'TEST'
      or to_regnamespace('coolerco_export') is not null then
     raise exception 'coolerco_sync_from_prod only runs on the TEST database';
   end if;
   insert into public.coolerco_sync_runs (full_copy) values (p_full) returning id into v_run;
-  perform set_config('session_replication_role', 'replica', true);
 
   -- fresh column list from production every run (picks up columns added there)
   drop schema if exists coolerco_prod cascade;
@@ -157,8 +158,11 @@ begin
       v_sql := format('insert into public.%I (%s) overriding system value select %s from coolerco_prod.%I %s on conflict (%s) %s',
                       t.table_name, v_cols, v_cols, t.table_name, v_where, v_pk,
                       case when t.mode = 'newer_id' or v_upd is null then 'do nothing' else 'do update set ' || v_upd end);
+      select exists (select 1 from pg_trigger g where g.tgrelid = v_rel and not g.tgisinternal and g.tgenabled <> 'D') into v_trg;
+      if v_trg then execute format('alter table public.%I disable trigger user', t.table_name); end if;
       execute v_sql;
       get diagnostics v_rows = row_count;
+      if v_trg then execute format('alter table public.%I enable trigger user', t.table_name); end if;
 
       update public.coolerco_sync_tables
          set last_success_at = v_start, last_rows = v_rows, last_error = null, last_try_at = v_start,
@@ -202,9 +206,11 @@ create policy coolerco_sync_runs_read on public.coolerco_sync_runs for select to
 --    07:30, 12:30, 15:30, 19:30 SA time → 05:30, 10:30, 13:30, 17:30 UTC
 --    Sunday 01:00 SA time (Saturday 23:00 UTC): full copy as a safety net
 -- ---------------------------------------------------------------------
+--    Wanda 2026-11-11: MANUAL ONLY for now. Run on TEST when wanted:   select public.coolerco_sync_from_prod();
+--    To switch the schedule on later, run these two lines on TEST:
+--      select cron.schedule('coolerco_sync_from_prod',      '30 5,10,13,17 * * *', 'select public.coolerco_sync_from_prod(false)');
+--      select cron.schedule('coolerco_sync_from_prod_full', '0 23 * * 6',          'select public.coolerco_sync_from_prod(true)');
 select cron.unschedule(jobid) from cron.job where jobname in ('coolerco_sync_from_prod', 'coolerco_sync_from_prod_full');
-select cron.schedule('coolerco_sync_from_prod',      '30 5,10,13,17 * * *', 'select public.coolerco_sync_from_prod(false)');
-select cron.schedule('coolerco_sync_from_prod_full', '0 23 * * 6',          'select public.coolerco_sync_from_prod(true)');
 
 -- ---------------------------------------------------------------------
 -- 6. Connection test: should show the number of cases in PRODUCTION (about 22,800), not an error
