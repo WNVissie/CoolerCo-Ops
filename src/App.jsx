@@ -22,6 +22,7 @@ const Routes_ = lazyPage(() => import('./pages/Routes'))
 const AssetStock = lazyPage(() => import('./pages/AssetStock'))
 const LocationCheck = lazyPage(() => import('./pages/LocationCheck'))
 const Setup = lazyPage(() => import('./pages/Setup'))
+const Users = lazyPage(() => import('./pages/Users'))
 const Catalogue = lazyPage(() => import('./pages/Catalogue'))
 const Requests = lazyPage(() => import('./pages/Requests'))
 const Inbox = lazyPage(() => import('./pages/Inbox'))
@@ -91,6 +92,7 @@ export default function App() {
               <Route path="/stock" element={<AssetStock />} />
               <Route path="/stock/check" element={<LocationCheck />} />
               <Route path="/setup" element={<Setup />} />
+              <Route path="/users" element={<Users />} />
               <Route path="/catalogue" element={<Catalogue />} />
               <Route path="/requests" element={<Requests />} />
               <Route path="/inbox" element={<Inbox />} />

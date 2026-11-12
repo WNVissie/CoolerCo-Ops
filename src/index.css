@@ -624,3 +624,7 @@ input.field-ctrl:focus, textarea.field-ctrl:focus { border-color: var(--accent);
 .pick-res.warn { border-color: var(--orange); background: var(--orange-bg); }
 .pick-res.ask { border-color: var(--accent); background: var(--accent-l); }
 .cam-wrap .pick-res, .camscan .pick-res { color: #111; }
+
+/* 👥 Users & roles — switch-off button inside a role chip */
+.tag-x { border: 0; background: transparent; cursor: pointer; padding: 0 0 0 4px; font-size: 10px; color: inherit; opacity: .7; }
+.tag-x:hover { opacity: 1; }

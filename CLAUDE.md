@@ -12,12 +12,13 @@ Related docs (in the claude.ai project): `coolerco-field-mapping.md`, `coolerco-
 
 - **Two databases (since 2026-11-10):**
   - **TEST = `🟢[TEST] RTMA_Ops` `laljfgwngculogdzmqiu`** (paid project in the PROD organisation; cloned from production with Supabase "Restore to a New Project" on 2026-11-10 — one day behind at that moment; photos/files not copied; month-end billing cron switched **off**). **The UAT Netlify site points here.** All new work is applied and tested here first.
-  - **PRODUCTION = RTMA_Ops `abgxjfeofgvimmimxvpa`**, shared with the RTMA dashboard (`rtma-cases-dashboard-netlify` / SMARTDash_RTMA), routing app and SmartSpares. **Scripts 016–019, 021–025 are NOT applied in production yet** (020a/020c = the read-only export for the copy job, applied there). Production only gets a script when Wanda says so, with its rollback.
+  - **PRODUCTION = RTMA_Ops `abgxjfeofgvimmimxvpa`**, shared with the RTMA dashboard (`rtma-cases-dashboard-netlify` / SMARTDash_RTMA), routing app and SmartSpares. **Scripts 016–019, 021–026 are NOT applied in production yet** (020a/020c = the read-only export for the copy job, applied there). Production only gets a script when Wanda says so, with its rollback.
 - **Append/add only** — never alter, rename or drop existing objects of other apps. Show the script and get approval before applying.
 - **Applying scripts:** the Supabase connector asks Wanda to confirm DDL and times out after 2 minutes. What works: Claude writes the script → **Wanda runs it in the SQL editor of the TEST project** ("Run and enable RLS", confirm the destructive-operations prompt) → Claude verifies with read-only checks and a `do $$ … raise exception … $$` test block (rolls itself back, leaves no test data).
 - **Code workflow:** Claude has push access. Each change goes on a `claude/<topic>` branch; Wanda says **"merge"** → fast-forward to `main` → Netlify deploys. The app must keep working against a database that does not have the newer scripts (it falls back to the older screens) — keep that rule.
 - Everything CoolerCo adds is prefixed **`coolerco_`** (planned WMS tables: `coolerco_wms_*`).
 - **COM (Magnum's D365, built by Noesis) data is one-way**: `cases` and `assets_live` are imported by the dashboard; CoolerCo never writes to them.
+- **Routing app (`rtma-routing-netlify`) is never changed** (Wanda 12 Nov: "it's running smoothly in production"): no code, database functions, grants or settings. CoolerCo only reads routing tables and, on TEST only, *calls* its existing functions/tables through CoolerCo functions behind a switch. Picking improvements inside the routing app come **later, after CoolerCo-Ops is done**.
 - Do **not** change the dashboard repo. Its `CLAUDE.md` + `netlify/functions/upload-cases.js` are the reference for mapping rules.
 - The app requires **sign-in** (SmartHub Supabase accounts). `assets_live` RLS only serves authenticated users.
 - Two kinds of stock: **asset stock** (coolers in RTMA warehouses — this app) and **spares stock** (baskets, decals… — SmartSpares app, link only: https://smartsparesrtma.netlify.app/).
@@ -356,6 +357,19 @@ system_admin (Wanda only) · administrator (uploads, edit records) · manager (s
 - **Plan for undelivered coolers (option B, UAT only):** SLA = **2 working days**, so the suggestion appears **on the return scan**. A CoolerCo wrapper (TEST switch, staff roles) calls the unchanged `routing_add_pos` (no change to the routing app, its function or grants). Then the same cooler is reserved on the new route's prep, and a "move to <driver>'s bay" task is shown. Route suggestion = routes on the next working days up to the case's SLA end in the same warehouse/workstream, ranked by straight-line distance from the store to the route's nearest stop, plus load (stops vs ≈10/day). No route within SLA → supervisor alarm.
 - **No route optimiser on UAT** (Wanda 12 Nov): OpenRouteService allows 500 calls a day and production uses them. The CoolerCo plan calls no optimiser: the suggestion is a straight-line distance calculation in the database, and `routing_add_pos` appends without recalculating. The UAT routing copy should not use the production ORS key.
 - To check when building: whether a carried-over stop still reserves its case (it could block `routing_reserve_case_stop`), and the COM status of carried-over cases (`routing_add_pos` only accepts In Progress / In Service).
+
+**Step 1 — Users & roles — BUILT 2026-11-12:**
+- **026** `coolerco_026_users_roles.sql` (rollback `026_rollback`), applied on TEST and tested (roll-back block):
+  - New roles (data): **supervisor**, **stock_controller**, **warehouse_assistant**.
+  - Setting `override_roles` = system_admin, manager, supervisor.
+  - `coolerco_can_override(warehouse_code)`: true for an override role for that warehouse, or for all warehouses.
+  - `coolerco_access_events` = audit of every change.
+  - `coolerco_users_admin()`: all auth users + CoolerCo roles + SmartHub `user_warehouse_mapping` as a hint. Administrators only, ≈0.01 s.
+  - `coolerco_user_access_add(user, role, warehouse, client)`: switches an existing row back on instead of duplicating it. Only system_admin can give admin roles.
+  - `coolerco_user_access_set(id, active)`: switch off / on, never deleted; you can't switch off your own system_admin.
+  - Test: a supervisor for JHB may override in JHB, not in DBN, and not after being switched off; a supervisor cannot list users.
+- Page `/users` (`src/pages/Users.jsx`, Admin menu "👥 Users & roles"): search; filters All / No role / Warehouse team; role chips (✕ switch off, ↺ switch on); ➕ Role (role + warehouse, pre-selected from SmartHub; client for client users); "What each role may do".
+- **Next:** step 2, the condition check at picking + supervisor-only overrides in picking (use `coolerco_can_override`).
 
 **Still to answer (Wanda):** the bay sketch from the ops manager; who updates the asset status in COM after an audit.
 

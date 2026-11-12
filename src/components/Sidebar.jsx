@@ -46,6 +46,7 @@ const NAV = [
   { section: 'Admin', icon: '⚙️', items: [
     { to: '/catalogue', icon: '🛍️', label: 'Catalogue' },
     { to: '/setup', icon: '⚙️', label: 'Setup' },
+    { to: '/users', icon: '👥', label: 'Users & roles' },
   ] },
 ]
 
