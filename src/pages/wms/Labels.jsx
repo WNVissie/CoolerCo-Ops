@@ -4,7 +4,7 @@ import Topbar from '../../components/Topbar'
 import CameraScan, { codeCandidates } from '../../components/CameraScan'
 import { supabase } from '../../lib/supabase'
 import { fmt, num, BAYS } from '../../lib/helpers'
-import { printLabel, ptouchCsv, REASON_LABEL } from '../../lib/labels'
+import { printLabel, printLabelDirect, isIphone, ptouchCsv, REASON_LABEL } from '../../lib/labels'
 
 // 🏷 Asset labels (script 023). The COM barcode is re-printed (QR + number) on the Brother P-touch, 24 mm tape.
 //  To label  : RTMA stock with no physical label (barcode not starting "11", or flagged lost at a scan), sorted for a walk
@@ -50,9 +50,17 @@ export default function Labels() {
     if (error) { setMsg({ bad: true, t: error.message }); return false }
     return true
   }
-  async function printOne(r) {
-    const how = await printLabel(r)
+  async function printOne(r, direct = !isIphone()) {
+    const how = direct ? await printLabelDirect(r) : await printLabel(r)
     if (how !== 'cancelled' && await markPrinted([r])) { setMsg({ t: `🖨 ${r.bar_code} sent to print — scan it once it is on the cooler.` }); setTick(t => t + 1) }
+  }
+  async function batchPrint() {
+    if (!chosen.length) return
+    if (chosen.length > 50 && !confirm(`Print ${chosen.length} labels in one go?`)) return
+    await printLabelDirect(chosen)
+    if (confirm(`Did the ${chosen.length} labels print? Mark them as printed?\n(Then scan each one after sticking it on.)`)) {
+      if (await markPrinted(chosen)) { setMsg({ t: `✓ ${chosen.length} marked as printed.` }); setTick(t => t + 1) }
+    }
   }
   async function batchFile() {
     if (!chosen.length) return
@@ -109,7 +117,8 @@ export default function Labels() {
                   <button type="button" key={k} className={`seg-btn${status === k ? ' on' : ''}`} onClick={() => setStatus(k)}>{l}</button>)}
               </div>
               <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                <button className="btn btn-primary btn-sm" disabled={!chosen.length} onClick={batchFile} title="CSV for P-touch Editor (PC) — link it to your QR + text template">⬇ P-touch file ({num(chosen.length)})</button>
+                {!isIphone() && <button className="btn btn-primary btn-sm" disabled={!chosen.length} onClick={batchPrint} title="All chosen labels to the printer in one print job">🖨 Print {num(chosen.length)}</button>}
+                <button className="btn btn-ghost btn-sm" disabled={!chosen.length} onClick={batchFile} title="CSV for P-touch Editor (PC) — link it to your QR + text template">⬇ P-touch file ({num(chosen.length)})</button>
               </span>
             </div>
             <div style={{ padding: '6px 12px' }}>
@@ -137,7 +146,8 @@ export default function Labels() {
                           <div className="text3" style={{ fontSize: 10 }}>{r.last_area ? `last scanned in ${r.last_area}` : 'not scanned by CoolerCo yet'}</div></td>
                         <td style={{ fontSize: 11 }}>{REASON_LABEL[r.reason] || r.reason}
                           {r.status === 'printed' && <div><span className="tag tag-blue">🖨 printed {fmt(r.printed_at)} · scan it</span></div>}</td>
-                        <td><button className="btn btn-ghost btn-sm" onClick={() => printOne(r)} title="Make the label — phone: Share → Brother app · PC: download">🖨 Print</button></td>
+                        <td><span style={{ display: 'flex', gap: 4 }}>{!isIphone() && <button className="btn btn-ghost btn-sm" onClick={() => printOne(r, true)} title="Print window → choose the P-touch">🖨 Print</button>}
+                          <button className="btn btn-ghost btn-sm" onClick={() => printOne(r, false)} title="Send to the Brother app (phone) / download the image (PC)">📲</button></span></td>
                       </tr>)
                   })}</tbody>
                 </table>
@@ -148,7 +158,8 @@ export default function Labels() {
           <details className="sec" style={{ marginTop: 10 }}>
             <summary>ℹ️ How to print</summary>
             <div className="sec-body" style={{ fontSize: 11.5 }}>
-              <p><b>One label (phone):</b> 🖨 Print → Share → your Brother app (iPrint&amp;Label / Design&amp;Print) → print on 24 mm TZe tape. On a PC the image downloads; open it in P-touch Editor.</p>
+              <p><b>🖨 Print to printer (PC or Android):</b> opens the print window with a 24 mm label page → choose the P-touch → Print. The browser remembers the printer. PC: the Brother P-touch driver must be installed. Android: install Brother&rsquo;s free <i>Brother Print Service Plugin</i> (Play Store) once, so the P-touch shows in the list. Tick several coolers and use <b>🖨 Print n</b> to print them in one go.</p>
+              <p><b>📲 Brother app (iPhone, or if the print window doesn&rsquo;t show the P-touch):</b> Share → iPrint&amp;Label / Design&amp;Print → print. On a PC this downloads the image.</p>
               <p><b>A batch (PC):</b> tick the coolers (or none = everything shown) → ⬇ P-touch file → in P-touch Editor open your label template (a QR code linked to the <i>Barcode</i> column + the <i>Barcode</i> number in large text; optional <i>LocalCode</i> / <i>Model</i>) → File → Database → Connect → choose the file → print all. The list is in walking order: warehouse, area, bay.</p>
               <p><b>Confirm:</b> stick the label on, then scan it — here (Confirm box above) or with any normal scan. Only then does the cooler count as labelled.</p>
               <p>Rule: real labels start with <b>11</b>; other barcodes were never physically labelled. A cooler found by typing its local code also asks for a label.</p>

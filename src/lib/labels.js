@@ -48,6 +48,46 @@ export async function shareOrDownload(blob, name) {
   return 'downloaded'
 }
 
+// 🖨 Straight to the printer: the browser's own print window with a page the size of 24 mm tape.
+// PC: pick the Brother P-touch (its Windows/Mac driver). Android: needs Brother's free "Print Service Plugin"
+// (Play Store) so the P-touch shows in the print list. iPhone: P-touch is not an AirPrint printer → use the Brother app.
+export function printDirect(blobs) {
+  return new Promise(resolve => {
+    const urls = blobs.map(b => URL.createObjectURL(b))
+    const f = document.createElement('iframe')
+    f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'
+    document.body.appendChild(f)
+    const d = f.contentDocument
+    d.open()
+    d.write(`<!doctype html><html><head><title>Labels</title><style>
+      @page { size: 64mm 24mm; margin: 0 }
+      html, body { margin: 0; padding: 0 }
+      .l { width: 64mm; height: 24mm; display: flex; align-items: center; justify-content: center; page-break-after: always; break-after: page }
+      .l:last-child { page-break-after: auto; break-after: auto }
+      img { width: 58mm; height: 18mm; display: block }
+    </style></head><body>${urls.map(u => `<div class="l"><img src="${u}"></div>`).join('')}</body></html>`)
+    d.close()
+    const done = () => { setTimeout(() => { urls.forEach(u => URL.revokeObjectURL(u)); f.remove() }, 1000); resolve('printed') }
+    const imgs = [...d.images]
+    Promise.all(imgs.map(i => i.complete ? 1 : new Promise(r => { i.onload = i.onerror = r }))).then(() => {
+      f.contentWindow.addEventListener('afterprint', done, { once: true })
+      f.contentWindow.focus(); f.contentWindow.print()
+      setTimeout(done, 60000) // some browsers never send afterprint
+    })
+  })
+}
+export const isIphone = () => /iPhone|iPad|iPod/i.test(navigator.userAgent)
+
+const labelBlob = asset => labelPng({
+  bar_code: asset.bar_code, local_code: asset.local_code,
+  model: asset.product_variant || asset.product_base,
+  warehouse: asset.warehouse || String(asset.assign_account || '').replace(/^RTMA\s+/, ''),
+})
+export async function printLabelDirect(assets) {
+  const list = Array.isArray(assets) ? assets : [assets]
+  return printDirect(await Promise.all(list.map(labelBlob)))
+}
+
 export async function printLabel(asset) {
   const blob = await labelPng({
     bar_code: asset.bar_code, local_code: asset.local_code,
