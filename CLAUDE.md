@@ -316,6 +316,17 @@ system_admin (Wanda only) · administrator (uploads, edit records) · manager (s
 - **025** `coolerco_025_portal_my_details.sql` (rollback `025_rollback`), applied on TEST and tested as anon: `coolerco_portal_contact(token)` (saved values + change waiting + last decision) and `coolerco_portal_update_details(token, values)`. Fields: contact person, mobile, other number, email (format checked), trading hours, delivery/access notes, notify by WhatsApp / email. Only real changes are kept. A change still waiting is **updated** (no "already pending" dead end). The first change goes through 016's `coolerco_portal_propose_contact`, so the supervisor alert, Inbox approval and "to capture in COM" list are unchanged. anon cannot read the request table.
 - Portal (`src/portal/PortalApp.jsx` `MyDetails`): third tab **👤 My details** (⏳ badge while a change waits; per-field "⏳ waiting"; rejected note shown). Hidden where 025 is missing. Changes made while logging a request now also use `update_details` when available.
 
+**Answers from Wanda (12 Nov, 1–3):**
+1. **People:** Gauteng NCD WH: the **stock controller** picks and scans. Gauteng Receiving WH: the **supervisor**, also the stock controller. Smaller warehouses: the **warehouse assistant or supervisor**.
+2. **Devices:** mobile phones, Android and iPhone.
+3. **Bays (rough sketch coming from the ops manager):**
+   - **Gauteng Main WH:** dispatch, a **loading bay per driver**, wash bay, and the rest of the floor = RTW. Will change in **2027** when a mezzanine is added, so the layout must be data in Setup, not code.
+   - **Other warehouses:** receiving bay, repair bay, wash bay, test bay (wash and test count as part of the repair bay), prep bay, then the RTW floor. A small warehouse has all of these as bays in one building.
+   - **Gauteng Receiving WH:** receiving bay, repair bay, "RTW – not often used assets". Will change once the Main WH has more space.
+   - **Gauteng NCD WH:** receiving bay (only for new coolers returned undelivered), driver bays, **decal bay** (a cooler with a decal ticket belongs there), RTW areas, loading areas.
+   - **Scan only at the key steps, not every move:** received → (repair bay) → repaired → prep bay → RTW floor. Moves inside the repair bay (wash, test) are not scanned.
+- Questions 4–13 are still open.
+
 **Still to answer (Wanda):** people per warehouse (receiving clerk, picker, technician, supervisor) · devices (phones or rugged scanners, wifi in yard) · bay/area labels · how coolers arrive (own trucks only, or Magnum/supplier stock with a delivery list) · who audits and who updates COM status · who does routing prep and when; should CoolerCo suggest the cooler · loading check today · transfers between warehouses · cycle counting vs monthly SmartScan · Tiger coolers in the same warehouses · KPIs · who may override an alarm.
 
 **Assumptions used until answered:** phones (Android + iPhone) with hand scanners where present, same SmartHub login · on UAT CoolerCo selects and picks in routing prep (option A; production read-only) · loading checked per route · any signed-in user may override with a reason (logged; roles later).
