@@ -1,6 +1,6 @@
 # CoolerCo-Ops — Project Overview & Hand-over
 
-**Last updated:** 2026-11-11 · **Repo:** https://github.com/WNVissie/CoolerCo-Ops (branch `main`)
+**Last updated:** 2026-11-12 · **Repo:** https://github.com/WNVissie/CoolerCo-Ops (branch `main`)
 **Stack:** React 18 + Vite 5 · React Router v6 · Supabase JS v2 · Netlify · SheetJS (lazy, export only)
 **Owner:** Wanda (SMART Project Partners). Explain in plain language, simple modern UI, icons, collapsible sections, small fonts, responsive, parallel + lazy loading, say whether server or browser is better.
 
@@ -104,7 +104,7 @@ Live numbers 2026-10-25: stock 8,926 (4,850 RTW) · open cases 4,499 · 37 works
 | `/portal-access` | Create a store's portal link, edit contact (logged), Copy / Open / WhatsApp / QR |
 | `/p/<token>` | **Public customer portal** (no login, own small bundle): Repair / Collection (store's Magnum assets from COM) or New asset (catalogue families) → details + up to 3 compressed photos → reference number + timeline; "My requests" tab |
 | `/newcase` | **Paused** (must not write to COM `cases`) |
-| `/wms/*` | Receiving/Transfers/Stocktake/Dispatch → `coolerco_wms_*` tables **not created yet** |
+| `/wms/*` | Receiving/Transfers/Stocktake/Dispatch = old quantity-form placeholders (tables never created) — being replaced (section 9) · `/wms/labels` = 🏷 Asset labels |
 | `/field` | **CoolerCo Field PWA** (installable, offline): Scan · My trip · Cases — see section 6 |
 | `/scan/export`, `/scan/stocktake` | COM Touch sync (CSV) · Stock take exceptions |
 | `/concessionaires`, `/c/<link>` | Concessionaire users / portal |
@@ -267,6 +267,32 @@ system_admin (Wanda only) · administrator (uploads, edit records) · manager (s
 ## 9. ▶ RESUME HERE — 2026-11-12 WMS start: asset labels (branch `claude/wms-labels`, NOT merged)
 
 **WMS direction (agreed in principle):** the system predicts each movement from cases and routes; the user confirms with one scan. Typing stays as a fallback. Alarms only for exceptions; pop-up tasks; escalation timers; daily digest. Ledger `coolerco_asset_movements` still to build. The old `/wms/receiving|transfers|stocktake|dispatch` screens are quantity-form placeholders over tables that don't exist; replace them. Wanda's answers on people/devices/arrivals/audit/loading are still open.
+
+
+### WMS design (Wanda 2026-11-12 — "users record as little as possible, automate, pop-ups/alarms, accurate data")
+
+**Principle:** cases and routes say what *should* happen ("expected movements", like receiving against an advance shipping notice). A person confirms with **one scan**. Typing is the fallback, recorded as typed. Only a mismatch raises a pop-up or alarm. Every confirmed scan = one line in an append-only ledger, `coolerco_asset_movements`, which is CoolerCo's own "where is it" record and never overwrites COM.
+
+**Workflows (planned):**
+| Step | System does | User does |
+|---|---|---|
+| Receiving | "expected in" list from completed collections, Receive cases, inbound transfers | scan off the truck → 🔴 Receiving; unexpected = alarm; expected-not-arrived = supervisor alert |
+| Audit | task per cooler in Receiving, oldest first | scan + tap RTW / Repair / Brand / Scrap → bay + "to update in COM" list |
+| Workshop | COM repair case solved → pop-up "move to 🟢" | scan at green bay |
+| Picking | pick list from routing prep; suggest which cooler (same family/model/condition/brand, RTW, not reserved, oldest, nearest) | scan; wrong = alarm + stop |
+| Loading | knows the route's stops (vehicle codes are empty on routes → per route) | scan each cooler; missing/extra → no "loaded" without a supervisor override + reason |
+| Delivery | Field app outcome closes the loop (later) | — |
+| Transfers | dispatch with a destination warehouse, in transit | receiving side scans in |
+| Stock take | daily cycle count per area (not seen in 30 days, wrong-area, high value) | scan 20–40 a day |
+- Alarms: sound + buzz only when someone must act now; pop-up tasks; escalation timers; one daily digest; push to a closed phone needs web push (iPhone: only an installed app).
+- Accuracy: scan, don't type; bay/area/route QR labels; photos only on exceptions; daily three-way check (ledger vs COM vs last scan); "last confirmed" date per cooler; reservations.
+- Order: ① ledger + picking/loading checks → ② receiving + audit → ③ workshop pop-ups → ④ cycle counting → ⑤ transfers → ⑥ spares.
+
+**Facts found (TEST, 12 Nov):** last 30 days 199 routes, 5 warehouses use routing, `vehicle_code` empty on all; 1,162 deliver/replacement stops, 894 collect stops; routing prep 502 rows (439 with a selected cooler, 416 picked, 28 packed, 0 returned): packed/returned are hardly used. Last 60 days: 780 solved deliveries with a selected cooler, **56 (7%) delivered a different cooler** than selected → reason for a pick check.
+
+**Still to answer (Wanda):** people per warehouse (receiving clerk, picker, technician, supervisor) · devices (phones or rugged scanners, wifi in yard) · bay/area labels · how coolers arrive (own trucks only, or Magnum/supplier stock with a delivery list) · who audits and who updates COM status · who does routing prep and when; should CoolerCo suggest the cooler · loading check today · transfers between warehouses · cycle counting vs monthly SmartScan · Tiger coolers in the same warehouses · KPIs · who may override an alarm.
+
+**Assumptions used until answered:** phones (Android + iPhone) with hand scanners where present, same SmartHub login · routing prep (routing app) stays where the cooler is selected; CoolerCo only verifies by scan, never writes routing tables · loading checked per route · any signed-in user may override with a reason (logged; roles later).
 
 **Labels (Wanda):** many coolers have no physical label, or lost it (metal plates fall off). COM data is clean: all RTMA stock has a barcode. **Real labels start with "11"**; other barcodes were never physically labelled (492 in stock on 12 Nov). Plan: re-print the **existing COM barcode** as **QR + number in text** (+ local code / model / warehouse small) on a **Brother P-touch, 24 mm TZe** (extra-strength tape suggested). Printers in 3 warehouses, more coming. RTMA may print Magnum barcodes. Wanda fixes wrong links in COM herself.
 
