@@ -12,7 +12,7 @@ Related docs (in the claude.ai project): `coolerco-field-mapping.md`, `coolerco-
 
 - **Two databases (since 2026-11-10):**
   - **TEST = `🟢[TEST] RTMA_Ops` `laljfgwngculogdzmqiu`** (paid project in the PROD organisation; cloned from production with Supabase "Restore to a New Project" on 2026-11-10 — one day behind at that moment; photos/files not copied; month-end billing cron switched **off**). **The UAT Netlify site points here.** All new work is applied and tested here first.
-  - **PRODUCTION = RTMA_Ops `abgxjfeofgvimmimxvpa`**, shared with the RTMA dashboard (`rtma-cases-dashboard-netlify` / SMARTDash_RTMA), routing app and SmartSpares. **Scripts 016–019, 021, 022, 023 are NOT applied in production yet** (020a/020c = the read-only export for the copy job, applied there). Production only gets a script when Wanda says so, with its rollback.
+  - **PRODUCTION = RTMA_Ops `abgxjfeofgvimmimxvpa`**, shared with the RTMA dashboard (`rtma-cases-dashboard-netlify` / SMARTDash_RTMA), routing app and SmartSpares. **Scripts 016–019, 021–024 are NOT applied in production yet** (020a/020c = the read-only export for the copy job, applied there). Production only gets a script when Wanda says so, with its rollback.
 - **Append/add only** — never alter, rename or drop existing objects of other apps. Show the script and get approval before applying.
 - **Applying scripts:** the Supabase connector asks Wanda to confirm DDL and times out after 2 minutes. What works: Claude writes the script → **Wanda runs it in the SQL editor of the TEST project** ("Run and enable RLS", confirm the destructive-operations prompt) → Claude verifies with read-only checks and a `do $$ … raise exception … $$` test block (rolls itself back, leaves no test data).
 - **Code workflow:** Claude has push access. Each change goes on a `claude/<topic>` branch; Wanda says **"merge"** → fast-forward to `main` → Netlify deploys. The app must keep working against a database that does not have the newer scripts (it falls back to the older screens) — keep that rule.
@@ -97,7 +97,7 @@ Live numbers 2026-10-25: stock 8,926 (4,850 RTW) · open cases 4,499 · 37 works
 | `/stock/check` | Location Check — flags + list |
 | `/scan` | Bay scan: barcode → building/area (★ expected) → bay → type → saves to `coolerco_asset_touch` |
 | `/setup` | Admin: buildings/areas/rules · portal catalogue (tick, name, description, photo; all vs available mode) · product families |
-| `/picking` | Warehouse Preparation board (read-only, `coolerco_picking_queue`): per date → route, Picked → RTW → Packed, asset + bay |
+| `/picking` | 📦 Picking (024): suggest → scan to pick → alarms; read-only where writes are off; old read-only board (`PickingLegacy.jsx`) where 024 is missing |
 | `/routes` | Routing app routes (read) |
 | `/portal` | POS Lookup (store → cases + assets) |
 | `/requests` | CoolerCo cases / portal requests: Waiting for Approval → ✅ Approve / 🚫 Reject (reason); photos, history |
@@ -298,9 +298,25 @@ system_admin (Wanda only) · administrator (uploads, edit records) · manager (s
 - Routing prep is written only by the routing app (smartroutertma, server code). CoolerCo reads it (`coolerco_picking_queue`).
 - **Question to Wanda:** may CoolerCo write the selection / picked flag into `routing_warehouse_preparation` (same database, her own routing app), or must it stay read-only with CoolerCo keeping its own pick records?
 
+**Picking — BUILT 2026-11-12 (Wanda: option A on UAT only; "don't change anything on the routing app"; she'll make a UAT copy of the routing app on Netlify pointing at TEST):**
+- Routing tables are **not** in the TEST copy job, so TEST routes stopped on 10 Nov. New routes on TEST will come from the UAT routing app copy. `routing_warehouse_preparation`: PK (route_id, case_number), no triggers, RLS on, no policies, grants only to service_role, so the routing app writes it with its server key.
+- **024** `coolerco_024_picking.sql` (rollback `024_rollback`), applied on TEST and tested with roll-back blocks:
+  - setting `pick_writes_routing` (true only where `sync_role` = TEST, so production stays read-only even if 024 is applied there) + `pick_new_needs_reason` (true).
+  - `coolerco_asset_movements` = **append-only ledger** (reserve, unreserve, pick, unpick, load, unload, receive, putaway, transfer_out/in, deliver, collect, audit, scrap, adjust; how camera/scanner/typed/system/screen; expected; exception; override_reason; `client_id` unique so a phone resend never doubles). Signed-in users read; writes only via functions.
+  - `coolerco_pick_lines` (internal): delivery/replacement stops of current route versions + request (COM, else CoolerCo case) + prep + selected cooler + flags: no_selection, not_rtw, at_pos, other_wh, family, upgrade_new (A - New for a used request), condition, brand, double_booked (selected on another open case within 14 days), not_picked.
+  - `coolerco_pick_board(from, to, warehouse_group)` → {writes, lines}. ≈0.02 s per day.
+  - `coolerco_pick_candidates(route, case, limit)`: free RTW coolers in `<warehouse> WH` of the requested family (or base). Not reserved, not on an open case. Score: condition 40 (A-New upgrade −30), brand 20, base 10, scanned area 3. ≈0.03 s.
+  - `coolerco_pick_select(route, case, asset, reason)`: hard = at_pos / other_wh (refused). Soft = not_rtw / family / upgrade_new / condition / brand / reserved_elsewhere (need a reason). Writes prep + ledger. Advisory lock per asset.
+  - `coolerco_pick_autofill(date, warehouse)`: fills stops without a cooler with the best exact-condition, non-upgrade match only.
+  - `coolerco_pick_scan(code, date, warehouse, route?, case?, how, reason?, client_id)`: without a stop it finds the stop where the cooler is selected, else returns `choose_stop` (open stops of that family, exact matches first). Results: picked / choose_stop / wrong_cooler / needs_reason / blocked / no_stop / not_found. Scanning the already-selected cooler picks it (its reason was given at selection). A swap with a reason is logged as `swapped`.
+  - `coolerco_pick_undo(route, case, pick|select, reason)`.
+- **App** `src/pages/Picking.jsx` (menu "📦 Picking"): warehouse (remembered) + Today/Tomorrow/‹ ›/date; cards ❗ No cooler · ✅ Picked · ⚠ Problems · 🆕 New for used (click = filter); ✨ Fill suggestions; per route: Asked for vs Cooler + flag chips, ✨ Choose/Change (drawer with candidates, "Best match", reason buttons), ↩ undo with reason; 📷 Scan to pick panel (camera continuous or hand scanner/typed; green/orange/red result card + buzz + beep; choose-stop buttons; "Pick anyway" with reason; typed pick → 🏷 label prompt). Old board kept as `PickingLegacy.jsx`.
+
+**To do next (Wanda 12 Nov):** customer portal: let the customer **update their contact details at any time** (not only when logging a call).
+
 **Still to answer (Wanda):** people per warehouse (receiving clerk, picker, technician, supervisor) · devices (phones or rugged scanners, wifi in yard) · bay/area labels · how coolers arrive (own trucks only, or Magnum/supplier stock with a delivery list) · who audits and who updates COM status · who does routing prep and when; should CoolerCo suggest the cooler · loading check today · transfers between warehouses · cycle counting vs monthly SmartScan · Tiger coolers in the same warehouses · KPIs · who may override an alarm.
 
-**Assumptions used until answered:** phones (Android + iPhone) with hand scanners where present, same SmartHub login · routing prep (routing app) stays where the cooler is selected; CoolerCo only verifies by scan, never writes routing tables · loading checked per route · any signed-in user may override with a reason (logged; roles later).
+**Assumptions used until answered:** phones (Android + iPhone) with hand scanners where present, same SmartHub login · on UAT CoolerCo selects and picks in routing prep (option A; production read-only) · loading checked per route · any signed-in user may override with a reason (logged; roles later).
 
 **Labels (Wanda):** many coolers have no physical label, or lost it (metal plates fall off). COM data is clean: all RTMA stock has a barcode. **Real labels start with "11"**; other barcodes were never physically labelled (492 in stock on 12 Nov). Plan: re-print the **existing COM barcode** as **QR + number in text** (+ local code / model / warehouse small) on a **Brother P-touch, 24 mm TZe** (extra-strength tape suggested). Printers in 3 warehouses, more coming. RTMA may print Magnum barcodes. Wanda fixes wrong links in COM herself.
 

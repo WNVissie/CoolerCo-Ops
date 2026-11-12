@@ -613,3 +613,14 @@ input.field-ctrl:focus, textarea.field-ctrl:focus { border-color: var(--accent);
 .label-prompt.done { border-style: solid; border-color: var(--green); }
 .label-prompt.dark { background: rgba(255,255,255,.08); color: #fff; border-color: #8ab4ff; }
 .label-prompt a.btn { text-decoration: none; }
+
+/* 📦 Picking (Picking.jsx) */
+.pick-tbl td { vertical-align: top; }
+.pick-cand { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.pick-res { border-radius: 10px; padding: 10px 12px; font-size: 12px; border: 2px solid var(--border); background: var(--surface); }
+.pick-res-t { font-weight: 700; font-size: 14px; margin-bottom: 3px; }
+.pick-res.ok { border-color: var(--green); background: var(--green-bg); }
+.pick-res.bad { border-color: var(--red); background: var(--red-bg); }
+.pick-res.warn { border-color: var(--orange); background: var(--orange-bg); }
+.pick-res.ask { border-color: var(--accent); background: var(--accent-l); }
+.cam-wrap .pick-res, .camscan .pick-res { color: #111; }

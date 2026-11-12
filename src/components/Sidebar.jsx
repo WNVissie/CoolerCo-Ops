@@ -14,7 +14,7 @@ const NAV = [
     { to: '/cases/closure-discrepancies', icon: '🔀', label: 'Closure discrepancies' },
     { to: '/cases/flags', icon: '🚩', label: 'Case flags' },
     { to: '/assets',   icon: '🏭', label: 'Assets' },
-    { to: '/picking',  icon: '📦', label: 'Warehouse Prep' },
+    { to: '/picking', icon: '📦', label: 'Picking' },
     { to: '/routes',   icon: '🗺️', label: 'Routes' },
     { href: 'https://smartroutertma.netlify.app/', icon: '🛣️', label: 'Routing App' },
     { action: 'install', icon: '📲', label: 'Install app' },
