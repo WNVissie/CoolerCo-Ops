@@ -65,6 +65,7 @@ export default function PortalApp({ token }) {
   const [saveContact, setSaveContact] = useState(true) // keep changed details for next time (supervisor approves)
   const [contactNote, setContactNote] = useState(null)
   const [hit, setHit] = useState(null) // open case that stopped this request
+  const [details, setDetails] = useState(null) // 👤 My details (script 025); null = not available → tab hidden
 
   async function load() {
     setErr(null)
@@ -81,6 +82,8 @@ export default function PortalApp({ token }) {
   }
   useEffect(() => { load() }, [token])
   // Symptom lists load alongside the store (parallel). If they are not available the old free-text screen is used.
+  const loadDetails = () => rpcRead('coolerco_portal_contact', { p_token: token }).then(({ data, error }) => { if (!error && data && !data.error) setDetails(data) })
+  useEffect(() => { loadDetails() }, [token]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     rpcRead('coolerco_portal_options', { p_token: token }).then(({ data, error }) => {
       if (!error && data && !data.error && data.symptoms?.length) { setOpts(data); setEmail(e => e || data.contact?.email || '') }
@@ -122,8 +125,9 @@ export default function PortalApp({ token }) {
       if (name.trim() !== (saved.name || '')) changes.contact_name = name.trim()
       if (phone.trim() !== (saved.phone || '')) { changes.contact_number = phone.trim(); changes.mobile_number = phone.trim() }
       if (email.trim() !== (saved.email || '')) { changes.email = email.trim(); if (email.trim()) changes.notify_email = true }
-      supabase.rpc('coolerco_portal_propose_contact', { p_token: token, p_values: changes }).then(({ data: r }) => {
+      supabase.rpc(details ? 'coolerco_portal_update_details' : 'coolerco_portal_propose_contact', { p_token: token, p_values: changes }).then(({ data: r }) => {
         setContactNote(r?.ok || r?.error === 'already_pending' ? 'Your updated contact details were sent to CoolerCo to confirm.' : null)
+        if (details) loadDetails()
       }, () => {})
     }
   }
@@ -148,7 +152,10 @@ export default function PortalApp({ token }) {
       <div className="p-tabs">
         <button className={tab === 'new' ? 'on' : ''} onClick={() => setTab('new')}>➕ Log a request</button>
         <button className={tab === 'mine' ? 'on' : ''} onClick={() => setTab('mine')}>📋 My requests {ctx.requests?.length ? <span className="p-count">{ctx.requests.length}</span> : null}</button>
+        {details && <button className={tab === 'me' ? 'on' : ''} onClick={() => { setTab('me'); setCaseView(null) }}>👤 My details{details.pending ? <span className="p-count" title="Waiting for CoolerCo to confirm">⏳</span> : null}</button>}
       </div>
+
+      {!caseView && tab === 'me' && details && <MyDetails token={token} details={details} onSaved={loadDetails} />}
 
       {caseView && <CaseView token={token} caseNo={caseView} reasons={opts?.query_reasons || []} onBack={() => { setCaseView(null); load() }} />}
 
@@ -369,6 +376,60 @@ export default function PortalApp({ token }) {
         </>
       )}
     </Shell>
+  )
+}
+
+// 👤 My details — the customer can change contact details at any time (script 025). Saved for the store once CoolerCo
+// confirms (supervisor approves in the Inbox); a change still waiting is simply updated, never a second request.
+const DETAIL_FIELDS = [
+  ['contact_name', 'Contact person', 'text', 'name'],
+  ['mobile_number', 'Mobile number', 'tel', 'tel'],
+  ['contact_number', 'Other number (optional)', 'tel', 'tel'],
+  ['email', 'Email (optional)', 'email', 'email'],
+  ['trading_hours', 'Trading hours (optional)', 'text', 'off', 'e.g. Mon–Sat 07:00–19:00, Sun 08:00–13:00'],
+  ['delivery_notes', 'Delivery / access notes (optional)', 'text', 'off', 'e.g. use the back gate, ask for the manager'],
+]
+const DETAIL_ERRORS = { nothing_to_change: 'Nothing was changed.', bad_email: 'That email address doesn’t look right.', invalid_link: 'This link is no longer active.' }
+function MyDetails({ token, details, onSaved }) {
+  const base = { ...details.saved, ...(details.pending?.proposed || {}) }
+  const [v, setV] = useState(base)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState(null)
+  useEffect(() => { setV({ ...details.saved, ...(details.pending?.proposed || {}) }) }, [details])
+  const changed = Object.keys(v).some(k => String(v[k] ?? '') !== String(base[k] ?? ''))
+  const set = (k, val) => { setV(x => ({ ...x, [k]: val })); setMsg(null) }
+  async function save(e) {
+    e.preventDefault()
+    if (!String(v.contact_name || '').trim() || !String(v.mobile_number || v.contact_number || '').trim()) { setMsg({ bad: true, t: 'Please give a contact person and a number.' }); return }
+    setBusy(true)
+    const values = {}
+    Object.keys(v).forEach(k => { if (String(v[k] ?? '') !== String(details.saved[k] ?? '')) values[k] = typeof v[k] === 'boolean' ? v[k] : String(v[k] ?? '').trim() })
+    const { data, error } = await supabase.rpc('coolerco_portal_update_details', { p_token: token, p_values: values }) // write: never retried
+    setBusy(false)
+    if (error) { setMsg({ bad: true, t: isNetErr(error) ? NET_MSG + ' Your details were not sent yet.' : error.message }); return }
+    if (data?.error) { setMsg({ bad: true, t: DETAIL_ERRORS[data.error] || data.error }); return }
+    setMsg({ t: '✅ Sent. CoolerCo will confirm your new details — they are used for your store from then on.' })
+    onSaved()
+  }
+  const pend = details.pending
+  const last = details.last_decision
+  return (
+    <form className="p-card" onSubmit={save}>
+      <h3>👤 My details</h3>
+      <p className="p-muted" style={{ fontSize: 12 }}>Keep these up to date so our team and drivers can reach you. Changes are confirmed by CoolerCo before they are used.</p>
+      {pend && <div className="p-note">⏳ Your change from {new Date(pend.at).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' })} is waiting for CoolerCo to confirm. You can still change it below.</div>}
+      {!pend && last?.status === 'Rejected' && <div className="p-note">Your last change was not accepted{last.note ? `: ${last.note}` : ''}.</div>}
+      {DETAIL_FIELDS.map(([k, label, type, ac, ph]) => (
+        <div key={k}>
+          <div className="p-label">{label}{pend?.proposed && k in pend.proposed ? <span className="p-muted"> · ⏳ waiting</span> : null}</div>
+          <input type={type} value={v[k] ?? ''} onChange={e => set(k, e.target.value)} autoComplete={ac} placeholder={ph || ''} />
+        </div>))}
+      <div className="p-label">Send me updates on my requests</div>
+      <label className="p-checkline"><input type="checkbox" checked={!!v.notify_whatsapp} onChange={e => set('notify_whatsapp', e.target.checked)} /> 💬 By WhatsApp</label>
+      <label className="p-checkline"><input type="checkbox" checked={!!v.notify_email} disabled={!String(v.email || '').trim()} onChange={e => set('notify_email', e.target.checked)} /> ✉️ By email{!String(v.email || '').trim() ? ' (add an email first)' : ''}</label>
+      {msg && <p className={msg.bad ? 'p-err' : 'p-ok'}>{msg.t}</p>}
+      <button className="p-btn" disabled={busy || !changed}>{busy ? 'Sending…' : 'Save my details'}</button>
+    </form>
   )
 }
 

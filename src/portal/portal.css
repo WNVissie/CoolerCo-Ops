@@ -149,3 +149,7 @@
 .p-msg.me { margin-left: auto; background: var(--cyan-l); border-color: var(--cyan); }
 .p-msg-body { white-space: pre-wrap; font-size: 13.5px; }
 .p-msg small { color: var(--fg2); font-size: 10.5px; }
+
+/* 👤 My details (PortalApp.jsx MyDetails) */
+.p-note { background: #fff7e6; border: 1px solid #f3c56b; border-radius: 10px; padding: 9px 11px; font-size: 12.5px; margin: 8px 0; }
+.p-ok { color: #1a7f37; font-size: 13px; }
