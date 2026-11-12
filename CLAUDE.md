@@ -12,7 +12,7 @@ Related docs (in the claude.ai project): `coolerco-field-mapping.md`, `coolerco-
 
 - **Two databases (since 2026-11-10):**
   - **TEST = `🟢[TEST] RTMA_Ops` `laljfgwngculogdzmqiu`** (paid project in the PROD organisation; cloned from production with Supabase "Restore to a New Project" on 2026-11-10 — one day behind at that moment; photos/files not copied; month-end billing cron switched **off**). **The UAT Netlify site points here.** All new work is applied and tested here first.
-  - **PRODUCTION = RTMA_Ops `abgxjfeofgvimmimxvpa`**, shared with the RTMA dashboard (`rtma-cases-dashboard-netlify` / SMARTDash_RTMA), routing app and SmartSpares. **Scripts 016–019, 021–026 are NOT applied in production yet** (020a/020c = the read-only export for the copy job, applied there). Production only gets a script when Wanda says so, with its rollback.
+  - **PRODUCTION = RTMA_Ops `abgxjfeofgvimmimxvpa`**, shared with the RTMA dashboard (`rtma-cases-dashboard-netlify` / SMARTDash_RTMA), routing app and SmartSpares. **Scripts 016–019, 021–027 are NOT applied in production yet** (020a/020c = the read-only export for the copy job, applied there). Production only gets a script when Wanda says so, with its rollback.
 - **Append/add only** — never alter, rename or drop existing objects of other apps. Show the script and get approval before applying.
 - **Applying scripts:** the Supabase connector asks Wanda to confirm DDL and times out after 2 minutes. What works: Claude writes the script → **Wanda runs it in the SQL editor of the TEST project** ("Run and enable RLS", confirm the destructive-operations prompt) → Claude verifies with read-only checks and a `do $$ … raise exception … $$` test block (rolls itself back, leaves no test data).
 - **Code workflow:** Claude has push access. Each change goes on a `claude/<topic>` branch; Wanda says **"merge"** → fast-forward to `main` → Netlify deploys. The app must keep working against a database that does not have the newer scripts (it falls back to the older screens) — keep that rule.
@@ -370,6 +370,15 @@ system_admin (Wanda only) · administrator (uploads, edit records) · manager (s
   - Test: a supervisor for JHB may override in JHB, not in DBN, and not after being switched off; a supervisor cannot list users.
 - Page `/users` (`src/pages/Users.jsx`, Admin menu "👥 Users & roles"): search; filters All / No role / Warehouse team; role chips (✕ switch off, ↺ switch on); ➕ Role (role + warehouse, pre-selected from SmartHub; client for client users); "What each role may do".
 - **Next:** step 2, the condition check at picking + supervisor-only overrides in picking (use `coolerco_can_override`).
+
+**Step 2 — condition check + supervisor-only overrides at picking — BUILT 2026-11-12:**
+- **027** `coolerco_027_pick_overrides_condition.sql` (rollback `027_rollback`, then re-run 024's functions), applied on TEST and tested as stock controller + supervisor (roll-back block). It replaces CoolerCo's own `coolerco_pick_select` / `coolerco_pick_scan` / `coolerco_pick_board`.
+  - Soft problems (not RTW, other family, A - New for used, condition, branding, reserved elsewhere, swap) can only be overridden by `coolerco_can_override` for the route's warehouse (`coolerco_wh_code_for_group('RTMA Gauteng')` = JHB). Everyone else gets `needs_supervisor`.
+  - `coolerco_pick_condition_fix(route, case, asset, real_condition, pick?, how, client_id)`: inserts a CoolerCo touch (`touch_status` Submitted, `condition_found` = real condition, note "Condition corrected at picking (COM had …)"), so it goes to COM via COM Touch sync. It then re-checks with the real condition; if it fits, it selects (+ picks) with exception `condition_corrected`. No supervisor needed.
+  - `coolerco_override_requests` + `coolerco_override_request(route, case, asset, pick|select, reason)`: cancels an older pending request for that stop; raises an in-app alert (`coolerco_notify` 'pick_override' → supervisor, new notification rule). `coolerco_override_decide(id, approve, note)`: supervisors only, re-checks hard problems, writes prep + ledger with exception `supervisor_override` and "approved by".
+  - Board also returns `can_override` + pending `overrides` for the shown day/warehouse.
+- App (`Picking.jsx`): shared `Resolve` box (🔶 "Condition in COM is wrong?" → real-condition buttons; supervisor: reason + Pick anyway / Choose with reason; others: reason + 🙋 Ask supervisor), used in the ✨ Choose drawer and in Scan to pick. A "🙋 Waiting for a supervisor" card on the board: ✅ Approve / 🚫 (with reason) for supervisors, ⏳ for others.
+- **Next:** step 3, loading at the driver's bay (bay QR → driver's route, scan coolers, truck registration, short/extra → supervisor).
 
 **Still to answer (Wanda):** the bay sketch from the ops manager; who updates the asset status in COM after an audit.
 

@@ -42,6 +42,7 @@ const FLAG = {
   reserved_elsewhere: ['⛔', 'Reserved for another case', 'red'],
   not_picked: ['⏳', 'Not picked yet', 'orange'],
 }
+FLAG.supervisor_override = ['🧑‍✈️', 'Supervisor override', 'purple']
 const PROBLEM_FLAGS = ['not_rtw', 'at_pos', 'other_wh', 'family', 'condition', 'brand', 'double_booked']
 const REASONS = ['No used stock of this model', 'Customer / Magnum asked for it', 'Approved by supervisor', 'Other cooler damaged']
 const Flag = ({ f }) => { const [i, l, c] = FLAG[f] || ['•', f, 'neutral']; return <span className={`tag tag-${c}`} title={l}>{i} {l}</span> }
@@ -130,6 +131,11 @@ export default function Picking() {
         {err && <div className="form-msg error">{err}</div>}
         {msg && <div className={`form-msg ${msg.bad ? 'error' : 'success'}`}>{msg.t}</div>}
 
+        {writes && (data?.overrides || []).length > 0 && (
+          <div className="card" style={{ padding: 10, marginBottom: 10, borderColor: 'var(--orange)' }}>
+            <div className="card-title" style={{ marginBottom: 6 }}>🙋 Waiting for a supervisor ({data.overrides.length})</div>
+            {data.overrides.map(o => <OverrideRow key={o.id} o={o} lines={lines} canDecide={data.can_override} onDone={t => { setMsg(t); setTick(n => n + 1) }} />)}
+          </div>)}
         {scanOpen && writes && <PickScan day={day} wh={wh} onPicked={() => setTick(t => t + 1)} onClose={() => setScanOpen(false)} />}
 
         <div className="stats-row">
@@ -216,15 +222,94 @@ export default function Picking() {
   )
 }
 
+const CONDITIONS = ['A - New', 'B - Good as New', 'C - Used', 'D - Back of House only']
+const COND_ERR = { writes_off: 'Read-only here.', bad_condition: 'Pick a condition.', reason_required: 'Give a reason.', blocked: 'Not allowed for this cooler.', not_allowed: 'Only a supervisor can approve.' }
+
+// Mismatch helper (Wanda): 1) "Is COM's condition wrong?" → real condition goes to COM (COM Touch sync) and the pick goes on
+// when it now fits; 2) supervisor (manager / system admin) gives a reason; 3) everyone else → 🙋 Ask supervisor (alert).
+function Resolve({ res, kind, routeId, caseNo, how = 'screen', onRetry, onDone, busy }) {
+  const [reason, setReason] = useState('')
+  const [step, setStep] = useState(null) // null | 'cond'
+  const [err, setErr] = useState(null)
+  const [working, setWorking] = useState(false)
+  const soft = res?.soft || []
+  const condIssue = soft.includes('condition') || soft.includes('upgrade_new')
+  const asset = res?.asset || {}
+  async function fixCondition(cond) {
+    setWorking(true); setErr(null)
+    const { data: r, error } = await supabase.rpc('coolerco_pick_condition_fix', { p_route: routeId, p_case: caseNo, p_asset: asset.name, p_condition: cond,
+      p_pick: kind === 'pick', p_how: how, p_client: crypto.randomUUID() })
+    setWorking(false)
+    if (error) return setErr(error.message)
+    if (r?.error) return setErr(COND_ERR[r.error] || r.error)
+    if (r?.ok) return onDone(`🔶 ${asset.bar_code} recorded as ${cond} (goes to COM) · ${kind === 'pick' ? 'picked' : 'chosen'}.`, true)
+    onRetry?.(null, r) // still a mismatch (e.g. brand) → show the remaining problems
+  }
+  async function ask() {
+    setWorking(true); setErr(null)
+    const { data: r, error } = await supabase.rpc('coolerco_override_request', { p_route: routeId, p_case: caseNo, p_asset: asset.name, p_kind: kind, p_reason: reason })
+    setWorking(false)
+    if (error || r?.error) return setErr(COND_ERR[r?.error] || error?.message || r.error)
+    onDone(`🙋 Sent to the supervisor — ${asset.bar_code} waits for approval.`, false)
+  }
+  return (
+    <div style={{ marginTop: 6 }}>
+      {condIssue && step !== 'cond' && <button type="button" className="btn btn-ghost btn-sm" style={{ marginBottom: 6 }} onClick={() => setStep('cond')}>🔶 Condition in COM is wrong?</button>}
+      {condIssue && step === 'cond' && (
+        <div style={{ marginBottom: 6 }}>
+          <div style={{ fontSize: 11.5, marginBottom: 4 }}>COM says <b>{asset.condition}</b>. What is {asset.bar_code} really?</div>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>{CONDITIONS.filter(c => c !== asset.condition).map(c =>
+            <button key={c} type="button" className="btn btn-sm btn-primary" disabled={working} onClick={() => fixCondition(c)}>{c}</button>)}
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setStep(null)}>Back</button></div>
+          <div className="text3" style={{ fontSize: 10.5, marginTop: 3 }}>Saved as a scan with the real condition → sent to COM with the COM Touch sync.</div>
+        </div>)}
+      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 4 }}>{REASONS.filter(r => res?.can_override || r !== 'Approved by supervisor').map(r => <button key={r} type="button" className={`btn btn-sm ${reason === r ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setReason(r)}>{r}</button>)}</div>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <input className="field-ctrl" style={{ flex: 1 }} placeholder="Reason" value={reason} onChange={e => setReason(e.target.value)} />
+        {res?.can_override
+          ? <button type="button" className="btn btn-primary btn-sm" disabled={!reason.trim() || busy || working} onClick={() => onRetry(reason)}>{kind === 'pick' ? 'Pick anyway' : 'Choose with reason'}</button>
+          : <button type="button" className="btn btn-primary btn-sm" disabled={!reason.trim() || working} onClick={ask}>🙋 Ask supervisor</button>}
+      </div>
+      {!res?.can_override && <div className="text3" style={{ fontSize: 10.5, marginTop: 3 }}>Only a supervisor may let a cooler through that doesn&rsquo;t match.</div>}
+      {err && <div className="form-msg error" style={{ marginTop: 4 }}>{err}</div>}
+    </div>
+  )
+}
+
+// 🙋 One request on the board: supervisors approve / reject; others see it waiting
+function OverrideRow({ o, lines, canDecide, onDone }) {
+  const [busy, setBusy] = useState(false)
+  const l = lines.find(x => x.route_id === o.route_id && x.case_number === o.case_number)
+  async function decide(approve) {
+    const note = approve ? '' : prompt('Why not? (the stock controller sees this)') || ''
+    if (!approve && !note.trim()) return
+    setBusy(true)
+    const { data: r, error } = await supabase.rpc('coolerco_override_decide', { p_id: o.id, p_approve: approve, p_note: note || null })
+    setBusy(false)
+    onDone(error || r?.error ? { bad: true, t: COND_ERR[r?.error] || error?.message || r.error } : { t: approve ? `✅ Approved — ${o.bar_code} ${o.kind === 'pick' ? 'picked' : 'chosen'}.` : '🚫 Rejected.' })
+  }
+  return (
+    <div className="pick-cand">
+      <div style={{ minWidth: 0, fontSize: 11.5 }}>
+        <div><b className="mono">{o.bar_code}</b> → {l?.point_of_sale || o.case_number} <span className="text3">({o.kind === 'pick' ? 'pick' : 'choose'})</span></div>
+        <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', margin: '2px 0' }}>{(o.problems || []).map(f => <Flag key={f} f={f} />)}</div>
+        <div className="text3" style={{ fontSize: 10.5 }}>“{o.reason}” · {o.requested_label} · {new Date(o.requested_at).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' })}</div>
+      </div>
+      {canDecide ? <span style={{ display: 'flex', gap: 4 }}>
+        <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => decide(true)}>✅ Approve</button>
+        <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => decide(false)}>🚫</button></span>
+        : <span className="tag tag-orange">⏳ waiting</span>}
+    </div>)
+}
+
 // ✨ Options for one stop → select (asks a reason when the cooler doesn't fully match)
 function Candidates({ line, onClose, onDone }) {
   const [list, setList] = useState(null)
-  const [pending, setPending] = useState(null) // { asset, soft }
-  const [reason, setReason] = useState('')
+  const [pending, setPending] = useState(null) // { c, r } — select answer with problems
   const [err, setErr] = useState(null)
   useEffect(() => {
     if (!line) return
-    setList(null); setPending(null); setReason(''); setErr(null)
+    setList(null); setPending(null); setErr(null)
     supabase.rpc('coolerco_pick_candidates', { p_route: line.route_id, p_case: line.case_number, p_limit: 12 })
       .then(({ data, error }) => { if (error) setErr(error.message); setList(data || []) })
   }, [line])
@@ -232,7 +317,7 @@ function Candidates({ line, onClose, onDone }) {
     setErr(null)
     const { data: r, error } = await supabase.rpc('coolerco_pick_select', { p_route: line.route_id, p_case: line.case_number, p_asset: c.asset, p_reason: why || null })
     if (error) return setErr(error.message)
-    if (r?.needs_reason) { setPending({ c, soft: r.soft }); return }
+    if (r?.needs_reason || r?.needs_supervisor) { setPending({ c, r }); return }
     if (r?.blocked) return setErr('Not allowed: ' + (r.hard || []).map(f => FLAG[f]?.[1] || f).join(', '))
     if (!r?.ok) return setErr(r?.error || 'Not saved')
     onDone(`🎯 ${c.bar_code} chosen for ${line.point_of_sale}.`)
@@ -248,11 +333,10 @@ function Candidates({ line, onClose, onDone }) {
         {err && <div className="form-msg error">{err}</div>}
         {pending && (
           <div className="req-box" style={{ borderColor: 'var(--orange)', marginBottom: 10 }}>
-            <div style={{ fontSize: 11.5, marginBottom: 6 }}><b>{pending.c.bar_code}</b> needs a reason: {(pending.soft || []).map(f => <Flag key={f} f={f} />)}</div>
-            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 6 }}>{REASONS.map(r => <button key={r} type="button" className={`btn btn-sm ${reason === r ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setReason(r)}>{r}</button>)}</div>
-            <input className="field-ctrl" style={{ width: '100%' }} placeholder="Reason" value={reason} onChange={e => setReason(e.target.value)} />
-            <div className="modal-btns"><button className="btn btn-ghost btn-sm" onClick={() => setPending(null)}>Back</button>
-              <button className="btn btn-primary btn-sm" disabled={!reason.trim()} onClick={() => select(pending.c, reason)}>Choose with reason</button></div>
+            <div style={{ fontSize: 11.5, marginBottom: 4 }}><b>{pending.c.bar_code}</b> doesn&rsquo;t fully match: {(pending.r.soft || []).map(f => <Flag key={f} f={f} />)}</div>
+            <Resolve res={pending.r} kind="select" routeId={line.route_id} caseNo={line.case_number}
+              onRetry={(why, r2) => r2 ? setPending({ c: pending.c, r: r2 }) : select(pending.c, why)} onDone={t => onDone(t)} />
+            <div className="modal-btns"><button className="btn btn-ghost btn-sm" onClick={() => setPending(null)}>Back</button></div>
           </div>)}
         {!list ? <div className="load-state"><span className="spinner" /> Finding coolers…</div> : !list.length ? (
           <div className="empty-state"><div className="empty-ico">🔍</div><div>No free Ready-to-Work cooler of this family in this warehouse.</div></div>
@@ -280,7 +364,6 @@ function PickScan({ day, wh, onPicked, onClose }) {
   const [code, setCode] = useState('')
   const [cam, setCam] = useState(false)
   const [res, setRes] = useState(null) // last result + what was sent
-  const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const timer = useRef(entryTimer())
   const inp = useRef(null)
@@ -296,12 +379,12 @@ function PickScan({ day, wh, onPicked, onClose }) {
     const out = error ? { result: 'error', message: error.message } : (r?.error ? { result: 'error', message: r.error } : r)
     const good = out.result === 'picked'
     buzz(!good); beep(!good && out.result !== 'choose_stop')
-    setRes({ ...out, code: k, how, sent: extra }); setReason('')
+    setRes({ ...out, code: k, how, sent: extra })
     if (good) onPicked()
     inp.current?.focus()
   }
   const again = extra => send(res.code, res.how, { route: res.sent.route, case: res.sent.case, ...extra })
-  const tone = { picked: 'ok', choose_stop: 'ask', needs_reason: 'warn', wrong_cooler: 'bad', blocked: 'bad', not_found: 'warn', no_stop: 'warn', error: 'bad' }[res?.result] || 'ask'
+  const tone = { picked: 'ok', choose_stop: 'ask', needs_reason: 'warn', needs_supervisor: 'warn', wrong_cooler: 'bad', blocked: 'bad', not_found: 'warn', no_stop: 'warn', error: 'bad' }[res?.result] || 'ask'
 
   const panel = res && (
     <div className={`pick-res ${tone}`}>
@@ -312,19 +395,20 @@ function PickScan({ day, wh, onPicked, onClose }) {
         {(res.stops || []).map(s => <button key={s.case_number} type="button" className={`btn btn-sm ${s.match ? 'btn-primary' : 'btn-ghost'}`} style={{ margin: '0 4px 4px 0' }}
           onClick={() => send(res.code, res.how, { route: s.route_id, case: s.case_number })}>{s.route_number} · {s.stop ?? '—'} · {s.store}{s.match ? ' ✓' : ` (${s.req_condition || '?'})`}</button>)}</>}
       {res.result === 'wrong_cooler' && <><div className="pick-res-t">⛔ Wrong cooler</div>
-        <div>This stop ({res.stop?.store}) is set for <b className="mono">{res.selected_bar_code}</b>. Put this one back — or swap with a reason:</div></>}
-      {res.result === 'needs_reason' && <><div className="pick-res-t">⚠ {res.asset?.bar_code} doesn&rsquo;t fully match {res.stop?.store}</div>
+        <div>This stop ({res.stop?.store}) is set for <b className="mono">{res.selected_bar_code}</b>. Put this one back{res.can_override ? ' — or swap with a reason:' : ' — or ask a supervisor to swap:'}</div></>}
+      {['needs_reason', 'needs_supervisor'].includes(res.result) && <><div className="pick-res-t">⚠ {res.asset?.bar_code} doesn&rsquo;t fully match {res.stop?.store}</div>
         <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>{(res.soft || []).map(f => <Flag key={f} f={f} />)}</div></>}
       {res.result === 'blocked' && <><div className="pick-res-t">⛔ Can&rsquo;t pick {res.asset?.bar_code}</div>
         <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>{(res.hard || []).map(f => <Flag key={f} f={f} />)}</div><div className="text3">{res.asset?.place}</div></>}
       {res.result === 'no_stop' && <><div className="pick-res-t">🤷 No stop needs {res.asset?.bar_code || res.code} on {dayLabel(day)}</div><div>{res.asset?.product_base} · {res.asset?.condition} · {res.asset?.status}</div></>}
       {res.result === 'not_found' && <div className="pick-res-t">🔍 “{res.code}” not found — try the local code</div>}
       {res.result === 'error' && <div className="pick-res-t">⚠ {res.message}</div>}
-      {['wrong_cooler', 'needs_reason'].includes(res.result) && <div style={{ marginTop: 6 }}>
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 4 }}>{REASONS.map(r => <button key={r} type="button" className={`btn btn-sm ${reason === r ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setReason(r)}>{r}</button>)}</div>
-        <div style={{ display: 'flex', gap: 6 }}><input className="field-ctrl" style={{ flex: 1 }} placeholder="Reason" value={reason} onChange={e => setReason(e.target.value)} />
-          <button type="button" className="btn btn-primary btn-sm" disabled={!reason.trim() || busy} onClick={() => again({ reason, route: res.route_id || res.sent.route || null, case: res.case_number || res.sent.case || null })}>Pick anyway</button></div>
-      </div>}
+      {['wrong_cooler', 'needs_reason', 'needs_supervisor'].includes(res.result) && (
+        <Resolve key={res.code + res.result} res={res} kind="pick" how={res.how} busy={busy}
+          routeId={res.route_id || res.sent.route} caseNo={res.case_number || res.sent.case}
+          onRetry={(why, r2) => r2 ? setRes({ ...res, ...r2, result: r2.result || res.result }) : again({ reason: why, route: res.route_id || res.sent.route || null, case: res.case_number || res.sent.case || null })}
+          onDone={(t, picked) => { setRes({ result: picked ? 'picked' : 'asked', message: t, asset: res.asset, stop: res.stop, code: res.code, how: res.how, sent: res.sent }); buzz(false); onPicked() }} />)}
+      {res.result === 'asked' && <div className="pick-res-t">{res.message}</div>}
       {res.how === 'typed' && res.asset?.bar_code && res.result === 'picked' && <LabelPrompt asset={res.asset} reason={res.asset.bar_code.startsWith('11') ? 'lost' : 'never_labelled'} dark={cam} />}
     </div>)
 
