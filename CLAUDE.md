@@ -12,7 +12,7 @@ Related docs (in the claude.ai project): `coolerco-field-mapping.md`, `coolerco-
 
 - **Two databases (since 2026-11-10):**
   - **TEST = `🟢[TEST] RTMA_Ops` `laljfgwngculogdzmqiu`** (paid project in the PROD organisation; cloned from production with Supabase "Restore to a New Project" on 2026-11-10 — one day behind at that moment; photos/files not copied; month-end billing cron switched **off**). **The UAT Netlify site points here.** All new work is applied and tested here first.
-  - **PRODUCTION = RTMA_Ops `abgxjfeofgvimmimxvpa`**, shared with the RTMA dashboard (`rtma-cases-dashboard-netlify` / SMARTDash_RTMA), routing app and SmartSpares. **Scripts 016–019, 021, 022 are NOT applied in production yet** (020a/020c = the read-only export for the copy job, applied there). Production only gets a script when Wanda says so, with its rollback.
+  - **PRODUCTION = RTMA_Ops `abgxjfeofgvimmimxvpa`**, shared with the RTMA dashboard (`rtma-cases-dashboard-netlify` / SMARTDash_RTMA), routing app and SmartSpares. **Scripts 016–019, 021, 022, 023 are NOT applied in production yet** (020a/020c = the read-only export for the copy job, applied there). Production only gets a script when Wanda says so, with its rollback.
 - **Append/add only** — never alter, rename or drop existing objects of other apps. Show the script and get approval before applying.
 - **Applying scripts:** the Supabase connector asks Wanda to confirm DDL and times out after 2 minutes. What works: Claude writes the script → **Wanda runs it in the SQL editor of the TEST project** ("Run and enable RLS", confirm the destructive-operations prompt) → Claude verifies with read-only checks and a `do $$ … raise exception … $$` test block (rolls itself back, leaves no test data).
 - **Code workflow:** Claude has push access. Each change goes on a `claude/<topic>` branch; Wanda says **"merge"** → fast-forward to `main` → Netlify deploys. The app must keep working against a database that does not have the newer scripts (it falls back to the older screens) — keep that rule.
@@ -261,3 +261,22 @@ system_admin (Wanda only) · administrator (uploads, edit records) · manager (s
 - `coolerco_case_actions(case)` → source COM/CoolerCo, open?, `com_url`, `can_cancel`. `com_url` = setting `com_case_url` + `cases.raw_case->>'(Do Not Modify) Case'` (Dynamics GUID; change the setting when Magnum moves to Salesforce).
 - `coolerco_case_cancel(case, reason, note)`: CoolerCo cases only, roles system_admin / administrator / manager / supplier, reasons `CAN_*` (status Cancelled; CAN_OTHER needs a note). Sets status Cancelled, motive, service_closure_date; logged in `coolerco_case_events`. COM cases are refused: cancel them in COM.
 - UI: `src/components/CaseActions.jsx` (🟦 COM / 🟩 CoolerCo tag, 📋 Copy no., **Open in COM ↗**, 🚫 Cancel case with reason). Shown in the Cases drawer and in a pop-out when a case number is clicked on Case flags (+ 📂 Open full case). Without 022 the block is simply hidden.
+
+---
+
+## 9. ▶ RESUME HERE — 2026-11-12 WMS start: asset labels (branch `claude/wms-labels`, NOT merged)
+
+**WMS direction (agreed in principle):** the system predicts each movement from cases and routes; the user confirms with one scan. Typing stays as a fallback. Alarms only for exceptions; pop-up tasks; escalation timers; daily digest. Ledger `coolerco_asset_movements` still to build. The old `/wms/receiving|transfers|stocktake|dispatch` screens are quantity-form placeholders over tables that don't exist; replace them. Wanda's answers on people/devices/arrivals/audit/loading are still open.
+
+**Labels (Wanda):** many coolers have no physical label, or lost it (metal plates fall off). COM data is clean: all RTMA stock has a barcode. **Real labels start with "11"**; other barcodes were never physically labelled (492 in stock on 12 Nov). Plan: re-print the **existing COM barcode** as **QR + number in text** (+ local code / model / warehouse small) on a **Brother P-touch, 24 mm TZe** (extra-strength tape suggested). Printers in 3 warehouses, more coming. RTMA may print Magnum barcodes. Wanda fixes wrong links in COM herself.
+
+**023** `coolerco_023_asset_labels.sql` (rollback `023_rollback`), applied on TEST and tested:
+- `coolerco_asset_labels` (one row per asset: reason never_labelled/lost/damaged/wrong_label; status needed → printed → confirmed; print_count, who/when).
+- `coolerco_label_corrections` (code on cooler, asset COM links it to, real asset; open/fixed).
+- `coolerco_label_mark(assets[], action, reason)`, `coolerco_label_todo(warehouse)` (walking order: warehouse, WH/WS, last scanned area, bay; ≈0.1 s), `coolerco_label_summary()`. Security invoker, signed-in only.
+
+**App:**
+- `src/lib/labels.js`: label PNG drawn in the browser (360 dpi, 18 × 58 mm print area); Share → Brother app on phones, download on PC; P-touch Editor CSV (Barcode, LocalCode, Model, Warehouse, Bay, Area); `entryTimer()` (hand scanner = whole code in < 400 ms); `labelNeed()`.
+- `src/components/LabelPrompt.jsx`: 🏷 prompt on Quick + Full scan (also in the Field app) when the label didn't scan, i.e. a typed code or a match on local code / serial / SAP no. Buttons: Print / Later / Wrong cooler. `labelAfterScan()`: a real label scan confirms a printed label, and a scanned "not 11" barcode is marked as labelled.
+- `/wms/labels` (`src/pages/wms/Labels.jsx`, WMS menu "🏷 Asset labels"): To label (per-warehouse cards, filter, 🖨 one label, ⬇ P-touch file + mark printed), ✅ Confirm by scan box (camera or scanner), 🔁 Label corrections (report: code on cooler + real cooler by local code / serial / SAP → save + flag wrong_label → print; list To fix in COM / Fixed; Excel).
+

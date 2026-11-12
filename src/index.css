@@ -607,3 +607,9 @@ input.field-ctrl:focus, textarea.field-ctrl:focus { border-color: var(--accent);
 .case-actions { margin: 8px 0 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface2); }
 .case-actions-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 4px; }
 .case-actions a.btn { text-decoration: none; }
+
+/* 🏷 Label prompt (LabelPrompt.jsx) */
+.label-prompt { margin: 6px 0 8px; padding: 8px 10px; border-radius: 8px; border: 1px dashed var(--accent); background: var(--surface2); font-size: 12px; }
+.label-prompt.done { border-style: solid; border-color: var(--green); }
+.label-prompt.dark { background: rgba(255,255,255,.08); color: #fff; border-color: #8ab4ff; }
+.label-prompt a.btn { text-decoration: none; }

@@ -33,6 +33,7 @@ const Receiving = lazyPage(() => import('./pages/wms/Receiving'))
 const Transfers = lazyPage(() => import('./pages/wms/Transfers'))
 const Stocktake = lazyPage(() => import('./pages/wms/Stocktake'))
 const Dispatch = lazyPage(() => import('./pages/wms/Dispatch'))
+const Labels = lazyPage(() => import('./pages/wms/Labels'))
 
 export default function App() {
   // Desktop: collapse to icons (remembered). Phone: menu slides in over the page.
@@ -99,6 +100,7 @@ export default function App() {
               <Route path="/wms/transfers" element={<Transfers />} />
               <Route path="/wms/stocktake" element={<Stocktake />} />
               <Route path="/wms/dispatch" element={<Dispatch />} />
+              <Route path="/wms/labels" element={<Labels />} />
               <Route path="/portal" element={<CustomerPortal />} />
               <Route path="/newcase" element={<NewCase />} />
               <Route path="*" element={<Navigate to="/" replace />} />

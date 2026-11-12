@@ -30,6 +30,7 @@ const NAV = [
     { to: '/scan/report',   icon: '📊', label: 'Scan report' },
     { to: '/scan/export',   icon: '⬆️', label: 'COM Touch sync' },
     { to: '/scan/stocktake', icon: '📋', label: 'Stock take exceptions' },
+    { to: '/wms/labels',    icon: '🏷', label: 'Asset labels' },
     { href: 'https://smartscanmagnum.netlify.app/', icon: '🔗', label: 'SmartScan (COM)' },
     { to: '/wms/receiving', icon: '📥', label: 'Receiving' },
     { to: '/wms/transfers', icon: '🔄', label: 'Transfers' },
