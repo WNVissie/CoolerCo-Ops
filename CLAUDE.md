@@ -345,6 +345,11 @@ system_admin (Wanda only) · administrator (uploads, edit records) · manager (s
 - Gauteng transfers = moves between buildings (Receiving WH ↔ Main WH ↔ NCD WH), logged as transfer_out / transfer_in.
 - KPIs from the ledger: pick → load and receive → RTW, per warehouse and per person.
 
+**Undelivered coolers coming back (Wanda 12 Nov):** a driver may return with a cooler for a store he couldn't complete. That cooler goes to the **staging bay**, then onto the route for the next day that goes **in the direction of that store**, and into **that driver's bay**.
+- Measured (last 60 days, delivery/replacement stops): **200 carried over** of 1,434 (14%); **140 had a picked cooler on the truck**. `carried_to_route_id` is **never filled** by the routing app, so the next route is found by the same case number on a later route. 176 were re-planned, on average **9.3 days later** (only 9 the next day, 24 with the same driver). On the new route only 44 had a cooler selected, and **only 5 kept the same cooler**, so returned coolers lose their link to the case.
+- Design: on return, the scan sorts each cooler. A picked cooler of a stop that wasn't completed → **📦 staging bay** (not an alarm). A collected cooler → receiving bay. A cooler that wasn't expected → alarm. The staging list watches the routes: when the case is planned on a new route, CoolerCo **reserves the same cooler** on that route's prep (TEST) and pops up "move 1109 to Sipho's bay (route GT-0012, Thu)". Scanning it at the driver bay confirms the move. If the case is cancelled → "put back on the RTW floor". Staged longer than N days without a route → supervisor alert.
+- Route "in the direction of the store": CoolerCo **suggests** the routes for the next day that pass closest to the store (distance from the store's GPS to the nearest stop of each route). The planner adds the stop in the routing app.
+
 **Still to answer (Wanda):** the bay sketch from the ops manager; who updates the asset status in COM after an audit.
 
 **Working basis:** phones (Android + iPhone), same SmartHub login · on UAT CoolerCo selects and picks in routing prep (option A; production read-only) · loading per driver's bay · overrides = supervisors only (needs roles).
