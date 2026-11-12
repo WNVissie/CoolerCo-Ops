@@ -290,6 +290,14 @@ system_admin (Wanda only) · administrator (uploads, edit records) · manager (s
 
 **Facts found (TEST, 12 Nov):** last 30 days 199 routes, 5 warehouses use routing, `vehicle_code` empty on all; 1,162 deliver/replacement stops, 894 collect stops; routing prep 502 rows (439 with a selected cooler, 416 picked, 28 packed, 0 returned): packed/returned are hardly used. Last 60 days: 780 solved deliveries with a selected cooler, **56 (7%) delivered a different cooler** than selected → reason for a pick check.
 
+**Picking today (routing prep, last 60 days, 1,397 delivery/replacement stops on finalised routes) — measured 12 Nov:**
+- **35% no cooler selected** (491): Gauteng 355/1,228 (29%); outside Gauteng it is barely used (PE 52/67, BFN 38/52, CPT 20/24, EL 24/24). 418 of those were solved with no trace of which cooler was meant.
+- 108 selected but never marked picked; picked before route day 605 / on the day 245 / after 12.
+- Condition differs from the request on 266: mostly **C - Used requested → A - New given (195)**, B → A 24, D → A 12 (new stock spent where used was asked); downgrades are rare (A → C 6).
+- Family differs from request: 8. Solved with a different cooler than selected: 62. Same cooler selected on two different cases: 39 (some are re-planned cases).
+- Routing prep is written only by the routing app (smartroutertma, server code). CoolerCo reads it (`coolerco_picking_queue`).
+- **Question to Wanda:** may CoolerCo write the selection / picked flag into `routing_warehouse_preparation` (same database, her own routing app), or must it stay read-only with CoolerCo keeping its own pick records?
+
 **Still to answer (Wanda):** people per warehouse (receiving clerk, picker, technician, supervisor) · devices (phones or rugged scanners, wifi in yard) · bay/area labels · how coolers arrive (own trucks only, or Magnum/supplier stock with a delivery list) · who audits and who updates COM status · who does routing prep and when; should CoolerCo suggest the cooler · loading check today · transfers between warehouses · cycle counting vs monthly SmartScan · Tiger coolers in the same warehouses · KPIs · who may override an alarm.
 
 **Assumptions used until answered:** phones (Android + iPhone) with hand scanners where present, same SmartHub login · routing prep (routing app) stays where the cooler is selected; CoolerCo only verifies by scan, never writes routing tables · loading checked per route · any signed-in user may override with a reason (logged; roles later).
