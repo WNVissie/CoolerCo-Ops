@@ -325,11 +325,29 @@ system_admin (Wanda only) · administrator (uploads, edit records) · manager (s
    - **Gauteng Receiving WH:** receiving bay, repair bay, "RTW – not often used assets". Will change once the Main WH has more space.
    - **Gauteng NCD WH:** receiving bay (only for new coolers returned undelivered), driver bays, **decal bay** (a cooler with a decal ticket belongs there), RTW areas, loading areas.
    - **Scan only at the key steps, not every move:** received → (repair bay) → repaired → prep bay → RTW floor. Moves inside the repair bay (wash, test) are not scanned.
-- Questions 4–13 are still open.
+**Answers from Wanda (12 Nov, 4–13):**
+4. **Arrivals:** coolers come on trucks (own or contractors'). New stock is already at the warehouses. **Receiving = only coolers returning from a POS** (collections: Removal / Replacement).
+5. **Audit:** the **stock controller** audits returned coolers.
+6. **Routing prep:** done by the **stock controller the day before**, after routing; coolers are **packed in the driver's bay**.
+7. **Loading:** no check today. Not always the same truck, but the **same driver**, and this needs tightening.
+8. **Overrides: supervisors only.**
+9. **Condition:** a mismatch can be a problem. When a cooler's condition doesn't match, **ask whether the cooler's condition needs to be updated** (i.e. maybe COM's condition is wrong).
+10. **Transfers: only in Gauteng** (between the Gauteng buildings), not between other warehouses.
+11. **Cycle counting runs alongside** the monthly SmartScan count.
+12. **Tiger coolers will be in the same warehouses.**
+13. **KPIs (RTMA only):** time **from picking to loading**, and time **from receiving to Ready to Work**.
 
-**Still to answer (Wanda):** people per warehouse (receiving clerk, picker, technician, supervisor) · devices (phones or rugged scanners, wifi in yard) · bay/area labels · how coolers arrive (own trucks only, or Magnum/supplier stock with a delivery list) · who audits and who updates COM status · who does routing prep and when; should CoolerCo suggest the cooler · loading check today · transfers between warehouses · cycle counting vs monthly SmartScan · Tiger coolers in the same warehouses · KPIs · who may override an alarm.
+**Design decisions that follow:**
+- Roles to add (data only): **stock_controller**, **supervisor**, **warehouse_assistant**. Overrides (pick anyway, short loading, wrong area) require supervisor, manager or system_admin, so a **Users & roles screen** is needed first. Until roles are given, only Wanda (system_admin) can override.
+- Condition mismatch at picking offers **"COM condition is wrong → update"**: it records a CoolerCo touch with `condition_found`, which goes to COM through the existing COM Touch sync (CSV, Submited) instead of a free-text reason.
+- Loading: scan at the **driver's bay** (QR per driver bay → the driver's route for the day); record the **truck registration** at loading (tightening driver ↔ truck).
+- Receiving: the "expected in" list = collection stops (Removal / Replacement) solved in the field, plus COM `asset_removed`; unexpected = alarm to the supervisor.
+- Gauteng transfers = moves between buildings (Receiving WH ↔ Main WH ↔ NCD WH), logged as transfer_out / transfer_in.
+- KPIs from the ledger: pick → load and receive → RTW, per warehouse and per person.
 
-**Assumptions used until answered:** phones (Android + iPhone) with hand scanners where present, same SmartHub login · on UAT CoolerCo selects and picks in routing prep (option A; production read-only) · loading checked per route · any signed-in user may override with a reason (logged; roles later).
+**Still to answer (Wanda):** the bay sketch from the ops manager; who updates the asset status in COM after an audit.
+
+**Working basis:** phones (Android + iPhone), same SmartHub login · on UAT CoolerCo selects and picks in routing prep (option A; production read-only) · loading per driver's bay · overrides = supervisors only (needs roles).
 
 **Labels (Wanda):** many coolers have no physical label, or lost it (metal plates fall off). COM data is clean: all RTMA stock has a barcode. **Real labels start with "11"**; other barcodes were never physically labelled (492 in stock on 12 Nov). Plan: re-print the **existing COM barcode** as **QR + number in text** (+ local code / model / warehouse small) on a **Brother P-touch, 24 mm TZe** (extra-strength tape suggested). Printers in 3 warehouses, more coming. RTMA may print Magnum barcodes. Wanda fixes wrong links in COM herself.
 
