@@ -382,6 +382,14 @@ system_admin (Wanda only) · administrator (uploads, edit records) · manager (s
 
 **Still to answer (Wanda):** the bay sketch from the ops manager; who updates the asset status in COM after an audit.
 
+**Client leaflet "SMART AssetFlow" — updated 2026-11-12** (artifact `f226f7d5-ca7e-4f3a-ab4e-fbbb4c8a0585`, https://claude.ai/artifact/WuKHkp4eVZEFdkBW9APnDz, private to Wanda until she shares it; version `1794504896-2191`):
+- Numbers refreshed (TEST synced from prod 12 Nov): warehouse stock 8,780 · RTW 4,279 · open cases 5,526 · POS assets 20,762 · stores 12,202 · 24 concessionaires · 1,276 solved route stops.
+- New section **"New · November 2026"** with honest status labels (Live / In testing / Coming): Smart Picking, Supervisor Approvals (+ condition fix to COM), Asset Labels, Users & Roles, Case Flags & Actions (live), Inbox & Supervisor Alarm, Movement Log (KPIs pick→load, receive→RTW coming), Loading & Returns (coming: driver bays, staging, re-route within 2-day SLA), separate test environment (live).
+- Customer portal list: symptom-based urgency, one open case per cooler / ask about a case, My details any time. Concessionaire list: link COM case no., comments hidden from customers.
+- Update it again when features move from "In testing" to "Live" (i.e. after production go-ahead).
+
+**Rule (Wanda 12 Nov): keep every change in this CLAUDE.md so nothing is lost** — after each build, decision, answer or artifact update, add it here in the same session and push.
+
 **Working basis:** phones (Android + iPhone), same SmartHub login · on UAT CoolerCo selects and picks in routing prep (option A; production read-only) · loading per driver's bay · overrides = supervisors only (needs roles).
 
 **Labels (Wanda):** many coolers have no physical label, or lost it (metal plates fall off). COM data is clean: all RTMA stock has a barcode. **Real labels start with "11"**; other barcodes were never physically labelled (492 in stock on 12 Nov). Plan: re-print the **existing COM barcode** as **QR + number in text** (+ local code / model / warehouse small) on a **Brother P-touch, 24 mm TZe** (extra-strength tape suggested). Printers in 3 warehouses, more coming. RTMA may print Magnum barcodes. Wanda fixes wrong links in COM herself.
