@@ -23,6 +23,12 @@ export function isOpenCase(statusReason) {
   return OPEN_REASONS.some(s => s.toLowerCase() === String(statusReason || '').trim().toLowerCase())
 }
 
+// Closed in COM = the case is finished there, whatever the result
+const CLOSED_REASONS = ['solved', 'not solved', 'canceled', 'cancelled']
+export function isClosedCase(statusReason) {
+  return CLOSED_REASONS.includes(String(statusReason || '').trim().toLowerCase())
+}
+
 export function statusColor(s) {
   const v = String(s || '').toLowerCase()
   if (v === 'solved') return 'green'
