@@ -1,6 +1,6 @@
 # CoolerCo-Ops — Project Overview & Hand-over
 
-**Last updated:** 2026-11-11 · **Repo:** https://github.com/WNVissie/CoolerCo-Ops (branch `main`)
+**Last updated:** 2026-11-13 · **Repo:** https://github.com/WNVissie/CoolerCo-Ops (branch `main`)
 **Stack:** React 18 + Vite 5 · React Router v6 · Supabase JS v2 · Netlify · SheetJS (lazy, export only)
 **Owner:** Wanda (SMART Project Partners). Explain in plain language, simple modern UI, icons, collapsible sections, small fonts, responsive, parallel + lazy loading, say whether server or browser is better.
 
@@ -261,3 +261,11 @@ system_admin (Wanda only) · administrator (uploads, edit records) · manager (s
 - `coolerco_case_actions(case)` → source COM/CoolerCo, open?, `com_url`, `can_cancel`. `com_url` = setting `com_case_url` + `cases.raw_case->>'(Do Not Modify) Case'` (Dynamics GUID; change the setting when Magnum moves to Salesforce).
 - `coolerco_case_cancel(case, reason, note)`: CoolerCo cases only, roles system_admin / administrator / manager / supplier, reasons `CAN_*` (status Cancelled; CAN_OTHER needs a note). Sets status Cancelled, motive, service_closure_date; logged in `coolerco_case_events`. COM cases are refused: cancel them in COM.
 - UI: `src/components/CaseActions.jsx` (🟦 COM / 🟩 CoolerCo tag, 📋 Copy no., **Open in COM ↗**, 🚫 Cancel case with reason). Shown in the Cases drawer and in a pop-out when a case number is clicked on Case flags (+ 📂 Open full case). Without 022 the block is simply hidden.
+
+---
+
+## 9. ▶ 2026-11-13 — cases data design (decided by Wanda)
+
+- **COM fields:** keep uploading COM as is. `cases` has 47 mapped columns + the whole COM row (165 fields) in `raw_case`. Do **not** add the other fields as columns; lift what is needed through a `coolerco_` view. A field that must be filtered, sorted or used for SLA should become a real column with a proper date.
+- **Tiger:** uses `coolerco_cases` (no new table, never COM `cases`). Still missing there vs `cases`: technician routed to, contractor, delivered / removed / repaired asset condition, removed product base, current brand hierarchy, reason, message, SLA result → one small add-only script with the Tiger case lifecycle; SLA result calculated in a view.
+- **023** `coolerco_023_all_cases_view.sql` (+ `coolerco_023_rollback.sql`) — **written, NOT applied or tested yet** (the Supabase connector was down; column types of `cases` not confirmed). Views: `coolerco_com_case_extra` (36 extra COM fields from `raw_case`, text as exported, dates not converted) and `coolerco_all_cases` (COM + CoolerCo, same column names, `source`, `client_code`, `is_open`, `counts_as_case` = false for a CoolerCo request already linked to a COM case). Signed-in users only, `security_invoker`. No screen reads them yet.
