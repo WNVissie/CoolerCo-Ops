@@ -71,7 +71,7 @@ export default function App() {
           user={session.user} onSignOut={() => supabase.auth.signOut()} inboxCount={inbox.alerts || 0} inboxUrgent={!!inbox.urgent} />
         {mobileOpen && <div className="nav-scrim" onClick={() => setMobileOpen(false)} />}
         <div className="main-area">
-          <button className="topbar-hamburger" onClick={() => setMobileOpen(true)} aria-label={inbox.alerts ? `Open menu, ${inbox.alerts} alerts waiting` : 'Open menu'}>☰{inbox.alerts > 0 && <span className={`nav-badge on-btn${inbox.urgent ? ' urgent' : ''}`}>{inbox.alerts}</span>}</button>
+          <button className={`topbar-hamburger${mobileOpen ? ' is-open' : ''}`} onClick={() => setMobileOpen(true)} aria-label={inbox.alerts ? `Open menu, ${inbox.alerts} alerts waiting` : 'Open menu'}><span className="hamb-ico" aria-hidden="true">☰</span><span className="hamb-brand" aria-hidden="true">CoolerCo-Ops</span>{inbox.alerts > 0 && <span className={`nav-badge on-btn${inbox.urgent ? ' urgent' : ''}`}>{inbox.alerts}</span>}</button>
           <InboxAlarm onCounts={setInbox} />
           <Suspense fallback={<div className="load-state"><span className="spinner" /> Loading…</div>}>
             <Routes>

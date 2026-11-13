@@ -607,3 +607,16 @@ input.field-ctrl:focus, textarea.field-ctrl:focus { border-color: var(--accent);
 .case-actions { margin: 8px 0 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface2); }
 .case-actions-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 4px; }
 .case-actions a.btn { text-decoration: none; }
+
+/* ☰ menu button: same dark colour as the sidebar so it stands out on the light top bar.
+   Wider screens (menu mode): a small pill with the app name next to the icon. */
+.topbar-hamburger { position: fixed; background: #0a1628; border-color: rgba(255,255,255,.16); color: #fff; font-size: 16px; gap: 8px; box-shadow: 0 1px 4px rgba(10,22,40,.25); transition: background .15s; }
+.topbar-hamburger:hover { background: #13233d; }
+.topbar-hamburger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hamb-ico { line-height: 1; }
+.hamb-brand { display: none; font-size: 12.5px; font-weight: 700; letter-spacing: .1px; white-space: nowrap; }
+@media (min-width: 769px) {
+  .nav-menu-mode .topbar-hamburger:not(.is-open) { width: auto; padding: 0 12px 0 10px; top: 11px; }
+  .nav-menu-mode .topbar-hamburger:not(.is-open) .hamb-brand { display: inline; }
+  .nav-menu-mode .topbar { padding-left: 158px; }
+}
