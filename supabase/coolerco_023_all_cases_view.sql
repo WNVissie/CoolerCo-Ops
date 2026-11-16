@@ -9,8 +9,9 @@
 
 -- ── 1. Extra COM fields, lifted from the stored COM row (cases.raw_case) ─────
 -- One row per COM case. Join on case_number when a screen or report needs them.
--- Values are exactly as COM exported them (text). Dates here are NOT converted
--- yet: use them for display, not for SLA sums, until the format is confirmed.
+-- Values are exactly as COM exported them (text), except four dates that are turned
+-- into real dates: expected_service_date, modified_on, first_response_at,
+-- service_delivered_at (COM stores them as 2026-11-13T07:32:33.999Z = UTC; show in SA time).
 -- To add another COM field later: add one line here and re-run this script.
 create or replace view public.coolerco_com_case_extra
 with (security_invoker = true) as
@@ -20,7 +21,7 @@ select
   nullif(trim(c.raw_case ->> 'Cancel Reason'), '')               as cancel_reason,
   nullif(trim(c.raw_case ->> 'Canceled Method'), '')             as canceled_method,
   nullif(trim(c.raw_case ->> 'Cancel Request'), '')              as cancel_request,
-  nullif(trim(c.raw_case ->> 'Expected Service Date'), '')       as expected_service_date,
+  case when c.raw_case ->> 'Expected Service Date' ~ '^\d{4}-\d{2}-\d{2}T' then (c.raw_case ->> 'Expected Service Date')::timestamptz end as expected_service_date,
   nullif(trim(c.raw_case ->> 'Expected SLA'), '')                as expected_sla,
   nullif(trim(c.raw_case ->> 'Service SLA'), '')                 as service_sla,
   nullif(trim(c.raw_case ->> 'Case Age'), '')                    as case_age,
@@ -47,11 +48,11 @@ select
   nullif(trim(c.raw_case ->> 'Created By'), '')                  as created_by,
   nullif(trim(c.raw_case ->> 'Portal User Created by'), '')      as portal_user_created_by,
   nullif(trim(c.raw_case ->> 'Modified By'), '')                 as modified_by,
-  nullif(trim(c.raw_case ->> 'Modified On'), '')                 as modified_on,
-  nullif(trim(c.raw_case ->> 'First Response At'), '')           as first_response_at,
+  case when c.raw_case ->> 'Modified On' ~ '^\d{4}-\d{2}-\d{2}T' then (c.raw_case ->> 'Modified On')::timestamptz end as modified_on,
+  case when c.raw_case ->> 'First Response At' ~ '^\d{4}-\d{2}-\d{2}T' then (c.raw_case ->> 'First Response At')::timestamptz end as first_response_at,
   nullif(trim(c.raw_case ->> 'Goods Issue'), '')                 as goods_issue,
   nullif(trim(c.raw_case ->> 'Goods Receive'), '')               as goods_receive,
-  nullif(trim(c.raw_case ->> 'Service Delivered At'), '')        as service_delivered_at
+  case when c.raw_case ->> 'Service Delivered At' ~ '^\d{4}-\d{2}-\d{2}T' then (c.raw_case ->> 'Service Delivered At')::timestamptz end as service_delivered_at
 from public.cases c;
 
 -- ── 2. One combined view: COM cases (Magnum) + CoolerCo cases (Tiger, portal) ─
@@ -101,7 +102,7 @@ select
   c.service_closure_date::timestamptz       as service_closure_date,
   c.sla_status::text                        as sla_status,
   c.technician_routed_to::text              as technician_routed_to,
-  c.contractor::text                        as contractor,
+  c.contractor::boolean                     as contractor,
   c.message::text                           as notes,
   null::text                                as com_case_number
 from public.cases c
@@ -143,7 +144,7 @@ select
   k.service_closure_date,
   null::text,          -- SLA result for CoolerCo cases: to be calculated (SLA rules not built yet)
   null::text,          -- technician: column to be added with the Tiger case lifecycle
-  null::text,          -- contractor: same
+  null::boolean,       -- contractor: same
   k.description,
   k.com_case_number
 from public.coolerco_cases k;
