@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import CameraScan, { codeCandidates } from '../components/CameraScan'
 import { assetRoles } from './fieldStops'
-import { findAsset } from './FieldJobCard'
+import { lookupAsset } from './fieldStops'
 
 // The assets for one stop, always visible on the trip card:
 //   📦 Deliver  = the asset picked & prepared in the warehouse (RouteIQ preparation), else what was requested
@@ -42,7 +42,7 @@ export default function StopAssets({ stop, prep, kase }) {
   const check = async (a, raw) => {
     setBusy(a.role)
     const keys = codeCandidates(raw)
-    const found = await findAsset(raw).catch(() => null)
+    const found = (await lookupAsset(raw).catch(() => ({}))).asset
     const ids = new Set([...keys, found?.bar_code, found?.name, found?.local_code].filter(Boolean).map(String))
     const ok = a.code ? ids.has(String(a.code)) || (a.name && ids.has(a.name)) : null
     const res = { code: found?.bar_code || keys[0] || raw, name: found?.name, base: found?.product_base, ok, at: Date.now() }

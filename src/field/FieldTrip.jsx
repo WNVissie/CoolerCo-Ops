@@ -217,8 +217,8 @@ export default function FieldTrip() {
                   <div className="f-taps">
                     {!f.arrived_at && <button className="btn btn-primary" disabled={!!tapBusy} onClick={() => arrive(s)}>{tapBusy === s.id + 'arrived' ? '📡 Checking location…' : '📍 Arrived at store'}</button>}
                     {f.arrived_at && !f.outcome && <>
-                      <button className="btn btn-primary" onClick={() => setCard({ stop: s, mode: 'completed' })}>✅ Completed — job card</button>
-                      <button className="btn btn-ghost" onClick={() => setCard({ stop: s, mode: 'not_completed' })}>⚠️ Not completed</button>
+                      <button className="btn btn-primary" onClick={() => setCard({ stop: s, mode: 'completed' })}>📝 Job card — completed</button>
+                      <button className="btn btn-ghost" onClick={() => setCard({ stop: s, mode: 'not_completed' })}>⚠️ Not completed — job card</button>
                     </>}
                     {f.outcome && !f.left_at && <button className="btn btn-primary" disabled={!!tapBusy} onClick={() => tap(s, 'left')}>{tapBusy === s.id + 'left' ? '…' : '🚪 Left store'}</button>}
                     {f.outcome && <button className="btn btn-ghost btn-sm" onClick={() => setCard({ stop: s, mode: f.outcome })}>✏️ Redo job card</button>}
@@ -250,8 +250,7 @@ export default function FieldTrip() {
       )}
       {card && (() => {
         const s = card.stop, p = byPrep[s.case_number], c = byCase[s.case_number]
-        return <FieldJobCard stop={s} driver={driver} mode={card.mode} reasons={reasons} contact={byPos[s.pos_local_code]}
-          plannedBarcode={p?.selected_bar_code || null} plannedBase={c?.requested_product_base || s.asset_product_bases?.[0] || null}
+        return <FieldJobCard stop={s} driver={driver} mode={card.mode} prep={p} kase={c} contact={byPos[s.pos_local_code]}
           onCancel={() => setCard(null)} onDone={() => { setCard(null); refreshPending() }} />
       })()}
     </div>

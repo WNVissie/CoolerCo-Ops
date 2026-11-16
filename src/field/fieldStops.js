@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase'
-import { queueAdd, queueAll, flushQueue, cachedQuery } from '../lib/offline'
+import { queueAdd, queueAll, flushQueue, cachedQuery, offlineLookup } from '../lib/offline'
+import { codeCandidates } from '../components/CameraScan'
 import { getGps } from '../lib/photos'
 
 // Field app taps (Arrived · Completed · Not completed · Left POS) + job cards — script 031.
@@ -31,6 +32,43 @@ export async function fieldTablesReady() {
   const ok = !error
   localStorage.setItem('cc_field_031', ok ? '1' : '0')
   return ok
+}
+
+// Is 032 installed? (service result, repair details, spares, refusal reason on the job card)
+export async function jobCard032Ready() {
+  if (!navigator.onLine) return localStorage.getItem('cc_field_032') === '1'
+  const { error } = await supabase.from('coolerco_field_job_cards').select('service_result').limit(0)
+  localStorage.setItem('cc_field_032', error ? '0' : '1')
+  return !error
+}
+
+// Service result — same choices as RouteIQ's trip-sheet job card
+export const SERVICE_RESULTS = [
+  { code: 'service_completed', label: 'Service completed', icon: '✅' },
+  { code: 'service_denied', label: 'Service Denied/Refused', icon: '🚫', reason: 'SERVICE_DENIED' },
+  { code: 'incorrect_location', label: 'Incorrect Location', icon: '📍', reason: 'INCORRECT_LOCATION', old: 'LOCATION_NOT_FOUND' },
+  { code: 'location_closed', label: 'Location Closed', icon: '🔒', reason: 'LOCATION_CLOSED', old: 'STORE_CLOSED' },
+  { code: 'repair_failed', label: 'Repair Failed', icon: '🛠', reason: 'REPAIR_FAILED', old: 'OTHER', repairOnly: true },
+]
+
+// Look an asset up by any code it carries (asset no., barcode, local code, serial, external code, SAP no.).
+// Online: the live asset register · no signal: the warehouse list saved on the phone.
+export async function lookupAsset(raw) {
+  const keys = codeCandidates(raw).map(k => k.replace(/[,()"\\]/g, '')).filter(Boolean)
+  if (!keys.length) return { asset: null }
+  if (navigator.onLine) {
+    const list = keys.map(k => `"${k}"`).join(',')
+    const F = ['name', 'bar_code', 'local_code', 'serial_number', 'external_code', 'sap_number']
+    const { data, error } = await supabase.from('assets_live')
+      .select('name,bar_code,local_code,serial_number,sap_number,product_base,product_variant,brand_hierarchy,condition,asset_status,asset_location,assign_account')
+      .or(F.map(f => `${f}.in.(${list})`).join(',')).limit(5)
+    if (!error) {
+      const rank = x => F.findIndex(f => keys.includes(String(x[f] || '')))
+      return { asset: (data || []).sort((x, y) => rank(x) - rank(y))[0] || null, source: 'live' }
+    }
+    if (!/fetch|network|timeout/i.test(error.message || '')) return { asset: null, error: error.message }
+  }
+  return { asset: await offlineLookup(keys), source: 'phone' }
 }
 
 export const loadReasons = () => cachedQuery('field_reasons', () =>

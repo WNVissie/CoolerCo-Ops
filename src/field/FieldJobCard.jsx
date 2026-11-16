@@ -1,77 +1,78 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import { cachedQuery, offlineLookup } from '../lib/offline'
+import { cachedQuery } from '../lib/offline'
 import { compressImage } from '../lib/photos'
 import CameraScan, { codeCandidates } from '../components/CameraScan'
-import { saveJobCard, assetRoles } from './fieldStops'
-import { savedCheck } from './StopAssets'
+import { saveJobCard, SERVICE_RESULTS, lookupAsset, jobCard032Ready } from './fieldStops'
+import { savedCheck, plannedAssets } from './StopAssets'
 
-// Job card for one stop — Completed or Not completed. Works without signal: everything is queued on the phone.
-// Asset swap check: a delivered asset that differs from the planned one must be the same product family (warning, never blocks).
+// Job card for one stop — same fields and rules as RouteIQ's trip-sheet job card:
+//   Service result (5 choices) · notes · repair work + spares (repair cases) · customer name · 2 photos ·
+//   signature, or the reason the customer would not sign.
+//   Successful service: two photos + signature (or refusal reason). Unsuccessful: a note.
+// Plus the assets of the case (to deliver / to remove / repaired) with their details from the asset register,
+// and the swap check (delivered asset ≠ picked → same product family?). Works without signal (queued on the phone).
 const ROLE = {
-  delivered: { label: 'Asset delivered', field: 'delivered_barcode', icon: '📦' },
-  removed: { label: 'Asset removed', field: 'removed_barcode', icon: '↩️' },
-  repaired: { label: 'Asset repaired', field: 'repaired_barcode', icon: '🛠' },
+  delivered: { done: 'Asset delivered', todo: 'Asset to deliver', icon: '📦' },
+  removed: { done: 'Asset removed', todo: 'Asset to remove', icon: '↩️' },
+  repaired: { done: 'Asset repaired', todo: 'Asset to repair', icon: '🛠' },
 }
+const cleanBase = b => String(b || '').replace(/^\s*[\w-]+\s*-\s*/, '')
+const where = a => (a?.asset_location === 'Location' ? 'At a store' : (a?.assign_account || a?.asset_location || '').split(/\r?\n/)[0])
 
-export async function findAsset(code) {
-  const keys = codeCandidates(code)
-  const local = await offlineLookup(keys)
-  if (local || !navigator.onLine) return local
-  for (const f of ['bar_code', 'name', 'local_code', 'serial_number', 'sap_number']) {
-    const { data } = await supabase.from('assets_live').select('name,bar_code,product_base,condition,brand_hierarchy').in(f, keys).limit(1)
-    if (data?.[0]) return data[0]
-  }
-  return null
-}
+// kept for older callers
+export const findAsset = async code => (await lookupAsset(code)).asset
 
-export default function FieldJobCard({ stop, driver, mode, plannedBarcode, plannedBase, contact, reasons, onDone, onCancel }) {
-  const roles = assetRoles(stop.case_type)
-  const [outcome, setOutcome] = useState(mode)
-  const [reason, setReason] = useState('')
-  const [work, setWork] = useState('')
-  // pre-fill: what the driver already scanned on the trip card (📷 Check), else what was planned
-  const [codes, setCodes] = useState(() => ({
-    delivered: savedCheck(stop.id, 'delivered')?.code || plannedBarcode || '',
-    removed: roles.includes('removed') ? (savedCheck(stop.id, 'removed')?.code || stop.asset_barcodes?.find(b => b !== plannedBarcode) || '') : '',
-    repaired: roles.includes('repaired') ? (savedCheck(stop.id, 'repaired')?.code || stop.asset_barcodes?.[0] || '') : '',
-  }))
-  const [info, setInfo] = useState({})
+export default function FieldJobCard({ stop, driver, mode, prep, kase, contact, onDone, onCancel }) {
+  const planned = plannedAssets(stop, prep, kase)
+  const isRepair = /repair|decal/i.test(stop.case_type || '')
+  const results = SERVICE_RESULTS.filter(r => !r.repairOnly || isRepair)
+  const [result, setResult] = useState(mode === 'not_completed' ? '' : 'service_completed')
+  const [notes, setNotes] = useState('')
+  const [repairWork, setRepairWork] = useState('')
+  const [spares, setSpares] = useState([])
+  const [codes, setCodes] = useState(() => Object.fromEntries(planned.map(a => [a.role, savedCheck(stop.id, a.role)?.code || a.code || ''])))
+  const [info, setInfo] = useState({}) // role → { [code]: { asset, source, error, loading } }
   const [cam, setCam] = useState(null)
   const [name, setName] = useState(contact?.customer_contact_name || '')
   const [phone, setPhone] = useState(contact?.mobile_phone || contact?.business_phone || '')
   const [other, setOther] = useState(false)
   const [photos, setPhotos] = useState([])
   const [sig, setSig] = useState(null)
+  const [noSign, setNoSign] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
   const [families, setFamilies] = useState({})
+  const [v032, setV032] = useState(false)
 
   useEffect(() => {
+    jobCard032Ready().then(setV032)
     cachedQuery('base_family', () => supabase.from('coolerco_product_base_family').select('product_base,family_id'))
       .then(rows => setFamilies(Object.fromEntries(rows.map(r => [r.product_base, r.family_id]))))
   }, [])
 
-  // look up each scanned asset (offline list first); results kept per code, so a slow older lookup can't overwrite a newer one
+  // asset details for every code on the card (kept per code, so a slow older lookup can't overwrite a newer one)
   useEffect(() => {
     const t = setTimeout(() => {
-      for (const r of roles) {
+      for (const r of Object.keys(codes)) {
         const c = codes[r]?.trim()
         if (!c || c in (info[r] || {})) continue
-        findAsset(c).then(a => setInfo(i => ({ ...i, [r]: { ...(i[r] || {}), [c]: a } })))
+        setInfo(i => ({ ...i, [r]: { ...(i[r] || {}), [c]: { loading: true } } }))
+        lookupAsset(c).then(res => setInfo(i => ({ ...i, [r]: { ...(i[r] || {}), [c]: res } })))
+          .catch(e => setInfo(i => ({ ...i, [r]: { ...(i[r] || {}), [c]: { asset: null, error: e.message } } })))
       }
     }, 300)
     return () => clearTimeout(t)
   }, [codes]) // eslint-disable-line react-hooks/exhaustive-deps
-  const found = r => { const c = codes[r]?.trim(); return c && info[r] && c in info[r] ? { asset: info[r][c] } : null }
+  const found = r => { const c = codes[r]?.trim(); return c && info[r]?.[c] ? info[r][c] : null }
 
+  const ok = result === 'service_completed'
+  const pDel = planned.find(a => a.role === 'delivered')
   const delivered = codes.delivered?.trim()
-  const swapped = roles.includes('delivered') && !!delivered && !!plannedBarcode && delivered !== plannedBarcode
-  const delBase = found('delivered')?.asset?.product_base
-  const famA = families[delBase], famB = families[plannedBase]
+  const delAsset = found('delivered')?.asset
+  const swapped = !!pDel?.code && !!delivered && delivered !== pDel.code && delAsset?.bar_code !== pDel.code
+  const famA = families[delAsset?.product_base], famB = families[pDel?.base]
   const familyOk = swapped ? (famA && famB ? famA === famB : null) : null
-  const rs = (reasons || []).find(r => r.code === reason)
-  const needNote = outcome === 'not_completed' && rs?.needs_note
 
   const addPhoto = async e => {
     const files = [...(e.target.files || [])].slice(0, 3 - photos.length)
@@ -82,17 +83,30 @@ export default function FieldJobCard({ stop, driver, mode, plannedBarcode, plann
 
   const save = async () => {
     setErr(null)
-    if (outcome === 'not_completed' && !reason) return setErr('Choose why it was not completed.')
-    if (needNote && !work.trim()) return setErr('Add a note for this reason.')
-    if (outcome === 'completed' && roles.includes('delivered') && !delivered) return setErr('Scan or type the asset you delivered.')
-    if (outcome === 'completed' && !name.trim()) return setErr('Who received it? Type the name.')
+    if (!result) return setErr('Choose the service result.')
+    if (!ok && !notes.trim()) return setErr('Add a note: why could the work not be done?')
+    if (ok && pDel && !delivered) return setErr('Scan or type the asset you delivered.')
+    if (ok && isRepair && !repairWork.trim()) return setErr('Describe the repair work done.')
+    if (ok && photos.length < 2) return setErr('Successful service needs two photos.')
+    if (ok && !sig && !noSign.trim()) return setErr('Get the customer to sign, or type why they would not sign.')
     setBusy(true)
     try {
+      const rs = SERVICE_RESULTS.find(r => r.code === result)
+      const reasonCode = ok ? null : v032 ? rs.reason : (rs.old || rs.reason)
+      const sp = spares.filter(x => x.name.trim()).map(x => ({ name: x.name.trim(), qty: Number(x.qty) || 1 }))
+      const extra = v032
+        ? { service_result: result, repair_details: repairWork.trim() || null, spares: sp, customer_name: name.trim() || null, signature_refusal_reason: sig ? null : noSign.trim() || null }
+        : {}
+      // without script 032: keep everything readable in the work-done text
+      const workText = v032 ? notes.trim()
+        : [notes.trim(), repairWork.trim() && `Repair: ${repairWork.trim()}`, sp.length && `Spares: ${sp.map(x => `${x.qty}× ${x.name}`).join(', ')}`, !sig && noSign.trim() && `Did not sign: ${noSign.trim()}`].filter(Boolean).join(' · ')
       await saveJobCard(stop, driver, {
-        outcome, reason_code: outcome === 'not_completed' ? reason : null, work_done: work.trim() || null,
+        outcome: ok ? 'completed' : 'not_completed', reason_code: reasonCode, work_done: workText || null,
         received_by_name: name.trim() || null, received_by_phone: phone.trim() || null, received_by_other: other,
         delivered_barcode: codes.delivered?.trim() || null, removed_barcode: codes.removed?.trim() || null, repaired_barcode: codes.repaired?.trim() || null,
-        planned_barcode: plannedBarcode || null, swapped, swap_family_ok: familyOk, swap_note: swapped ? `Planned ${plannedBarcode} (${plannedBase || '?'}), delivered ${delivered} (${delBase || '?'})` : null,
+        planned_barcode: pDel?.code || null, swapped, swap_family_ok: familyOk,
+        swap_note: swapped ? `Planned ${pDel.code} (${cleanBase(pDel.base) || '?'}), delivered ${delivered} (${cleanBase(delAsset?.product_base) || '?'})` : null,
+        ...extra,
       }, photos, sig)
       onDone()
     } catch (e) { setErr(e.message || String(e)); setBusy(false) }
@@ -102,66 +116,94 @@ export default function FieldJobCard({ stop, driver, mode, plannedBarcode, plann
     <div className="f-sheet" role="dialog" aria-label="Job card">
       <div className="f-sheet-body">
         <div className="f-row" style={{ marginBottom: 8 }}>
-          <div className="f-grow"><strong>📝 Job card</strong><small>{stop.point_of_sale} · {stop.case_type} · {stop.case_number}</small></div>
+          <div className="f-grow"><strong>📝 Job Card</strong><small>{stop.point_of_sale} · {stop.case_type} · {stop.case_number}</small></div>
           <button className="btn btn-ghost btn-sm" onClick={onCancel} disabled={busy}>✕</button>
         </div>
 
-        <div className="f-seg">
-          <button className={outcome === 'completed' ? 'on ok' : ''} onClick={() => setOutcome('completed')}>✅ Completed</button>
-          <button className={outcome === 'not_completed' ? 'on bad' : ''} onClick={() => setOutcome('not_completed')}>⚠️ Not completed</button>
-        </div>
-
-        {outcome === 'not_completed' && (
-          <>
-            <div className="field-lbl">Why not?</div>
-            <div className="f-chips">{(reasons || []).map(r => <button key={r.code} className={reason === r.code ? 'on' : ''} onClick={() => setReason(r.code)}>{r.label}</button>)}</div>
-          </>
-        )}
-
-        {roles.map(r => {
-          const a = found(r)
+        {planned.map(a => {
+          const R = ROLE[a.role], f = found(a.role), x = f?.asset
+          const differs = a.code && codes[a.role]?.trim() && codes[a.role].trim() !== a.code && x?.bar_code !== a.code
           return (
-            <div key={r} style={{ marginTop: 10 }}>
-              <div className="field-lbl">{ROLE[r].icon} {ROLE[r].label}{r === 'delivered' && plannedBarcode ? <span className="text3"> · planned {plannedBarcode}</span> : null}</div>
+            <div key={a.role} className="f-jc-asset">
+              <div className="field-lbl">{R.icon} {ok ? R.done : R.todo}</div>
               <div className="f-row" style={{ gap: 6 }}>
-                <input className="field-ctrl f-grow" inputMode="text" placeholder="Barcode / asset no." value={codes[r]} onChange={e => setCodes(c => ({ ...c, [r]: e.target.value }))} />
-                <button className="btn btn-ghost btn-sm" onClick={() => setCam(r)}>📷</button>
+                <input className="field-ctrl f-grow mono" placeholder="Barcode / asset no." value={codes[a.role] || ''} onChange={e => setCodes(c => ({ ...c, [a.role]: e.target.value }))} />
+                <button className="btn btn-ghost btn-sm" onClick={() => setCam(a.role)}>📷</button>
               </div>
-              {a && (a.asset
-                ? <small className="text3">{a.asset.name} · {a.asset.product_base || '—'} · {a.asset.condition || ''}</small>
-                : <small className="text3">Not found in the saved asset list — kept as typed.</small>)}
+              {a.code && <small className="text3">Planned: <b className="mono">{a.code}</b> · {cleanBase(a.base) || '—'}{a.condition ? ` · ${a.condition}` : ''}{a.branding ? ` · ${a.branding}` : ''}</small>}
+              {!a.code && a.role === 'delivered' && <small className="f-asset-warn">⚠ Not picked in the warehouse — requested {cleanBase(a.base) || 'model unknown'}</small>}
+              {f?.loading && <small className="text3">🔎 Looking up the asset…</small>}
+              {f && !f.loading && x && (
+                <div className={`f-jc-detail ${differs ? 'warn' : ''}`}>
+                  <b>{cleanBase(x.product_base) || '—'}</b>
+                  <span>{x.name} · local {x.local_code || '—'}{x.serial_number ? ` · serial ${x.serial_number}` : ''}</span>
+                  <span>{x.condition || '—'}{x.brand_hierarchy ? ` · ${x.brand_hierarchy}` : ''}{x.asset_status ? ` · ${x.asset_status}` : ''}</span>
+                  <span>📍 {where(x) || '—'}{f.source === 'phone' ? ' · from the list saved on this phone' : ''}</span>
+                </div>
+              )}
+              {f && !f.loading && !x && <small className="f-asset-warn">{f.error ? `⚠ Could not look it up: ${f.error}` : navigator.onLine ? '⚠ Not found in the asset register — check the barcode. Kept as typed.' : '📵 No signal and not in the saved list — kept as typed.'}</small>}
             </div>
           )
         })}
         {swapped && (
           <div className={`form-msg ${familyOk === false ? 'err' : 'warn'}`} style={{ marginTop: 8 }}>
-            {familyOk === false ? '⛔ Different product family than planned — only swap within the same family. Check before you leave it.'
-              : familyOk ? '🔁 Swapped asset — same product family. It will be flagged for the office.'
-                : '🔁 Swapped asset — family could not be checked. It will be flagged for the office.'}
+            {familyOk === false ? '⛔ Different product family than the picked asset — only swap within the same family. Check before you leave it.'
+              : familyOk ? '🔁 Not the picked asset, but the same product family. It will be flagged for the office.'
+                : '🔁 Not the picked asset — family could not be checked. It will be flagged for the office.'}
           </div>
         )}
 
-        <div className="field-lbl" style={{ marginTop: 10 }}>{outcome === 'completed' ? 'Work done' : 'Note'}{needNote ? ' *' : ''}</div>
-        <textarea className="field-ctrl" rows={2} value={work} onChange={e => setWork(e.target.value)} placeholder={outcome === 'completed' ? 'What was done (optional)' : 'What happened'} />
+        <div className="field-lbl" style={{ marginTop: 12 }}>Service result</div>
+        <div className="f-results">
+          {results.map(r => (
+            <button key={r.code} className={`${result === r.code ? 'on' : ''} ${r.code === 'service_completed' ? 'good' : 'bad'}`} onClick={() => setResult(r.code)}>{r.icon} {r.label}</button>
+          ))}
+        </div>
 
-        <div className="field-lbl" style={{ marginTop: 10 }}>Received by</div>
+        <div className="field-lbl" style={{ marginTop: 10 }}>Notes{!ok ? ' *' : ''}</div>
+        <textarea className="field-ctrl" rows={2} value={notes} onChange={e => setNotes(e.target.value)} placeholder={ok ? 'Service notes (optional)' : 'Reason the work could not be completed'} />
+
+        {isRepair && ok && (
+          <>
+            <div className="field-lbl" style={{ marginTop: 10 }}>Detailed repair work *</div>
+            <textarea className="field-ctrl" rows={3} value={repairWork} onChange={e => setRepairWork(e.target.value)} placeholder="What was repaired / replaced" />
+            <div className="field-lbl" style={{ marginTop: 10 }}>Spares used</div>
+            {spares.map((x, i) => (
+              <div key={i} className="f-row" style={{ gap: 6, marginBottom: 6 }}>
+                <input className="field-ctrl f-grow" placeholder="Spare part" value={x.name} onChange={e => setSpares(s => s.map((y, j) => j === i ? { ...y, name: e.target.value } : y))} />
+                <input className="field-ctrl" style={{ width: 64 }} inputMode="numeric" value={x.qty} onChange={e => setSpares(s => s.map((y, j) => j === i ? { ...y, qty: e.target.value } : y))} />
+                <button className="btn btn-ghost btn-sm" onClick={() => setSpares(s => s.filter((_, j) => j !== i))}>✕</button>
+              </div>
+            ))}
+            <button className="btn btn-ghost btn-sm" onClick={() => setSpares(s => [...s, { name: '', qty: 1 }])}>＋ Add spare</button>
+          </>
+        )}
+
+        <div className="field-lbl" style={{ marginTop: 10 }}>Customer name</div>
         <input className="field-ctrl" placeholder="Name" value={name} onChange={e => setName(e.target.value)} />
         <input className="field-ctrl" style={{ marginTop: 6 }} inputMode="tel" placeholder="Contact number" value={phone} onChange={e => setPhone(e.target.value)} />
         <label className="f-check"><input type="checkbox" checked={other} onChange={e => setOther(e.target.checked)} /> Someone other than the store contact</label>
 
-        <div className="field-lbl" style={{ marginTop: 10 }}>Photos ({photos.length}/3)</div>
+        <div className="field-lbl" style={{ marginTop: 10 }}>Photos ({photos.length}/3){ok ? ' — two needed' : ''}</div>
         <div className="f-row" style={{ gap: 6, flexWrap: 'wrap' }}>
           {photos.map((b, i) => <img key={i} className="f-thumb" src={URL.createObjectURL(b)} alt="" onClick={() => setPhotos(p => p.filter((_, j) => j !== i))} />)}
           {photos.length < 3 && <label className="btn btn-ghost btn-sm">📷 Add<input type="file" accept="image/*" capture="environment" hidden onChange={addPhoto} /></label>}
         </div>
 
-        {outcome === 'completed' && <><div className="field-lbl" style={{ marginTop: 10 }}>Signature</div><SignaturePad onChange={setSig} /></>}
+        {ok && (
+          <>
+            <div className="field-lbl" style={{ marginTop: 10 }}>Customer signature</div>
+            <SignaturePad onChange={setSig} />
+            {!sig && <><div className="field-lbl" style={{ marginTop: 8 }}>Reason customer would not sign (if applicable)</div>
+              <input className="field-ctrl" value={noSign} onChange={e => setNoSign(e.target.value)} /></>}
+          </>
+        )}
 
         {err && <div className="form-msg err" style={{ marginTop: 8 }}>{err}</div>}
-        <button className="btn btn-primary" style={{ width: '100%', marginTop: 12, minHeight: 46 }} onClick={save} disabled={busy}>
-          {busy ? 'Saving…' : outcome === 'completed' ? '✅ Save job card' : '⚠️ Save — not completed'}
-        </button>
-        <p className="text3" style={{ fontSize: 11, textAlign: 'center', marginTop: 6 }}>Saved on the phone first, sent as soon as there is signal.</p>
+        <button className="btn btn-primary" style={{ width: '100%', marginTop: 12, minHeight: 46 }} onClick={save} disabled={busy}>{busy ? 'Saving…' : '💾 Save job card'}</button>
+        <p className="text3" style={{ fontSize: 11, textAlign: 'center', marginTop: 6 }}>
+          {ok ? 'Successful service needs two photos and a signature, or the reason the customer would not sign.' : 'Unsuccessful outcomes need a note and are not marked Completed.'} Saved on the phone first, sent when there is signal.
+        </p>
       </div>
       {cam && <CameraScan onClose={() => setCam(null)} onResult={t => { const r = cam; setCam(null); setCodes(c => ({ ...c, [r]: codeCandidates(t)[0] || t })) }} />}
     </div>
@@ -183,7 +225,7 @@ function SignaturePad({ onChange }) {
   return (
     <div>
       <canvas ref={ref} className="f-sig" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} />
-      <button className="btn btn-ghost btn-sm" onClick={clear}>Clear</button>
+      <button className="btn btn-ghost btn-sm" onClick={clear}>Clear signature</button>
     </div>
   )
 }
