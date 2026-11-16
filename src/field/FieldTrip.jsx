@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { statusColor, CASE_TYPE_ICON } from '../lib/helpers'
 import { cachedQuery, kvGet, kvSet } from '../lib/offline'
-import { fieldTablesReady, loadReasons, serverStatus, pendingTaps, mergeState, recordTap, TAP_LABEL } from './fieldStops'
+import { fieldTablesReady, loadReasons, serverStatus, pendingTaps, mergeState, recordTap, TAP_LABEL, stopCoords, distanceM, fmtDistance, isFar } from './fieldStops'
+import { getGps } from '../lib/photos'
 import FieldJobCard from './FieldJobCard'
 
 // My trip — read view of the routing app's route for this driver (planned + finalised in the routing app).
@@ -97,6 +98,23 @@ export default function FieldTrip() {
     return () => window.removeEventListener('cc-queue-sent', h)
   }, [trip, ready, driver, date])
 
+  const [far, setFar] = useState(null)            // { s, dist, gps } — Arrived far from the store
+  // Arrived: check the phone's position against the stop first; far away → ask the driver to confirm (never blocks)
+  const arrive = async s => {
+    setTapBusy(s.id + 'arrived')
+    try {
+      const gps = await getGps(8000)
+      const c = stopCoords(s), dist = gps && c ? distanceM(gps, c) : null
+      if (isFar(dist, gps)) { setFar({ s, dist, gps, why: '' }); return }
+      await recordTap(s, driver, 'arrived', { gps }); refreshPending()
+    } finally { setTapBusy(null) }
+  }
+  const confirmFar = async () => {
+    const { s, dist, gps, why } = far
+    setFar(null)
+    await recordTap(s, driver, 'arrived', { gps, note: `Location confirmed by driver: ${fmtDistance(dist)} from the store's map point (GPS ±${gps?.acc ?? '?'} m)${why ? ' · ' + why : ''}` })
+    refreshPending()
+  }
   const tap = async (s, type, opts) => {
     setTapBusy(s.id + type)
     try { await recordTap(s, driver, type, opts); refreshPending() } finally { setTapBusy(null) }
@@ -204,7 +222,7 @@ export default function FieldTrip() {
                 </div>
                 {ready && (
                   <div className="f-taps">
-                    {!f.arrived_at && <button className="btn btn-primary" disabled={!!tapBusy} onClick={() => tap(s, 'arrived')}>{tapBusy === s.id + 'arrived' ? '…' : '📍 Arrived at store'}</button>}
+                    {!f.arrived_at && <button className="btn btn-primary" disabled={!!tapBusy} onClick={() => arrive(s)}>{tapBusy === s.id + 'arrived' ? '📡 Checking location…' : '📍 Arrived at store'}</button>}
                     {f.arrived_at && !f.outcome && <>
                       <button className="btn btn-primary" onClick={() => setCard({ stop: s, mode: 'completed' })}>✅ Completed — job card</button>
                       <button className="btn btn-ghost" onClick={() => setCard({ stop: s, mode: 'not_completed' })}>⚠️ Not completed</button>
@@ -220,6 +238,23 @@ export default function FieldTrip() {
         )
       })}
       {stops.length > 0 && <p className="text3" style={{ fontSize: 11, textAlign: 'center' }}>{done} done · {left} to go · {ready ? 'Taps and job cards are saved on the phone and sent when there is signal (test system — not sent to RouteIQ yet).' : 'Record arrivals and outcomes in the routing trip sheet'} — COM status updates after the next COM upload.</p>}
+      {far && (
+        <div className="f-sheet" role="dialog" aria-label="Check location">
+          <div className="f-sheet-body">
+            <div style={{ fontSize: 34, textAlign: 'center' }}>📍</div>
+            <strong style={{ display: 'block', textAlign: 'center', fontSize: 16 }}>You are {fmtDistance(far.dist)} from this store</strong>
+            <p className="text3" style={{ textAlign: 'center', fontSize: 13, margin: '6px 0 12px' }}>{far.s.point_of_sale}<br />Are you at the correct store?</p>
+            <div className="field-lbl">Why is it different? (optional)</div>
+            <div className="f-chips">{["I'm at the store — map point is wrong", 'Different entrance / in a mall', 'Delivering at another branch on instruction', 'Weak GPS signal'].map(w => (
+              <button key={w} className={far.why === w ? 'on' : ''} onClick={() => setFar(f => ({ ...f, why: f.why === w ? '' : w }))}>{w}</button>
+            ))}</div>
+            <button className="btn btn-primary" style={{ width: '100%', marginTop: 12, minHeight: 46 }} onClick={confirmFar}>✓ Yes, I'm at the store — record Arrived</button>
+            {stopCoords(far.s) && <a className="btn btn-ghost" style={{ width: '100%', marginTop: 6, minHeight: 42, justifyContent: 'center' }} href={`https://www.google.com/maps/dir/?api=1&destination=${stopCoords(far.s).lat},${stopCoords(far.s).lng}`} target="_blank" rel="noopener noreferrer">🧭 Navigate to the store</a>}
+            <button className="btn btn-ghost" style={{ width: '100%', marginTop: 6, minHeight: 42 }} onClick={() => setFar(null)}>Cancel — not there yet</button>
+            <p className="text3" style={{ fontSize: 11, textAlign: 'center', marginTop: 6 }}>Your answer and the distance are saved with the visit for the office.</p>
+          </div>
+        </div>
+      )}
       {card && (() => {
         const s = card.stop, p = byPrep[s.case_number], c = byCase[s.case_number]
         return <FieldJobCard stop={s} driver={driver} mode={card.mode} reasons={reasons} contact={byPos[s.pos_local_code]}

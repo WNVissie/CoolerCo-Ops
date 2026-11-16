@@ -6,6 +6,22 @@ import { getGps } from '../lib/photos'
 // Everything goes through the phone's offline queue first, so it works without signal and is sent in order.
 // Saved in coolerco_field_* tables on TEST; RouteIQ is not touched (it will receive the same rows later).
 
+// ── "Are you at the right store?" ─────────────────────────────────
+// Arrived more than FAR_M metres (plus the GPS's own uncertainty) from the stop's point → the driver confirms. Never blocks.
+export const FAR_M = 300
+export function stopCoords(s) {
+  const lat = s.use_alternative_address ? s.alternative_latitude : s.latitude
+  const lng = s.use_alternative_address ? s.alternative_longitude : s.longitude
+  return lat && lng ? { lat: +lat, lng: +lng } : null
+}
+export function distanceM(a, b) {
+  const r = Math.PI / 180, dLat = (b.lat - a.lat) * r, dLng = (b.lng - a.lng) * r
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLng / 2) ** 2
+  return Math.round(6371000 * 2 * Math.asin(Math.sqrt(h)))
+}
+export const fmtDistance = m => (m < 1000 ? `${m} m` : `${(m / 1000).toLocaleString('en-ZA', { maximumFractionDigits: m < 10000 ? 1 : 0 })} km`)
+export const isFar = (dist, gps) => dist != null && dist > FAR_M + Math.min(gps?.acc || 0, 500)
+
 export const TAP_LABEL = { arrived: '📍 Arrived', completed: '✅ Completed', not_completed: '⚠️ Not completed', left: '🚪 Left POS' }
 
 // Is 031 installed? (the app must keep working without it — then the old "Record outcome ↗" button shows)
@@ -57,8 +73,8 @@ const base = (stop, driver) => ({
 })
 
 // Record one tap. GPS is best-effort (max 5 s) and never blocks the save.
-export async function recordTap(stop, driver, type, { reason_code = null, note = null, at } = {}) {
-  const gps = await getGps(5000)
+export async function recordTap(stop, driver, type, { reason_code = null, note = null, at, gps: known } = {}) {
+  const gps = known !== undefined ? known : await getGps(5000)
   const row = {
     id: crypto.randomUUID(), ...base(stop, driver), event_type: type, reason_code, note: note || null,
     occurred_at: at || new Date().toISOString(),
