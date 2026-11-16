@@ -6,6 +6,8 @@ import { fieldTablesReady, loadReasons, serverStatus, pendingTaps, mergeState, r
 import { getGps } from '../lib/photos'
 import FieldJobCard from './FieldJobCard'
 import StopAssets from './StopAssets'
+import { RouteWarehouse, RouteDelay, StopExtras } from './FieldRouteParts'
+import { routeEvents033Ready, serverRouteEvents, pendingRouteRows } from './fieldStops'
 
 // My trip — read view of the routing app's route for this driver (planned + finalised in the routing app).
 // Live case status from COM, routing outcome, warehouse prep, assets. Outcomes are recorded in the routing
@@ -39,7 +41,10 @@ export default function FieldTrip() {
   const [tapBusy, setTapBusy] = useState(null)
 
   useEffect(() => { fieldTablesReady().then(ok => { setReady(ok); if (ok) loadReasons().then(setReasons) }) }, [])
-  const refreshPending = useCallback(() => { pendingTaps().then(setPending) }, [])
+  const [v033, setV033] = useState(false)       // 033 installed: warehouse / delays / POS reports
+  const [pendRoute, setPendRoute] = useState({ events: [], reports: [] })
+  useEffect(() => { routeEvents033Ready().then(setV033) }, [])
+  const refreshPending = useCallback(() => { pendingTaps().then(setPending); pendingRouteRows().then(setPendRoute) }, [])
   useEffect(() => {
     refreshPending()
     window.addEventListener('cc-queue', refreshPending)
@@ -76,7 +81,9 @@ export default function FieldTrip() {
       }
       let fs = []
       if (stops.length && localStorage.getItem('cc_field_031') === '1') { try { fs = await serverStatus(stops.map(s => s.id)) } catch { /* 031 missing / no rights */ } }
-      const t = { routes: routes || [], stops, cases, contacts, prep, fs, at: Date.now() }
+      let re = { events: [], reports: [] }
+      if (routes?.length && localStorage.getItem('cc_field_033') === '1') { try { re = await serverRouteEvents(routes.map(r => r.id)) } catch { /* 033 missing */ } }
+      const t = { routes: routes || [], stops, cases, contacts, prep, fs, re, at: Date.now() }
       setTrip(t); kvSet(key, t) // keep for offline
     } catch (e) {
       const saved = await kvGet(key)
@@ -89,15 +96,21 @@ export default function FieldTrip() {
   const byPos = useMemo(() => Object.fromEntries((trip?.contacts || []).map(c => [c.pos_local_code, c])), [trip])
   const byPrep = useMemo(() => Object.fromEntries((trip?.prep || []).map(p => [p.case_number, p])), [trip])
   const fstate = useMemo(() => mergeState(trip?.fs, pending), [trip, pending])
+  const rEvents = useMemo(() => { const ids = new Set((trip?.re?.events || []).map(e => e.id)); return [...(trip?.re?.events || []), ...pendRoute.events.filter(e => !ids.has(e.id))] }, [trip, pendRoute])
+  const rReports = useMemo(() => { const ids = new Set((trip?.re?.reports || []).map(e => e.id)); return [...(trip?.re?.reports || []), ...pendRoute.reports.filter(e => !ids.has(e.id))] }, [trip, pendRoute])
   // after something is sent, re-read the server state quietly (keeps the saved copy current too)
   useEffect(() => {
     const h = async () => {
       if (!trip?.stops?.length || !ready) return
-      try { const fs = await serverStatus(trip.stops.map(s => s.id)); const t = { ...trip, fs }; setTrip(t); kvSet(`trip:${driver.username}:${date}`, t) } catch { /* offline */ }
+      try {
+        const fs = await serverStatus(trip.stops.map(s => s.id))
+        const re = v033 ? await serverRouteEvents(trip.routes.map(r => r.id)).catch(() => trip.re) : trip.re
+        const t = { ...trip, fs, re }; setTrip(t); kvSet(`trip:${driver.username}:${date}`, t)
+      } catch { /* offline */ }
     }
     window.addEventListener('cc-queue-sent', h)
     return () => window.removeEventListener('cc-queue-sent', h)
-  }, [trip, ready, driver, date])
+  }, [trip, ready, v033, driver, date])
 
   const [far, setFar] = useState(null)            // { s, dist, gps } — Arrived far from the store
   // Arrived: check the phone's position against the stop first; far away → ask the driver to confirm (never blocks)
@@ -162,6 +175,8 @@ export default function FieldTrip() {
               <span className={`tag tag-${r.status === 'completed' ? 'green' : r.status === 'dispatched' || r.status === 'partially_completed' ? 'blue' : 'neutral'}`}>{String(r.status || '').replace(/_/g, ' ')}</span>
             </div>
             <div className="f-progress"><div style={{ width: `${rs.length ? (rDone / rs.length) * 100 : 0}%` }} /></div>
+            {v033 && <RouteWarehouse route={r} driver={driver} events={rEvents.filter(e => e.route_id === r.id)} onSaved={refreshPending} />}
+            {v033 && <RouteDelay route={r} driver={driver} events={rEvents.filter(e => e.route_id === r.id)} onSaved={refreshPending} />}
             <div className="f-stat"><div><b>{rs.length}</b><small>stops</small></div><div><b>{rDone}</b><small>done</small></div><div><b>{rs.filter(isOpenStop).length}</b><small>to go</small></div></div>
           </div>
         )
@@ -222,6 +237,7 @@ export default function FieldTrip() {
                     </>}
                     {f.outcome && !f.left_at && <button className="btn btn-primary" disabled={!!tapBusy} onClick={() => tap(s, 'left')}>{tapBusy === s.id + 'left' ? '…' : '🚪 Left store'}</button>}
                     {f.outcome && <button className="btn btn-ghost btn-sm" onClick={() => setCard({ stop: s, mode: f.outcome })}>✏️ Redo job card</button>}
+                    {v033 && <StopExtras stop={s} driver={driver} contact={k} events={rEvents} reports={rReports} onSaved={refreshPending} />}
                     {f.arrived_at && <small className="text3">📍 {fmtTime(f.arrived_at)}{f.outcome_at ? ` · ${TAP_LABEL[f.outcome]} ${fmtTime(f.outcome_at)}` : ''}{f.reason_code ? ` · ${reasons.find(r => r.code === f.reason_code)?.label || f.reason_code}` : ''}{f.left_at ? ` · 🚪 ${fmtTime(f.left_at)}` : ''}</small>}
                   </div>
                 )}
@@ -230,6 +246,7 @@ export default function FieldTrip() {
           </div>
         )
       })}
+      {v033 && trip?.routes.map(r => <RouteWarehouse key={'back' + r.id} where="bottom" route={r} driver={driver} events={rEvents.filter(e => e.route_id === r.id)} onSaved={refreshPending} />)}
       {stops.length > 0 && <p className="text3" style={{ fontSize: 11, textAlign: 'center' }}>{done} done · {left} to go · {ready ? 'Taps and job cards are saved on the phone and sent when there is signal (test system — not sent to RouteIQ yet).' : 'Record arrivals and outcomes in the routing trip sheet'} — COM status updates after the next COM upload.</p>}
       {far && (
         <div className="f-sheet" role="dialog" aria-label="Check location">

@@ -43,6 +43,12 @@ export const isNetErr = e => /failed to fetch|networkerror|load failed|network r
 export const SCAN_TYPE_DB = { count: 'stocktake', receive: 'receiving', move: 'daily', quick: 'stocktake' }
 export const dbScanType = t => SCAN_TYPE_DB[t] || t
 
+// Field app rows sent as-is (id made on the phone → sending twice is harmless)
+const QUEUE_TABLE = {
+  stop_event: 'coolerco_field_stop_events', job_card: 'coolerco_field_job_cards',      // 031
+  route_event: 'coolerco_field_route_events', pos_report: 'coolerco_field_pos_reports', // 033
+}
+
 let flushing = false
 export async function flushQueue() {
   if (flushing || !navigator.onLine) return { sent: 0 }
@@ -58,14 +64,13 @@ export async function flushQueue() {
           }
           const { error } = await supabase.from('coolerco_asset_touch').insert({ ...it.row, scan_type: dbScanType(it.row.scan_type) })
           if (error && error.code !== '23505') throw error // 23505 = already there (sent before) → fine
-        } else if (it.type === 'stop_event' || it.type === 'job_card') {
+        } else if (QUEUE_TABLE[it.type]) {
           // Field app taps / job card (031). Photos + signature first, then the row; the id was made on the phone.
           for (const p of it.photos || []) {
             const { error } = await supabase.storage.from('coolerco-cases').upload(p.path, p.blob, { contentType: p.type || 'image/jpeg', upsert: true })
             if (error) throw error
           }
-          const table = it.type === 'job_card' ? 'coolerco_field_job_cards' : 'coolerco_field_stop_events'
-          const { error } = await supabase.from(table).insert(it.row)
+          const { error } = await supabase.from(QUEUE_TABLE[it.type]).insert(it.row)
           if (error && error.code !== '23505') throw error
         } else if (it.type === 'submit') {
           const { error } = await supabase.from('coolerco_asset_touch').update(it.patch).in('id', it.ids).eq('touch_status', 'New')

@@ -151,3 +151,48 @@ export function assetRoles(caseType = '') {
   if (t.includes('repair') || t.includes('decal')) return ['repaired']
   return ['repaired']
 }
+
+// ── route events (033): 🏭 left warehouse · 🏠 returned · ⏱ delays · ⚠️ incorrect POS detail ─────────
+export const DELAY_TYPES = [['late_departure', 'Late departure'], ['running_late', 'Running late']]
+export const ROUTE_DELAY_REASONS = ['Assets were not ready to load', 'Cases were not assigned to me', 'Tripsheet was not received', 'Assets not assigned on COM']
+export const POS_DELAY_REASONS = ['Customer delay', 'Traffic', 'Parking', 'Finding Location', 'Vehicle Issue', 'Other']
+export const POS_ISSUES = [['incorrect_address', 'Incorrect address'], ['incorrect_pos_name', 'Incorrect POS name'], ['incorrect_gps', 'Incorrect GPS'], ['incorrect_contact', 'Incorrect contact']]
+
+export async function routeEvents033Ready() {
+  if (!navigator.onLine) return localStorage.getItem('cc_field_033') === '1'
+  const { error } = await supabase.from('coolerco_field_route_events').select('id').limit(0)
+  localStorage.setItem('cc_field_033', error ? '0' : '1')
+  return !error
+}
+export async function serverRouteEvents(routeIds) {
+  if (!routeIds.length) return { events: [], reports: [] }
+  const [e, r] = await Promise.all([
+    supabase.from('coolerco_field_route_events').select('*').in('route_id', routeIds).order('occurred_at'),
+    supabase.from('coolerco_field_pos_reports').select('id,stop_id,route_id,issues,created_at').in('route_id', routeIds),
+  ])
+  if (e.error) throw e.error
+  return { events: e.data || [], reports: r.data || [] }
+}
+export async function pendingRouteRows() {
+  const q = await queueAll()
+  return { events: q.filter(x => x.type === 'route_event').map(x => ({ ...x.row, pending: true })), reports: q.filter(x => x.type === 'pos_report').map(x => ({ ...x.row, pending: true })) }
+}
+export async function recordRouteEvent(route, driver, event_type, { stop = null, delay_type = null, reason = null, note = null } = {}) {
+  const gps = await getGps(5000)
+  const row = {
+    id: crypto.randomUUID(), route_id: route.id, stop_id: stop?.id || null, case_number: stop?.case_number || null, pos_local_code: stop?.pos_local_code || null,
+    event_type, delay_type, reason, note: note || null, occurred_at: new Date().toISOString(),
+    latitude: gps?.lat ?? null, longitude: gps?.lng ?? null, accuracy_m: gps?.acc ?? null, driver_username: driver?.username || null,
+  }
+  await queueAdd({ type: 'route_event', row }); flushQueue()
+  return row
+}
+export async function savePosReport(stop, driver, { issues, fix, gps }) {
+  const row = {
+    id: crypto.randomUUID(), route_id: stop.route_id, stop_id: stop.id, pos_local_code: stop.pos_local_code || null, point_of_sale: stop.point_of_sale || null,
+    issues, new_pos_name: fix.name || null, new_address: fix.address || null, new_contact_name: fix.contact || null, new_contact_phone: fix.phone || null,
+    latitude: gps?.lat ?? null, longitude: gps?.lng ?? null, accuracy_m: gps?.acc ?? null, driver_username: driver?.username || null,
+  }
+  await queueAdd({ type: 'pos_report', row }); flushQueue()
+  return row
+}

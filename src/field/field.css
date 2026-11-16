@@ -112,3 +112,13 @@
 .f-results button.good { grid-column: 1 / -1; }
 .f-results button.on.good { background: #e7f6ec; border-color: #2e9e5b; color: #1d6b3d; }
 .f-results button.on.bad { background: #fff3e3; border-color: #d98a1c; color: #8a5300; }
+/* warehouse departure / return, delays, POS issues (033) */
+.f-wh { margin-top: 10px; }
+.f-wh .btn { width: 100%; min-height: 46px; justify-content: center; }
+.f-wh-done { font-size: 13px; font-weight: 600; color: #1d6b3d; background: #f1faf4; border-radius: 8px; padding: 8px 10px; text-align: center; }
+.f-fold { margin-top: 8px; border: 1px solid var(--border); border-radius: 10px; padding: 6px 10px; }
+.f-fold summary { cursor: pointer; font-size: 13px; font-weight: 600; padding: 4px 0; }
+.f-fold[open] { padding-bottom: 10px; }
+.f-extras { margin-top: 4px; }
+.f-extras .btn.on { border-color: var(--accent); }
+.f-panel { margin-top: 6px; padding: 8px; border: 1px dashed var(--border); border-radius: 10px; }
