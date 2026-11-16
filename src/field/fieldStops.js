@@ -73,7 +73,7 @@ export async function recordTap(stop, driver, type, { reason_code = null, note =
 export async function saveJobCard(stop, driver, card, photos, signature) {
   const id = crypto.randomUUID()
   const now = new Date().toISOString()
-  const day = now.slice(0, 10)
+  const d = new Date(), day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` // phone's own (SA) date, not UTC
   const files = []
   const photo_paths = (photos || []).map((b, i) => { const path = `field/${day}/${id}/photo-${i + 1}.jpg`; files.push({ path, blob: b, type: 'image/jpeg' }); return path })
   let signature_path = null
