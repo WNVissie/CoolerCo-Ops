@@ -3,6 +3,7 @@ import { BrowserRouter } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import Login from '../pages/Login'
 import { startAutoFlush, queueCount } from '../lib/offline'
+import { updateAvailable, updateNow, versionLabel } from '../lib/appUpdate'
 import './field.css'
 
 // CoolerCo Field — installable app for warehouse teams and drivers (same SmartHub login).
@@ -23,6 +24,17 @@ export default function FieldApp() {
   const [waiting, setWaiting] = useState(0)
   const [install, setInstall] = useState(null) // Android install prompt
   const [iosHint, setIosHint] = useState(false)
+  const [newVersion, setNewVersion] = useState(false)
+
+  // Newer app on the site? Checked on start, when the app comes back to the front, and every 10 minutes.
+  useEffect(() => {
+    const check = () => updateAvailable().then(setNewVersion)
+    check()
+    const vis = () => { if (document.visibilityState === 'visible') check() }
+    document.addEventListener('visibilitychange', vis); window.addEventListener('online', check)
+    const t = setInterval(check, 10 * 60 * 1000)
+    return () => { document.removeEventListener('visibilitychange', vis); window.removeEventListener('online', check); clearInterval(t) }
+  }, [])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session)) // works offline (saved on the phone)
@@ -71,6 +83,9 @@ export default function FieldApp() {
           <span className={`f-net ${online ? 'on' : 'off'}`}>{online ? '📶' : '📵 Offline'}{waiting > 0 ? ` · ⏳${waiting}` : ''}</span>
           {install && <button className="f-install" onClick={async () => { install.prompt(); await install.userChoice; setInstall(null) }}>📲 Install</button>}
         </header>
+        {newVersion && (
+          <button className="f-update" onClick={updateNow}>🆕 A new version of the app is ready — <b>tap to update</b></button>
+        )}
         {iosHint && (
           <div className="f-hint">
             📲 Install on iPhone: tap <b>Share</b> <span className="f-share">⬆</span> then <b>Add to Home Screen</b>.
@@ -79,7 +94,7 @@ export default function FieldApp() {
         )}
         <main className="f-main">
           <Suspense fallback={<div className="load-state"><span className="spinner" /> Loading…</div>}>
-            {tab === 'home' && <FieldHome go={go} waiting={waiting} user={session.user} />}
+            {tab === 'home' && <FieldHome go={go} waiting={waiting} user={session.user} newVersion={newVersion} />}
             {tab === 'scan' && <Scan field />}
             {tab === 'trip' && <FieldTrip />}
             {tab === 'cases' && <FieldCases />}
@@ -96,7 +111,7 @@ export default function FieldApp() {
 }
 
 // Home: big tiles to each part of the app (the "main screen")
-function FieldHome({ go, waiting, user }) {
+function FieldHome({ go, waiting, user, newVersion }) {
   const driver = (() => { try { return JSON.parse(localStorage.getItem('cc_field_driver')) } catch { return null } })()
   const name = user?.user_metadata?.first_name || (user?.email || '').split('@')[0]
   const tiles = [
@@ -120,6 +135,10 @@ function FieldHome({ go, waiting, user }) {
       <div className="f-home-links">
         <a className="btn btn-ghost btn-sm" href="/">🖥 Full CoolerCo-Ops</a>
         <button className="btn btn-ghost btn-sm" onClick={() => { if (confirm('Sign out of CoolerCo Field?')) supabase.auth.signOut() }}>⎋ Sign out</button>
+      </div>
+      <div className="f-version">
+        <button className="btn btn-ghost btn-sm" onClick={updateNow} disabled={!navigator.onLine} title="Fetch the newest version of the app. Waiting scans and taps are kept.">↻ {newVersion ? 'Update app now' : 'Refresh app'}</button>
+        <small>Version {versionLabel()}{newVersion ? ' · 🆕 newer version available' : ''}</small>
       </div>
     </div>
   )

@@ -81,3 +81,8 @@
 .f-check { display: flex; gap: 8px; align-items: center; font-size: 12.5px; margin-top: 8px; }
 .f-thumb { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); }
 .f-sig { width: 100%; height: 130px; border: 1px dashed var(--border); border-radius: 10px; background: #fff; touch-action: none; display: block; margin-bottom: 4px; }
+
+/* ── app update ───────────────────────────────────────────── */
+.f-update { display: block; width: 100%; border: 0; background: #0b5cd6; color: #fff; font: inherit; font-size: 13px; padding: 10px 12px; text-align: center; }
+.f-version { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: 18px; }
+.f-version small { color: var(--text3); font-size: 11px; }
