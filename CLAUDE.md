@@ -291,3 +291,5 @@ system_admin (Wanda only) · administrator (uploads, edit records) · manager (s
 **Field app offline today:** Scan fully offline · My trip view-only for days opened before · Case status + first sign-in need signal · taps/job card not in the app · tracking not built.
 
 **Build order (next):** 1) taps + job card in the Field app via the offline queue (`src/lib/offline.js`) → new coolerco_ table · 2) case details saved with the trip · 3) tracking in the same queue + on-phone geofence "Arrived at POS?" pop-up (reads `field_app_tracking`) · 4) Android wrapper.
+
+**Decision (Wanda 2026-11-16 23:54): first distribution = direct download (APK) from her own website** — company phones are not device-managed yet (RTMA = start-up division of Smollan). No Play Store for now. Needs: Capacitor Android wrapper, release signing key kept safe (lost key = phones can't update), download page, in-app "new version" check (version file → download newer APK), battery-optimisation exemption for trip tracking, location notice + consent screen. Play / Managed Play later.
