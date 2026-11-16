@@ -151,8 +151,10 @@ from public.coolerco_cases k;
 
 -- ── 3. Who may read them: signed-in users only (never the public key) ────────
 -- security_invoker = the views follow the reader's own rights on the tables underneath.
-revoke all on public.coolerco_com_case_extra from public, anon;
-revoke all on public.coolerco_all_cases      from public, anon;
+-- Supabase gives new views insert / update / delete by default: taken away here, so the
+-- views can only be read (a delete through coolerco_com_case_extra would reach COM `cases`).
+revoke all on public.coolerco_com_case_extra from public, anon, authenticated;
+revoke all on public.coolerco_all_cases      from public, anon, authenticated;
 grant select on public.coolerco_com_case_extra to authenticated;
 grant select on public.coolerco_all_cases      to authenticated;
 
