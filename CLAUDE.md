@@ -271,3 +271,23 @@ system_admin (Wanda only) · administrator (uploads, edit records) · manager (s
 - **028** `coolerco_028_all_cases_view.sql` (+ `coolerco_028_rollback.sql`; first merged as 023 on 2026-11-16, renumbered because `claude/wms-labels` already uses 023–027, which are applied on TEST) — **APPLIED on TEST 2026-11-16 by Wanda and verified (23,277 rows = `cases` + `coolerco_cases`; not readable with the public key).** Follow-up to run once on TEST: the two `revoke all … from authenticated` + `grant select` lines (now in the script) — Supabase had given the views write rights by default. Views: `coolerco_com_case_extra` (36 extra COM fields from `raw_case`; text as exported, except expected_service_date, modified_on, first_response_at, service_delivered_at = real dates, COM stores them as ISO UTC) and `coolerco_all_cases` (COM + CoolerCo, same column names, `source`, `client_code`, `is_open`, `counts_as_case` = false for a CoolerCo request already linked to a COM case; `contractor` is yes/no as in `cases`). Signed-in users only, `security_invoker`. No screen reads them yet. COM leaves Email Address, Fault code note and Previous Related Case empty on every case.
 - **Merged to main 2026-11-16 (one build):** `claude/menu-button-style` (dark ☰ button + app-name pill), `claude/routes-app-vs-com` (Routes: done on app vs closed in COM), `claude/all-cases-view` (now 028).
 - **Routing + Tiger:** the routing app (`WNVissie/rtma-routing-netlify`) reads the `cases` table directly (4 server functions, ~10 SQL scripts). Plan: point it at `coolerco_all_cases` on a UAT copy first; Tiger needs a close-in-CoolerCo function on a completed stop, COM-only rules must skip Tiger, routes need a client. Next: list the `cases` columns routing reads and extend the view.
+
+---
+
+## 10. ▶ RESUME HERE — 2026-11-16 night (SMART Track, tracking switches, UAT routing copy)
+
+**SMART Track** = GPS tracking service, own repo `WNVissie/smart-track` (main 109f5fe), installed on **TEST** only (schema `smart_track`, Edge Function `smart-track` v2, `https://laljfgwngculogdzmqiu.supabase.co/functions/v1/smart-track`). API contract v1.0 + audit in Claude Doc https://claude.ai/artifact/LQY6NJMzgJ7H84YRCZRPrH; management cost one-pager https://claude.ai/artifact/WFEH7k7hmh7UhscttVYDFr (R3–R70/month for the team). Rule: notify, never block. Tracking lives **inside the CoolerCo Field app** (Android wrapper later) — no separate driver app; contractors tracked only while the WhatsApp trip sheet is open.
+
+**Switches (all default OFF; every switch on a path must be on):** SMART Track company `enabled` / `field_app` / `tripsheet` · RouteIQ `routeiq_enabled` / `tripsheet_enabled` · CoolerCo `field_app_tracking`.
+
+**Waiting for Wanda:**
+- TEST: run the 4 revoke/grant lines of 028 · `smart_track_002_switches.sql` (smart-track repo) · `coolerco_029_tracking_admin.sql`.
+- CoolerCo branch `claude/tracking-admin` (fc35989, Setup → 📡 Tracking screen) — awaiting **"merge"**.
+- RouteIQ branch `claude/smart-track-adapter` (local commits 9c54a22, f899a4b, NOT pushed; settings page `smart-track-settings.html`, prod script `supabase_routing_smart_track_settings.sql` not run) — awaiting "deploy to features". **Wanda 2026-11-16: do NOT change RouteIQ / trip sheets for the drivers until the complete Field app is built.**
+- Branch `claude/uat-routing-copy` (8e256b6): **030a on PRODUCTION** (read-only routing views in `coolerco_export`) then **030b on TEST** (11 routing tables added to the 08:30/19:30 copy; sign-in columns missing on TEST copied as empty). Then Claude checks the counts on TEST.
+
+**Decision (Wanda 2026-11-16): option (b) — build and test on UAT/TEST data.** Field app taps (Arrived / Completed / Left POS) + job card are saved in a NEW `coolerco_` table on TEST (never in `routing_*` — the copy job would overwrite them); My trip = copied route + own taps on top; connect to RouteIQ only when the complete app is ready.
+
+**Field app offline today:** Scan fully offline · My trip view-only for days opened before · Case status + first sign-in need signal · taps/job card not in the app · tracking not built.
+
+**Build order (next):** 1) taps + job card in the Field app via the offline queue (`src/lib/offline.js`) → new coolerco_ table · 2) case details saved with the trip · 3) tracking in the same queue + on-phone geofence "Arrived at POS?" pop-up (reads `field_app_tracking`) · 4) Android wrapper.
