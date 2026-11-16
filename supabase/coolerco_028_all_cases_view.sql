@@ -1,10 +1,10 @@
 -- ============================================================================
--- CoolerCo 023 — extra COM case fields + one combined cases view
+-- CoolerCo 028 — extra COM case fields + one combined cases view
 -- Run on: TEST first (🟢[TEST] RTMA_Ops). Production only when Wanda says so.
 -- Needs:  003 (coolerco_cases), 007 (com_case_number), 016 (client_code).
 -- Adds:   2 views. Nothing existing is changed; no data is copied or moved.
 --         COM `cases` is only READ (never written).
--- Rollback: coolerco_023_rollback.sql (drops the 2 views).
+-- Rollback: coolerco_028_rollback.sql (drops the 2 views).
 -- ============================================================================
 
 -- ── 1. Extra COM fields, lifted from the stored COM row (cases.raw_case) ─────
@@ -158,8 +158,8 @@ revoke all on public.coolerco_all_cases      from public, anon, authenticated;
 grant select on public.coolerco_com_case_extra to authenticated;
 grant select on public.coolerco_all_cases      to authenticated;
 
-comment on view public.coolerco_com_case_extra is 'CoolerCo 023: extra COM case fields read from cases.raw_case (text, as exported). Read only.';
-comment on view public.coolerco_all_cases      is 'CoolerCo 023: COM cases + CoolerCo cases with the same column names. Filter counts_as_case to avoid double counting linked requests. Read only.';
+comment on view public.coolerco_com_case_extra is 'CoolerCo 028: extra COM case fields read from cases.raw_case (text, as exported). Read only.';
+comment on view public.coolerco_all_cases      is 'CoolerCo 028: COM cases + CoolerCo cases with the same column names. Filter counts_as_case to avoid double counting linked requests. Read only.';
 
 -- ── 4. Check after running (read only; expect the two totals to match) ───────
 -- select (select count(*) from public.cases) + (select count(*) from public.coolerco_cases) as tables_total,
