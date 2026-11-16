@@ -10,7 +10,7 @@ export default function Setup() {
   useEffect(() => { supabase.auth.getUser().then(({ data }) => setUser(data.user)) }, [])
   return (
     <>
-      <Topbar title="Setup" sub="Warehouse locations · product families" />
+      <Topbar title="Setup" sub="Warehouse locations · product families · tracking" />
       <div className="page-content">
         <details className="sec" open>
           <summary>🏠 Warehouse buildings, areas & rules</summary>
@@ -23,6 +23,10 @@ export default function Setup() {
         <details className="sec">
           <summary>🧬 Product families (interim, until COM has one base per product)</summary>
           <div className="sec-body"><Families by={user?.email} /></div>
+        </details>
+        <details className="sec">
+          <summary>📡 Tracking (GPS of drivers and technicians)</summary>
+          <div className="sec-body"><Tracking /></div>
         </details>
       </div>
     </>
@@ -282,6 +286,159 @@ export function PortalCatalogue({ by }) {
           </div>
         ))}
       </div>
+      {msg && <div className={`form-msg ${msg.type}`}>{msg.text}</div>}
+    </div>
+  )
+}
+
+// ── 📡 Tracking: on/off switches for GPS tracking (script 029; SMART Track 001 + 002) ──
+// SMART Track lives in this database, so its switches are set here too. RouteIQ has its own page.
+const ROUTEIQ_TRACKING_URL = 'https://smartroutertma.netlify.app/smart-track-settings.html'
+const LABELS = {
+  smart_track_enabled: 'SMART Track for the whole company',
+  smart_track_field_app: 'SMART Track: Field app',
+  smart_track_tripsheet: 'SMART Track: WhatsApp trip sheets',
+  field_app_tracking: 'CoolerCo Field app tracking',
+  smart_track_company: 'SMART Track company',
+}
+
+function OnOff({ on, disabled, onChange }) {
+  return (
+    <div className="seg" style={{ flexShrink: 0 }}>
+      <button type="button" className={`seg-btn${on ? ' on' : ''}`} disabled={disabled || on} onClick={() => onChange(true)}>On</button>
+      <button type="button" className={`seg-btn${!on ? ' on' : ''}`} disabled={disabled || !on} onClick={() => onChange(false)}>Off</button>
+    </div>
+  )
+}
+
+function SwitchRow({ title, help, on, disabled, onChange }) {
+  return (
+    <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 0', borderTop: '1px solid var(--border)' }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 600, fontSize: 12.5 }}>{on ? '🟢' : '⚪'} {title}</div>
+        <div className="text3" style={{ fontSize: 11.5 }}>{help}</div>
+      </div>
+      <OnOff on={on} disabled={disabled} onChange={onChange} />
+    </div>
+  )
+}
+
+export function Tracking() {
+  const [s, setS] = useState(null)
+  const [problem, setProblem] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState(null)
+  const [newKey, setNewKey] = useState(null)
+
+  async function load() {
+    const { data, error } = await supabase.rpc('coolerco_tracking_settings')
+    if (error) {
+      setProblem(/could not find|schema cache|does not exist/i.test(error.message)
+        ? 'Tracking settings are not installed in this database yet (script 029).'
+        : error.message)
+      return
+    }
+    setProblem(null); setS(data)
+  }
+  useEffect(() => { load() }, [])
+
+  async function flip(setting, on) {
+    if (!window.confirm(`Turn ${LABELS[setting]} ${on ? 'ON' : 'OFF'}?\n\nThis takes effect within 3 minutes on every phone. The change is logged with your name.`)) return
+    setBusy(true); setMsg(null)
+    const { data, error } = await supabase.rpc('coolerco_tracking_set', { p_setting: setting, p_on: on })
+    setBusy(false)
+    if (error) { setMsg({ type: 'err', text: error.message }); return }
+    setS(data); setMsg({ type: 'ok', text: `✓ ${LABELS[setting]} is now ${on ? 'on' : 'off'}` })
+  }
+
+  async function createCompany() {
+    if (!window.confirm('Create the SMART Track company and its server key?\n\nThe key is shown ONCE. Copy it straight into RouteIQ\'s Netlify settings as SMART_TRACK_KEY.')) return
+    setBusy(true); setMsg(null)
+    const { data, error } = await supabase.rpc('coolerco_tracking_create_company')
+    setBusy(false)
+    if (error) { setMsg({ type: 'err', text: error.message }); return }
+    setNewKey(data.server_key); load()
+  }
+
+  if (problem) return <div className="notice">⚠️ {problem}</div>
+  if (!s) return <div className="text3">Loading…</div>
+  const st = s.smart_track, sw = st.switches, can = s.can_change && !busy
+  const fieldPath = [['SMART Track company', sw.enabled], ['SMART Track Field app', sw.field_app], ['CoolerCo Field app', s.field_app_tracking]]
+  const tripPath = [['SMART Track company', sw.enabled], ['SMART Track trip sheets', sw.tripsheet]]
+  const offAt = path => path.filter(([, on]) => !on).map(([name]) => name)
+  const status = (path, also) => offAt(path).length
+    ? <span>⚪ <strong>Off</strong> — switched off at: {offAt(path).join(', ')}</span>
+    : <span>🟢 <strong>On here</strong> — runs when {also} is also on in RouteIQ</span>
+
+  return (
+    <div>
+      <div className="notice">
+        Tracking runs only when <strong>every</strong> switch on its path is on, so any one switch stops it.
+        Changes reach phones within 3 minutes and keep the history already recorded.
+        {!s.can_change && <> You can look, but only a system administrator can change these.</>}
+      </div>
+
+      <div className="card" style={{ padding: 12, marginBottom: 10 }}>
+        <div style={{ fontSize: 12, display: 'grid', gap: 4 }}>
+          <div>📱 <strong>Field app</strong> (RTMA drivers and technicians): {status(fieldPath, 'the RouteIQ switch')}</div>
+          <div>💬 <strong>WhatsApp trip sheets</strong> (contractors): {status(tripPath, 'RouteIQ and its trip-sheet switch')}</div>
+        </div>
+      </div>
+
+      <div className="card" style={{ padding: 12, marginBottom: 10 }}>
+        <strong>🛰️ SMART Track</strong> <span className="text3" style={{ fontSize: 11.5 }}>· the tracking service · company “{st.company_code}”</span>
+        {!st.installed && <div className="notice" style={{ marginTop: 8 }}>SMART Track is not installed in this database.</div>}
+        {st.installed && !st.switches_ready && <div className="notice" style={{ marginTop: 8 }}>Run <code>smart_track_002_switches.sql</code> to enable these switches.</div>}
+        {st.installed && !st.company_exists && (
+          <div style={{ marginTop: 8 }}>
+            <div className="text3" style={{ fontSize: 11.5, marginBottom: 6 }}>The company has not been set up in SMART Track yet. Setting it up creates the server key RouteIQ needs.</div>
+            <button className="btn btn-primary btn-sm" disabled={!can} onClick={createCompany}>➕ Set up SMART Track company</button>
+          </div>
+        )}
+        {newKey && (
+          <div className="notice" style={{ marginTop: 8, borderColor: 'var(--red)' }}>
+            <strong>Server key — shown once.</strong> Copy it now into RouteIQ's Netlify environment settings as <code>SMART_TRACK_KEY</code>. Do not share it.
+            <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+              <input className="field-ctrl" readOnly value={newKey} style={{ flex: 1, fontFamily: 'monospace', fontSize: 11 }} onFocus={e => e.target.select()} />
+              <button className="btn btn-sm" onClick={() => navigator.clipboard?.writeText(newKey)}>📋 Copy</button>
+              <button className="btn btn-sm" onClick={() => setNewKey(null)}>Done</button>
+            </div>
+          </div>
+        )}
+        {st.company_exists && st.switches_ready && (
+          <div style={{ marginTop: 6 }}>
+            <SwitchRow title="Whole company" help="Master switch: off stops all tracking in every app." on={sw.enabled} disabled={!can} onChange={v => flip('smart_track_enabled', v)} />
+            <SwitchRow title="Field app" help="Positions from the CoolerCo Field app." on={sw.field_app} disabled={!can} onChange={v => flip('smart_track_field_app', v)} />
+            <SwitchRow title="WhatsApp trip sheets" help="Positions from RouteIQ trip sheets (contractors); only while the sheet is open." on={sw.tripsheet} disabled={!can} onChange={v => flip('smart_track_tripsheet', v)} />
+          </div>
+        )}
+      </div>
+
+      <div className="card" style={{ padding: 12, marginBottom: 10 }}>
+        <strong>📲 CoolerCo-Ops</strong>
+        <SwitchRow title="Track drivers and technicians in the Field app" help="Off: the Field app does not ask for location or send positions." on={s.field_app_tracking} disabled={!can} onChange={v => flip('field_app_tracking', v)} />
+      </div>
+
+      <div className="card" style={{ padding: 12, marginBottom: 10 }}>
+        <strong>🗺️ RouteIQ</strong>
+        <div className="text3" style={{ fontSize: 11.5, margin: '6px 0' }}>RouteIQ's own switch (sending routes and taps, and trip-sheet tracking) is set on RouteIQ, because it runs on the production database.</div>
+        <a className="btn btn-sm" href={ROUTEIQ_TRACKING_URL} target="_blank" rel="noopener noreferrer">Open RouteIQ tracking settings ↗</a>
+      </div>
+
+      {s.log?.length > 0 && (
+        <details className="sec">
+          <summary>🧾 Recent changes</summary>
+          <div className="sec-body">
+            <div style={{ overflowX: 'auto' }}><table className="tbl" style={{ fontSize: 11.5 }}>
+              <thead><tr><th>When</th><th>Who</th><th>Setting</th><th>Now</th></tr></thead>
+              <tbody>{s.log.map((l, i) => (
+                <tr key={i}><td>{new Date(l.at).toLocaleString('en-ZA')}</td><td>{l.by || '—'}</td><td>{LABELS[l.setting] || l.setting}</td>
+                  <td>{l.value === null || l.value === undefined ? (l.note || '') : (l.value ? 'On' : 'Off')}</td></tr>
+              ))}</tbody>
+            </table></div>
+          </div>
+        </details>
+      )}
       {msg && <div className={`form-msg ${msg.type}`}>{msg.text}</div>}
     </div>
   )
