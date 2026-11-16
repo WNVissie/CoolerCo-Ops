@@ -1,0 +1,22 @@
+-- CoolerCo-Ops · 034 · ROLLBACK — RUN ON TEST (removes slots, names, crews, requests and their logs)
+drop function if exists public.coolerco_crew_decide(uuid, boolean, text);
+drop function if exists public.coolerco_crew_set(uuid, uuid, uuid[], text);
+drop function if exists public.coolerco_crew_board(date, text);
+drop function if exists public.coolerco_field_slot_add(text, text);
+drop function if exists public.coolerco_field_slot_save(uuid, text, text, text, text, boolean);
+drop function if exists public.coolerco_field_slot_list(text);
+drop function if exists public.coolerco_my_crew_requests(date);
+drop function if exists public.coolerco_crew_request(uuid, text, text);
+drop function if exists public.coolerco_claimable_routes(date);
+drop function if exists public.coolerco_my_routes(date);
+drop function if exists public.coolerco_my_field_profile();
+drop function if exists public.coolerco_route_crew_effective(uuid[]);
+drop function if exists public.coolerco_person_name(uuid);
+drop table if exists public.coolerco_crew_requests;
+drop table if exists public.coolerco_route_crew_log;
+drop table if exists public.coolerco_route_crew;
+drop table if exists public.coolerco_field_slot_names;
+drop table if exists public.coolerco_field_slots;
+drop function if exists public.coolerco_field_slot_name_log();
+drop function if exists public.coolerco_wh_group(text);
+drop function if exists public.coolerco_is_planner();

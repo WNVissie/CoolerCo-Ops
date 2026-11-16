@@ -16,6 +16,7 @@ const NAV = [
     { to: '/assets',   icon: '🏭', label: 'Assets' },
     { to: '/picking',  icon: '📦', label: 'Warehouse Prep' },
     { to: '/routes',   icon: '🗺️', label: 'Routes' },
+    { to: '/crew',     icon: '👷', label: 'Field crew' },
     { href: 'https://smartroutertma.netlify.app/', icon: '🛣️', label: 'Routing App' },
     { action: 'install', icon: '📲', label: 'Install app' },
     { href: '/field', icon: '📱', label: 'Open Field app' },

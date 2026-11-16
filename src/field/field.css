@@ -122,3 +122,4 @@
 .f-extras { margin-top: 4px; }
 .f-extras .btn.on { border-color: var(--accent); }
 .f-panel { margin-top: 6px; padding: 8px; border: 1px dashed var(--border); border-radius: 10px; }
+.f-quote { margin: 8px 0 0; font-size: 12.5px; font-style: italic; color: var(--text2, #445); background: #f4f8ff; border-radius: 10px; padding: 8px 10px; }

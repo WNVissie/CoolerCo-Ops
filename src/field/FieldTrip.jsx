@@ -6,6 +6,8 @@ import { fieldTablesReady, loadReasons, serverStatus, pendingTaps, mergeState, r
 import { getGps } from '../lib/photos'
 import FieldJobCard from './FieldJobCard'
 import StopAssets from './StopAssets'
+import { loadProfile, has034 } from './fieldProfile'
+import { CrewRequests } from './FieldCrew'
 import { RouteWarehouse, RouteDelay, StopExtras } from './FieldRouteParts'
 import { routeEvents033Ready, serverRouteEvents, pendingRouteRows } from './fieldStops'
 
@@ -26,9 +28,16 @@ const fmtDay = s => new Date(s + 'T12:00:00').toLocaleDateString('en-ZA', { week
 const fmtTime = t => (t ? new Date(t).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' }) : '')
 const waNo = n => { const d = String(n || '').replace(/\D/g, ''); return !d ? '' : d.startsWith('0') ? '27' + d.slice(1) : d }
 
+// A field person (driver / technician with a slot, script 034) sees ONLY the routes assigned to them today
+// (usual RouteIQ slot, or the crew the supervisor set). Staff without a slot keep the "Who is driving?" picker.
+const meFromPhone = () => { try { const p = JSON.parse(localStorage.getItem('cc_field_profile')); return has034() && p?.slot ? p : null } catch { return null } }
+const meAsDriver = p => ({ username: p.slot.routeiq || 'me', display: p.name, wh: p.slot.warehouse, type: p.slot.type, me: true })
+
 export default function FieldTrip() {
-  const [driver, setDriver] = useState(() => { try { return JSON.parse(localStorage.getItem('cc_field_driver')) } catch { return null } })
+  const [me, setMe] = useState(meFromPhone)
+  const [driver, setDriver] = useState(() => { const p = meFromPhone(); if (p) return meAsDriver(p); try { return JSON.parse(localStorage.getItem('cc_field_driver')) } catch { return null } })
   const [picking, setPicking] = useState(!driver)
+  useEffect(() => { loadProfile().then(p => { if (has034() && p?.slot) { setMe(p); setDriver(d => (d?.me && d.username === meAsDriver(p).username && d.display === p.name ? d : meAsDriver(p))); setPicking(false) } else setMe(null) }) }, [])
   const [date, setDate] = useState(() => iso(new Date()))
   const [trip, setTrip] = useState(null)
   const [err, setErr] = useState(null)
@@ -54,12 +63,21 @@ export default function FieldTrip() {
   const load = useCallback(async () => {
     if (!driver) return
     setTrip(null); setErr(null); setFromPhone(false)
-    const key = `trip:${driver.username}:${date}`
+    const key = driver.me ? `trip:me:${date}` : `trip:${driver.username}:${date}`
     try {
       if (!navigator.onLine) throw new Error('offline')
-      const { data: routes, error } = await supabase.from('routing_routes')
-        .select('id,route_number,route_date,status,vehicle_code,warehouse_group,planned_start_at,planned_return_at,planned_distance_km,dispatched_at,completed_at')
-        .eq('resource_username', driver.username).eq('route_date', date).neq('status', 'not_used').order('route_number')
+      const COLS = 'id,route_number,route_date,status,vehicle_code,warehouse_group,resource_display_name,planned_start_at,planned_return_at,planned_distance_km,dispatched_at,completed_at'
+      let routes, error
+      if (driver.me) {
+        // only the routes this person is on today (finalised or later)
+        const mine = await supabase.rpc('coolerco_my_routes', { p_date: date })
+        if (mine.error) throw mine.error
+        const ids = (mine.data || []).map(x => x.route_id)
+        ;({ data: routes, error } = ids.length ? await supabase.from('routing_routes').select(COLS).in('id', ids).order('route_number') : { data: [], error: null })
+      } else {
+        ;({ data: routes, error } = await supabase.from('routing_routes').select(COLS)
+          .eq('resource_username', driver.username).eq('route_date', date).neq('status', 'not_used').order('route_number'))
+      }
       if (error) throw error
       let stops = [], cases = [], contacts = [], prep = []
       if (routes?.length) {
@@ -146,8 +164,8 @@ export default function FieldTrip() {
     <div className="f-pad">
       <div className="f-card">
         <div className="f-row">
-          <div className="f-grow"><strong>🚚 {driver.display}</strong><small>{driver.username} · {driver.wh?.replace('RTMA ', '')}</small></div>
-          <button className="btn btn-ghost btn-sm" onClick={() => setPicking(true)}>Change</button>
+          <div className="f-grow"><strong>🚚 {driver.display}</strong><small>{driver.me ? `${driver.type === 'technician' ? 'Technician' : 'Driver'}${driver.username !== 'me' ? ` · ${driver.username}` : ''}` : `${driver.username} · ${driver.wh?.replace('RTMA ', '')}`}</small></div>
+          {!driver.me && <button className="btn btn-ghost btn-sm" onClick={() => setPicking(true)}>Change</button>}
         </div>
         <div className="f-date" style={{ marginTop: 10 }}>
           <button className="btn btn-ghost btn-sm" onClick={() => setDate(d => addDays(d, -1))}>‹</button>
@@ -163,7 +181,8 @@ export default function FieldTrip() {
 
       {err && <div className="form-msg err">{err}</div>}
       {!trip && !err && <div className="load-state"><span className="spinner" /> Loading your trip…</div>}
-      {trip && !trip.routes.length && <div className="f-card" style={{ textAlign: 'center', padding: 24 }}><div style={{ fontSize: 30 }}>🛣️</div><p className="text3">No route for {fmtDay(date)}. Routes appear here once they are saved in the routing app.</p></div>}
+      {trip && !trip.routes.length && <div className="f-card" style={{ textAlign: 'center', padding: 24 }}><div style={{ fontSize: 30 }}>🛣️</div><p className="text3">{driver.me ? `No route for you on ${fmtDay(date)} yet. Routes appear here once the planner has finalised them and they are linked to you.` : `No route for ${fmtDay(date)}. Routes appear here once they are saved in the routing app.`}</p></div>}
+
 
       {trip?.routes.map(r => {
         const rs = stops.filter(s => s.route_id === r.id)
@@ -247,6 +266,7 @@ export default function FieldTrip() {
         )
       })}
       {v033 && trip?.routes.map(r => <RouteWarehouse key={'back' + r.id} where="bottom" route={r} driver={driver} events={rEvents.filter(e => e.route_id === r.id)} onSaved={refreshPending} />)}
+      {driver.me && trip && navigator.onLine && <CrewRequests date={date} myRoutes={trip.routes} onChanged={load} />}
       {stops.length > 0 && <p className="text3" style={{ fontSize: 11, textAlign: 'center' }}>{done} done · {left} to go · {ready ? 'Taps and job cards are saved on the phone and sent when there is signal (test system — not sent to RouteIQ yet).' : 'Record arrivals and outcomes in the routing trip sheet'} — COM status updates after the next COM upload.</p>}
       {far && (
         <div className="f-sheet" role="dialog" aria-label="Check location">

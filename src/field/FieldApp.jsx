@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import Login from '../pages/Login'
 import { startAutoFlush, queueCount } from '../lib/offline'
 import { updateAvailable, updateNow, versionLabel } from '../lib/appUpdate'
+import { loadProfile, quoteOfTheDay } from './fieldProfile'
 import './field.css'
 
 // CoolerCo Field — installable app for warehouse teams and drivers (same SmartHub login).
@@ -113,17 +114,21 @@ export default function FieldApp() {
 // Home: big tiles to each part of the app (the "main screen")
 function FieldHome({ go, waiting, user, newVersion }) {
   const driver = (() => { try { return JSON.parse(localStorage.getItem('cc_field_driver')) } catch { return null } })()
-  const name = user?.user_metadata?.first_name || (user?.email || '').split('@')[0]
+  const [profile, setProfile] = useState(() => { try { return JSON.parse(localStorage.getItem('cc_field_profile')) } catch { return null } })
+  useEffect(() => { loadProfile().then(p => p && setProfile(p)) }, [])
+  // name from the field slot (the real person), else the account
+  const name = (profile?.name || user?.user_metadata?.first_name || (user?.email || '').split('@')[0] || '').split(' ')[0]
   const tiles = [
-    ['trip', '🚚', 'My trip', driver ? `${driver.display} · today's stops` : "Today's route, stops and case status"],
+    ['trip', '🚚', 'My trip', profile?.slot ? "Your routes for today" : driver ? `${driver.display} · today's stops` : "Today's route, stops and case status"],
     ['scan', '📷', 'Scan assets', waiting ? `⏳ ${waiting} waiting to send` : 'QR or barcode · works without signal'],
     ['cases', '📋', 'Case status', 'Look up a case, store or asset'],
   ]
   return (
     <div className="f-pad">
       <div className="f-hello">
-        <strong>Hello {name} 👋</strong>
-        <small>{new Date().toLocaleDateString('en-ZA', { weekday: 'long', day: 'numeric', month: 'long' })}</small>
+        <strong>Welcome {name} 👋</strong>
+        <small>{new Date().toLocaleDateString('en-ZA', { weekday: 'long', day: 'numeric', month: 'long' })}{profile?.slot ? ` · ${profile.slot.type === 'technician' ? '🛠 Technician' : '🚚 Driver'}${profile.slot.routeiq ? ` · ${profile.slot.routeiq}` : ''}` : ''}</small>
+        <p className="f-quote">💬 {quoteOfTheDay()}</p>
       </div>
       {tiles.map(([k, i, t, d]) => (
         <button key={k} className="f-tile" onClick={() => go(k)}>
