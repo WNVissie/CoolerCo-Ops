@@ -18,6 +18,7 @@ Related docs (in the claude.ai project): `coolerco-field-mapping.md`, `coolerco-
 - **Code workflow:** Claude has push access. Each change goes on a `claude/<topic>` branch; Wanda says **"merge"** → fast-forward to `main` → Netlify deploys. The app must keep working against a database that does not have the newer scripts (it falls back to the older screens) — keep that rule.
 - Everything CoolerCo adds is prefixed **`coolerco_`** (planned WMS tables: `coolerco_wms_*`).
 - **COM (Magnum's D365, built by Noesis) data is one-way**: `cases` and `assets_live` are imported by the dashboard; CoolerCo never writes to them.
+- **Never write the full Supabase project URL (`https://<ref>.supabase.co`) in repo files** — it is the Netlify env var VITE_SUPABASE_URL and secret scanning fails the build. The bare project ref is fine.
 - Do **not** change the dashboard repo. Its `CLAUDE.md` + `netlify/functions/upload-cases.js` are the reference for mapping rules.
 - The app requires **sign-in** (SmartHub Supabase accounts). `assets_live` RLS only serves authenticated users.
 - Two kinds of stock: **asset stock** (coolers in RTMA warehouses — this app) and **spares stock** (baskets, decals… — SmartSpares app, link only: https://smartsparesrtma.netlify.app/).
@@ -276,7 +277,7 @@ system_admin (Wanda only) · administrator (uploads, edit records) · manager (s
 
 ## 10. ▶ RESUME HERE — 2026-11-16 night (SMART Track, tracking switches, UAT routing copy)
 
-**SMART Track** = GPS tracking service, own repo `WNVissie/smart-track` (main 109f5fe), installed on **TEST** only (schema `smart_track`, Edge Function `smart-track` v2, `https://laljfgwngculogdzmqiu.supabase.co/functions/v1/smart-track`). API contract v1.0 + audit in Claude Doc https://claude.ai/artifact/LQY6NJMzgJ7H84YRCZRPrH; management cost one-pager https://claude.ai/artifact/WFEH7k7hmh7UhscttVYDFr (R3–R70/month for the team). Rule: notify, never block. Tracking lives **inside the CoolerCo Field app** (Android wrapper later) — no separate driver app; contractors tracked only while the WhatsApp trip sheet is open.
+**SMART Track** = GPS tracking service, own repo `WNVissie/smart-track` (main 109f5fe), installed on **TEST** only (schema `smart_track`, Edge Function `smart-track` v2, TEST project URL + `/functions/v1/smart-track`). API contract v1.0 + audit in Claude Doc https://claude.ai/artifact/LQY6NJMzgJ7H84YRCZRPrH; management cost one-pager https://claude.ai/artifact/WFEH7k7hmh7UhscttVYDFr (R3–R70/month for the team). Rule: notify, never block. Tracking lives **inside the CoolerCo Field app** (Android wrapper later) — no separate driver app; contractors tracked only while the WhatsApp trip sheet is open.
 
 **Switches (all default OFF; every switch on a path must be on):** SMART Track company `enabled` / `field_app` / `tripsheet` · RouteIQ `routeiq_enabled` / `tripsheet_enabled` · CoolerCo `field_app_tracking`.
 
