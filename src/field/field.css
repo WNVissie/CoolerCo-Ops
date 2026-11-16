@@ -63,3 +63,21 @@
 .f-tile strong { font-size: 16px; }
 .f-tile-go { font-size: 24px; color: var(--text3); }
 .f-home-links { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 14px; }
+
+/* ── stop taps + job card (031) ───────────────────────────── */
+.f-taps { display: grid; gap: 6px; margin-top: 10px; }
+.f-taps .btn { justify-content: center; min-height: 46px; font-size: 14px; }
+.f-taps small { text-align: center; font-size: 11px; }
+.f-sheet { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,.45); display: flex; align-items: flex-end; justify-content: center; }
+.f-sheet-body { background: var(--surface); width: 100%; max-width: 560px; max-height: 92vh; overflow-y: auto; border-radius: 16px 16px 0 0;
+  padding: 14px 14px calc(14px + env(safe-area-inset-bottom)); }
+.f-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 4px 0 6px; }
+.f-seg button { min-height: 44px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface2, transparent); color: inherit; font: inherit; font-weight: 600; }
+.f-seg button.on.ok { background: #e7f6ec; border-color: #2e9e5b; color: #1d6b3d; }
+.f-seg button.on.bad { background: #fff3e3; border-color: #d98a1c; color: #8a5300; }
+.f-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.f-chips button { border: 1px solid var(--border); background: transparent; color: inherit; font: inherit; font-size: 12.5px; border-radius: 16px; padding: 7px 11px; min-height: 36px; }
+.f-chips button.on { border-color: var(--accent); background: var(--accent); color: #fff; }
+.f-check { display: flex; gap: 8px; align-items: center; font-size: 12.5px; margin-top: 8px; }
+.f-thumb { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); }
+.f-sig { width: 100%; height: 130px; border: 1px dashed var(--border); border-radius: 10px; background: #fff; touch-action: none; display: block; margin-bottom: 4px; }

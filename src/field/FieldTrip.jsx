@@ -2,10 +2,14 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { statusColor, CASE_TYPE_ICON } from '../lib/helpers'
 import { cachedQuery, kvGet, kvSet } from '../lib/offline'
+import { fieldTablesReady, loadReasons, serverStatus, pendingTaps, mergeState, recordTap, TAP_LABEL } from './fieldStops'
+import FieldJobCard from './FieldJobCard'
 
 // My trip — read view of the routing app's route for this driver (planned + finalised in the routing app).
 // Live case status from COM, routing outcome, warehouse prep, assets. Outcomes are recorded in the routing
 // app's trip sheet (its own server logic keeps routes, carry-overs and history correct).
+// With script 031 on the database: Arrived / Completed / Not completed / Left POS + job card are recorded HERE
+// (offline queue → coolerco_field_* tables on TEST). Without 031 the old "Record outcome ↗" button shows.
 const ROUTING_URL = 'https://smartroutertma.netlify.app/'
 const OUTCOME = {
   planned: ['Planned', 'blue'], solved: ['✅ Done', 'green'], carried_over: ['↪ Carried over', 'orange'],
@@ -26,6 +30,19 @@ export default function FieldTrip() {
   const [err, setErr] = useState(null)
   const [fromPhone, setFromPhone] = useState(false)
   const [open, setOpen] = useState(null)
+  const [ready, setReady] = useState(false)       // 031 installed
+  const [reasons, setReasons] = useState([])
+  const [pending, setPending] = useState([])
+  const [card, setCard] = useState(null)          // { stop, mode }
+  const [tapBusy, setTapBusy] = useState(null)
+
+  useEffect(() => { fieldTablesReady().then(ok => { setReady(ok); if (ok) loadReasons().then(setReasons) }) }, [])
+  const refreshPending = useCallback(() => { pendingTaps().then(setPending) }, [])
+  useEffect(() => {
+    refreshPending()
+    window.addEventListener('cc-queue', refreshPending)
+    return () => window.removeEventListener('cc-queue', refreshPending)
+  }, [refreshPending])
 
   const load = useCallback(async () => {
     if (!driver) return
@@ -55,7 +72,9 @@ export default function FieldTrip() {
         cases = c.data || []; contacts = k.data || []
         const ids = new Set(routes.map(r => r.id)); prep = (p.data || []).filter(x => ids.has(x.route_id))
       }
-      const t = { routes: routes || [], stops, cases, contacts, prep, at: Date.now() }
+      let fs = []
+      if (stops.length && localStorage.getItem('cc_field_031') === '1') { try { fs = await serverStatus(stops.map(s => s.id)) } catch { /* 031 missing / no rights */ } }
+      const t = { routes: routes || [], stops, cases, contacts, prep, fs, at: Date.now() }
       setTrip(t); kvSet(key, t) // keep for offline
     } catch (e) {
       const saved = await kvGet(key)
@@ -67,12 +86,29 @@ export default function FieldTrip() {
   const byCase = useMemo(() => Object.fromEntries((trip?.cases || []).map(c => [c.case_number, c])), [trip])
   const byPos = useMemo(() => Object.fromEntries((trip?.contacts || []).map(c => [c.pos_local_code, c])), [trip])
   const byPrep = useMemo(() => Object.fromEntries((trip?.prep || []).map(p => [p.case_number, p])), [trip])
+  const fstate = useMemo(() => mergeState(trip?.fs, pending), [trip, pending])
+  // after something is sent, re-read the server state quietly (keeps the saved copy current too)
+  useEffect(() => {
+    const h = async () => {
+      if (!trip?.stops?.length || !ready) return
+      try { const fs = await serverStatus(trip.stops.map(s => s.id)); const t = { ...trip, fs }; setTrip(t); kvSet(`trip:${driver.username}:${date}`, t) } catch { /* offline */ }
+    }
+    window.addEventListener('cc-queue-sent', h)
+    return () => window.removeEventListener('cc-queue-sent', h)
+  }, [trip, ready, driver, date])
+
+  const tap = async (s, type, opts) => {
+    setTapBusy(s.id + type)
+    try { await recordTap(s, driver, type, opts); refreshPending() } finally { setTapBusy(null) }
+  }
 
   if (picking) return <DriverPicker current={driver} onPick={d => { localStorage.setItem('cc_field_driver', JSON.stringify(d)); setDriver(d); setPicking(false) }} onCancel={driver ? () => setPicking(false) : null} />
 
   const stops = trip?.stops || []
-  const done = stops.filter(s => s.outcome_status === 'solved').length
-  const left = stops.filter(s => s.outcome_status === 'planned').length
+  const isDone = s => fstate[s.id]?.outcome === 'completed' || s.outcome_status === 'solved'
+  const isOpenStop = s => !fstate[s.id]?.outcome && s.outcome_status === 'planned'
+  const done = stops.filter(isDone).length
+  const left = stops.filter(isOpenStop).length
 
   return (
     <div className="f-pad">
@@ -99,7 +135,7 @@ export default function FieldTrip() {
 
       {trip?.routes.map(r => {
         const rs = stops.filter(s => s.route_id === r.id)
-        const rDone = rs.filter(s => s.outcome_status === 'solved').length
+        const rDone = rs.filter(isDone).length
         return (
           <div key={r.id} className="f-card">
             <div className="f-row">
@@ -107,7 +143,7 @@ export default function FieldTrip() {
               <span className={`tag tag-${r.status === 'completed' ? 'green' : r.status === 'dispatched' || r.status === 'partially_completed' ? 'blue' : 'neutral'}`}>{String(r.status || '').replace(/_/g, ' ')}</span>
             </div>
             <div className="f-progress"><div style={{ width: `${rs.length ? (rDone / rs.length) * 100 : 0}%` }} /></div>
-            <div className="f-stat"><div><b>{rs.length}</b><small>stops</small></div><div><b>{rDone}</b><small>done</small></div><div><b>{rs.filter(s => s.outcome_status === 'planned').length}</b><small>to go</small></div></div>
+            <div className="f-stat"><div><b>{rs.length}</b><small>stops</small></div><div><b>{rDone}</b><small>done</small></div><div><b>{rs.filter(isOpenStop).length}</b><small>to go</small></div></div>
           </div>
         )
       })}
@@ -120,10 +156,11 @@ export default function FieldTrip() {
         const nav = lat && lng ? `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}` : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(addr || s.point_of_sale)}`
         const phone = k?.mobile_phone || k?.business_phone
         const isOpen = open === s.id
+        const f = fstate[s.id] || {}
         return (
           <div key={s.id} className="f-card">
             <button className="f-row" style={{ width: '100%', background: 'none', border: 0, padding: 0, textAlign: 'left', color: 'inherit', font: 'inherit' }} onClick={() => setOpen(isOpen ? null : s.id)}>
-              <span className={`f-seq ${s.outcome_status === 'solved' ? 'done' : s.outcome_status !== 'planned' ? 'bad' : ''}`}>{s.stop_sequence}</span>
+              <span className={`f-seq ${isDone(s) ? 'done' : f.outcome === 'not_completed' || s.outcome_status !== 'planned' ? 'bad' : ''}`}>{s.stop_sequence}</span>
               <div className="f-grow">
                 <strong>{s.point_of_sale}</strong>
                 <small>{CASE_TYPE_ICON[s.case_type] || '📄'} {s.case_type} · {s.case_number}{s.planned_arrival_at ? ` · ⏰ ${fmtTime(s.planned_arrival_at)}` : ''}</small>
@@ -131,7 +168,11 @@ export default function FieldTrip() {
               <span className="text3">{isOpen ? '▴' : '▾'}</span>
             </button>
             <div className="f-tags">
-              <span className={`tag tag-${oc[1]}`}>{oc[0]}</span>
+              {f.outcome ? <span className={`tag tag-${f.outcome === 'completed' ? 'green' : 'orange'}`}>{TAP_LABEL[f.outcome]}</span>
+                : f.arrived_at ? <span className="tag tag-blue">📍 At store {fmtTime(f.arrived_at)}</span>
+                : <span className={`tag tag-${oc[1]}`}>{oc[0]}</span>}
+              {f.left_at && <span className="tag tag-neutral">🚪 Left {fmtTime(f.left_at)}</span>}
+              {f.pending && <span className="tag tag-orange" title="Saved on this phone, waiting for signal">⏳ waiting to send</span>}
               {c && <span className={`tag tag-${statusColor(c.status_reason)}`} title="Live status in COM">COM: {c.status_reason}</span>}
               {c?.sla_status && <span className="tag tag-neutral">{c.sla_status}</span>}
               {s.asset_count > 0 && <span className="tag tag-neutral">❄️ {s.asset_count}</span>}
@@ -159,14 +200,32 @@ export default function FieldTrip() {
                   <a className="btn btn-primary btn-sm" href={nav} target="_blank" rel="noopener noreferrer">🧭 Navigate</a>
                   {phone && <a className="btn btn-ghost btn-sm" href={`tel:${phone}`}>📞 Call</a>}
                   {waNo(k?.customer_whatsapp || k?.mobile_phone) && <a className="btn btn-ghost btn-sm" href={`https://wa.me/${waNo(k?.customer_whatsapp || k?.mobile_phone)}`} target="_blank" rel="noopener noreferrer">💬 WhatsApp</a>}
-                  <a className="btn btn-ghost btn-sm" href={ROUTING_URL} target="_blank" rel="noopener noreferrer" title="Arrived, outcome, job card — recorded in the routing trip sheet">📝 Record outcome ↗</a>
+                  {!ready && <a className="btn btn-ghost btn-sm" href={ROUTING_URL} target="_blank" rel="noopener noreferrer" title="Arrived, outcome, job card — recorded in the routing trip sheet">📝 Record outcome ↗</a>}
                 </div>
+                {ready && (
+                  <div className="f-taps">
+                    {!f.arrived_at && <button className="btn btn-primary" disabled={!!tapBusy} onClick={() => tap(s, 'arrived')}>{tapBusy === s.id + 'arrived' ? '…' : '📍 Arrived at store'}</button>}
+                    {f.arrived_at && !f.outcome && <>
+                      <button className="btn btn-primary" onClick={() => setCard({ stop: s, mode: 'completed' })}>✅ Completed — job card</button>
+                      <button className="btn btn-ghost" onClick={() => setCard({ stop: s, mode: 'not_completed' })}>⚠️ Not completed</button>
+                    </>}
+                    {f.outcome && !f.left_at && <button className="btn btn-primary" disabled={!!tapBusy} onClick={() => tap(s, 'left')}>{tapBusy === s.id + 'left' ? '…' : '🚪 Left store'}</button>}
+                    {f.outcome && <button className="btn btn-ghost btn-sm" onClick={() => setCard({ stop: s, mode: f.outcome })}>✏️ Redo job card</button>}
+                    {f.arrived_at && <small className="text3">📍 {fmtTime(f.arrived_at)}{f.outcome_at ? ` · ${TAP_LABEL[f.outcome]} ${fmtTime(f.outcome_at)}` : ''}{f.reason_code ? ` · ${reasons.find(r => r.code === f.reason_code)?.label || f.reason_code}` : ''}{f.left_at ? ` · 🚪 ${fmtTime(f.left_at)}` : ''}</small>}
+                  </div>
+                )}
               </>
             )}
           </div>
         )
       })}
-      {stops.length > 0 && <p className="text3" style={{ fontSize: 11, textAlign: 'center' }}>{done} done · {left} to go · Record arrivals and outcomes in the routing trip sheet — COM status updates after the next COM upload.</p>}
+      {stops.length > 0 && <p className="text3" style={{ fontSize: 11, textAlign: 'center' }}>{done} done · {left} to go · {ready ? 'Taps and job cards are saved on the phone and sent when there is signal (test system — not sent to RouteIQ yet).' : 'Record arrivals and outcomes in the routing trip sheet'} — COM status updates after the next COM upload.</p>}
+      {card && (() => {
+        const s = card.stop, p = byPrep[s.case_number], c = byCase[s.case_number]
+        return <FieldJobCard stop={s} driver={driver} mode={card.mode} reasons={reasons} contact={byPos[s.pos_local_code]}
+          plannedBarcode={p?.selected_bar_code || null} plannedBase={c?.requested_product_base || s.asset_product_bases?.[0] || null}
+          onCancel={() => setCard(null)} onDone={() => { setCard(null); refreshPending() }} />
+      })()}
     </div>
   )
 }
