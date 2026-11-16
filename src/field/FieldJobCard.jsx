@@ -4,6 +4,7 @@ import { cachedQuery, offlineLookup } from '../lib/offline'
 import { compressImage } from '../lib/photos'
 import CameraScan, { codeCandidates } from '../components/CameraScan'
 import { saveJobCard, assetRoles } from './fieldStops'
+import { savedCheck } from './StopAssets'
 
 // Job card for one stop — Completed or Not completed. Works without signal: everything is queued on the phone.
 // Asset swap check: a delivered asset that differs from the planned one must be the same product family (warning, never blocks).
@@ -13,7 +14,7 @@ const ROLE = {
   repaired: { label: 'Asset repaired', field: 'repaired_barcode', icon: '🛠' },
 }
 
-async function findAsset(code) {
+export async function findAsset(code) {
   const keys = codeCandidates(code)
   const local = await offlineLookup(keys)
   if (local || !navigator.onLine) return local
@@ -29,7 +30,12 @@ export default function FieldJobCard({ stop, driver, mode, plannedBarcode, plann
   const [outcome, setOutcome] = useState(mode)
   const [reason, setReason] = useState('')
   const [work, setWork] = useState('')
-  const [codes, setCodes] = useState(() => ({ delivered: plannedBarcode || '', removed: roles.includes('removed') ? (stop.asset_barcodes?.find(b => b !== plannedBarcode) || '') : '', repaired: roles.includes('repaired') ? (stop.asset_barcodes?.[0] || '') : '' }))
+  // pre-fill: what the driver already scanned on the trip card (📷 Check), else what was planned
+  const [codes, setCodes] = useState(() => ({
+    delivered: savedCheck(stop.id, 'delivered')?.code || plannedBarcode || '',
+    removed: roles.includes('removed') ? (savedCheck(stop.id, 'removed')?.code || stop.asset_barcodes?.find(b => b !== plannedBarcode) || '') : '',
+    repaired: roles.includes('repaired') ? (savedCheck(stop.id, 'repaired')?.code || stop.asset_barcodes?.[0] || '') : '',
+  }))
   const [info, setInfo] = useState({})
   const [cam, setCam] = useState(null)
   const [name, setName] = useState(contact?.customer_contact_name || '')

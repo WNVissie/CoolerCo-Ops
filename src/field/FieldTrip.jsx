@@ -5,6 +5,7 @@ import { cachedQuery, kvGet, kvSet } from '../lib/offline'
 import { fieldTablesReady, loadReasons, serverStatus, pendingTaps, mergeState, recordTap, TAP_LABEL, stopCoords, distanceM, fmtDistance, isFar } from './fieldStops'
 import { getGps } from '../lib/photos'
 import FieldJobCard from './FieldJobCard'
+import StopAssets from './StopAssets'
 
 // My trip — read view of the routing app's route for this driver (planned + finalised in the routing app).
 // Live case status from COM, routing outcome, warehouse prep, assets. Outcomes are recorded in the routing
@@ -195,21 +196,13 @@ export default function FieldTrip() {
               {c?.sla_status && <span className="tag tag-neutral">{c.sla_status}</span>}
               {s.asset_count > 0 && <span className="tag tag-neutral">❄️ {s.asset_count}</span>}
             </div>
-            {p && (
-              <div className="f-prep">
-                <span className={p.picked ? 'ok' : ''}>{p.picked ? '✓' : '○'} Picked</span>
-                <span className={p.rtw ? 'ok' : ''}>{p.rtw ? '✓' : '○'} RTW</span>
-                <span className={p.packed ? 'ok' : ''}>{p.packed ? '✓' : '○'} Packed</span>
-                {p.selected_bar_code && <span className="ok">🏷 {p.selected_bar_code}</span>}
-              </div>
-            )}
+            <StopAssets stop={s} prep={p} kase={c} />
             {isOpen && (
               <>
                 <div className="f-kv">
                   <span>Address</span><div>{addr || '—'}</div>
                   {k && <><span>Contact</span><div>{k.customer_contact_name || '—'}{phone ? ` · ${phone}` : ''}</div></>}
                   <span>Due</span><div>{c?.end_date ? new Date(c.end_date).toLocaleDateString('en-ZA') : s.end_date ? new Date(s.end_date).toLocaleDateString('en-ZA') : '—'}</div>
-                  {(s.asset_barcodes || []).length > 0 && <><span>Assets</span><div className="mono" style={{ fontSize: 11.5 }}>{(s.asset_barcodes || []).map((b, i) => <div key={i}>{b}{s.asset_product_bases?.[i] ? ` · ${s.asset_product_bases[i]}` : ''}</div>)}</div></>}
                   {c?.requested_product_base && <><span>Requested</span><div>{c.requested_product_base}</div></>}
                   {s.outcome_recorded_at && <><span>Recorded</span><div>{fmtTime(s.outcome_recorded_at)} · {s.actual_case_status || ''}{s.outcome_reason ? ` · ${s.outcome_reason}` : ''}</div></>}
                   {c?.service_closure_date && <><span>Closed (COM)</span><div>{new Date(c.service_closure_date).toLocaleString('en-ZA')}</div></>}

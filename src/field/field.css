@@ -86,3 +86,19 @@
 .f-update { display: block; width: 100%; border: 0; background: #0b5cd6; color: #fff; font: inherit; font-size: 13px; padding: 10px 12px; text-align: center; }
 .f-version { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: 18px; }
 .f-version small { color: var(--text3); font-size: 11px; }
+
+/* ── assets on the trip card (deliver / remove / repair + scan check) ── */
+.f-assets { display: grid; gap: 6px; margin-top: 8px; }
+.f-asset { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-left: 4px solid #8aa4c8; border-radius: 10px; padding: 7px 8px; background: var(--surface2, transparent); }
+.f-asset.ok { border-left-color: #2e9e5b; background: #f1faf4; }
+.f-asset.bad { border-left-color: #d0342c; background: #fff2f1; }
+.f-asset-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.f-asset-main small { font-size: 10.5px; color: var(--text3); text-transform: uppercase; letter-spacing: .03em; font-weight: 600; }
+.f-asset-main b { font-size: 16px; }
+.f-asset-main > span { font-size: 11.5px; color: var(--text2, inherit); }
+.f-asset-prep { color: var(--text3) !important; font-size: 10.5px !important; }
+.f-asset-warn { color: #a35a00 !important; }
+.f-asset-check { font-weight: 600; }
+.f-asset-check.ok { color: #1d6b3d !important; }
+.f-asset-check.bad { color: #b3261e !important; }
+.f-asset-scan { flex-shrink: 0; min-height: 40px; }
