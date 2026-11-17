@@ -193,6 +193,7 @@ export default function FieldTrip() {
               <div className="f-grow"><strong>{r.route_number}</strong><small>{r.vehicle_code || 'No vehicle'} · start {fmtTime(r.planned_start_at) || '—'} · back {fmtTime(r.planned_return_at) || '—'}{r.planned_distance_km ? ` · ${Math.round(r.planned_distance_km)} km` : ''}</small></div>
               <span className={`tag tag-${r.status === 'completed' ? 'green' : r.status === 'dispatched' || r.status === 'partially_completed' ? 'blue' : 'neutral'}`}>{String(r.status || '').replace(/_/g, ' ')}</span>
             </div>
+            {/^TEST-/.test(r.route_number || '') && <div className="f-testroute">🧪 <b>Test route</b> — made on the TEST system only. Real routes come from RouteIQ.</div>}
             <div className="f-progress"><div style={{ width: `${rs.length ? (rDone / rs.length) * 100 : 0}%` }} /></div>
             {v033 && <RouteWarehouse route={r} driver={driver} events={rEvents.filter(e => e.route_id === r.id)} onSaved={refreshPending} />}
             {v033 && <RouteDelay route={r} driver={driver} events={rEvents.filter(e => e.route_id === r.id)} onSaved={refreshPending} />}
