@@ -19,6 +19,7 @@ const ClosureDiscrepancies = lazyPage(() => import('./pages/ClosureDiscrepancies
 const CaseFlags = lazyPage(() => import('./pages/CaseFlags'))
 const FieldCrew = lazyPage(() => import('./pages/FieldCrew'))
 const TestRoutes = lazyPage(() => import('./pages/TestRoutes'))
+const ComUpdates = lazyPage(() => import('./pages/ComUpdates'))
 const Picking = lazyPage(() => import('./pages/Picking'))
 const Routes_ = lazyPage(() => import('./pages/Routes'))
 const AssetStock = lazyPage(() => import('./pages/AssetStock'))
@@ -89,6 +90,7 @@ export default function App() {
               <Route path="/cases/flags" element={<CaseFlags />} />
               <Route path="/crew" element={<FieldCrew />} />
               <Route path="/test-routes" element={<TestRoutes />} />
+              <Route path="/com-updates" element={<ComUpdates />} />
               <Route path="/picking" element={<Picking />} />
               <Route path="/routes" element={<Routes_ />} />
               <Route path="/stock" element={<AssetStock />} />
