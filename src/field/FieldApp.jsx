@@ -13,10 +13,11 @@ import './field.css'
 const Scan = lazy(() => import('../pages/Scan'))
 const FieldTrip = lazy(() => import('./FieldTrip'))
 const FieldCases = lazy(() => import('./FieldCases'))
-const TABS = [['home', '🏠', 'Home'], ['trip', '🚚', 'My trip'], ['scan', '📷', 'Scan'], ['cases', '📋', 'Cases']]
-const TITLES = { trip: '🚚 My trip', scan: '📷 Scan', cases: '📋 Case status' }
+const FieldBoard = lazy(() => import('./FieldBoard'))
+const TABS = [['home', '🏠', 'Home'], ['board', '⭐', 'My board'], ['trip', '🚚', 'My trip'], ['scan', '📷', 'Scan'], ['cases', '📋', 'Cases']]
+const TITLES = { board: '⭐ My board', trip: '🚚 My trip', scan: '📷 Scan', cases: '📋 Case status' }
 
-const tabFromPath = () => (window.location.pathname.match(/^\/field\/(home|trip|scan|cases)/) || [])[1]
+const tabFromPath = () => (window.location.pathname.match(/^\/field\/(home|board|trip|scan|cases)/) || [])[1]
 
 export default function FieldApp() {
   const [session, setSession] = useState(undefined)
@@ -97,6 +98,7 @@ export default function FieldApp() {
           <Suspense fallback={<div className="load-state"><span className="spinner" /> Loading…</div>}>
             {tab === 'home' && <FieldHome go={go} waiting={waiting} user={session.user} newVersion={newVersion} />}
             {tab === 'scan' && <Scan field />}
+            {tab === 'board' && <FieldBoard />}
             {tab === 'trip' && <FieldTrip />}
             {tab === 'cases' && <FieldCases />}
           </Suspense>
@@ -119,6 +121,7 @@ function FieldHome({ go, waiting, user, newVersion }) {
   // name from the field slot (the real person), else the account
   const name = (profile?.name || user?.user_metadata?.first_name || (user?.email || '').split('@')[0] || '').split(' ')[0]
   const tiles = [
+    ['board', '⭐', 'My board', 'Your progress this day, week and month · trip-sheet score'],
     ['trip', '🚚', 'My trip', profile?.slot ? "Your routes for today" : driver ? `${driver.display} · today's stops` : "Today's route, stops and case status"],
     ['scan', '📷', 'Scan assets', waiting ? `⏳ ${waiting} waiting to send` : 'QR or barcode · works without signal'],
     ['cases', '📋', 'Case status', 'Look up a case, store or asset'],
