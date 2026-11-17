@@ -11,6 +11,10 @@ const TABS = [['send', '📤 To send'], ['exported', '📦 Exported'], ['check',
 const need038 = e => /does not exist|Could not find|PGRST20[25]/i.test(e?.message || '')
 const saTime = d => (d ? new Date(d).toLocaleString('sv-SE', { timeZone: 'Africa/Johannesburg' }).slice(0, 16) : '')
 const csvCell = v => { const s = String(v ?? ''); return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s }
+// COM's import does NOT keep the order of two steps for the same case (the case ends in error) → one file holds at most
+// ONE step per case, in the order of COM's process groups (Acknowledge 10 · Information 20 · Issue 100 · Closure 200), and the
+// next step of a case waits until the previous one is marked Done in COM (Wanda 17 Nov).
+const RANK = n => (n === 'WITHIN PROPOSED TIME' ? 10 : /PICKED|ARRIVED|STARTED|DELAYED/.test(n) ? 20 : /^(SERVICE COMPLETE|TO REPAIR|TO BRAND OR DECAL|TO SCRAP)$/.test(n) ? 200 : 100)
 const CHECK_LABEL = { not_at_pos_in_com: '📍 Not at the POS in COM yet', still_at_pos_in_com: '🏪 COM still shows it at the POS', status_differs: '🔤 Status differs', ok: '✅ Matches' }
 
 export default function ComUpdates() {
@@ -41,8 +45,11 @@ function Queue({ status, onMissing }) {
   const [sel, setSel] = useState([])
   const [msg, setMsg] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [blocked, setBlocked] = useState(new Set())   // cases with a step already exported, not yet Done in COM
   const load = useCallback(() => {
     setRows(null); setSel([])
+    if (status === 'to_send') supabase.from('coolerco_com_updates').select('case_number').eq('status', 'exported').limit(5000)
+      .then(({ data }) => setBlocked(new Set((data || []).map(r => r.case_number))))
     let q = supabase.from('coolerco_com_updates').select('*').eq('status', status).order('service_at', { ascending: true }).limit(2000)
     if (wh) q = q.eq('warehouse', WH_NAMES[wh] ? `RTMA ${WH_NAMES[wh]}` : wh)
     q.then(({ data, error }) => { if (error) { if (need038(error)) onMissing(); else setMsg({ t: 'err', s: error.message }); setRows([]) } else setRows(data || []) })
@@ -56,7 +63,18 @@ function Queue({ status, onMissing }) {
     setMsg(error ? { t: 'err', s: error.message } : { t: 'ok', s: `${data} case(s) on a finalised route got WITHIN PROPOSED TIME.` })
     load()
   }
-  const chosen = () => (sel.length ? rows.filter(r => sel.includes(r.id)) : rows)
+  // ready = the first step of its case (by process order, then time) and the case has nothing exported still open in COM
+  const ready = new Set()
+  if (rows && status === 'to_send') {
+    const first = {}
+    for (const r of [...rows].sort((a, b) => RANK(a.notification) - RANK(b.notification) || new Date(a.service_at) - new Date(b.service_at)))
+      if (!first[r.case_number]) first[r.case_number] = r.id
+    rows.forEach(r => { if (first[r.case_number] === r.id && !blocked.has(r.case_number)) ready.add(r.id) })
+  }
+  const chosen = () => {
+    const base = sel.length ? rows.filter(r => sel.includes(r.id)) : rows
+    return status === 'to_send' ? base.filter(r => ready.has(r.id)) : base
+  }
   const download = async () => {
     const list = chosen()
     if (!list.length) return
@@ -88,7 +106,7 @@ function Queue({ status, onMissing }) {
           {Object.entries(WH_NAMES).map(([k, n]) => <option key={k} value={k}>{n}</option>)}
         </select>
         {status === 'to_send' && <button className="btn btn-ghost btn-sm" disabled={busy} onClick={findRouteSteps}>🗺 Find route steps</button>}
-        <button className="btn btn-primary btn-sm" disabled={!rows?.length} onClick={download}>⬇ File for COM {sel.length ? `(${sel.length})` : `(${rows?.length || 0})`}</button>
+        <button className="btn btn-primary btn-sm" disabled={!rows?.length || (status === 'to_send' && !ready.size)} onClick={download}>⬇ File for COM ({status === 'to_send' ? chosen().length : (sel.length || rows?.length || 0)}{status === 'to_send' ? ' — one step per case' : ''})</button>
         {status === 'exported' && <>
           <button className="btn btn-ghost btn-sm" disabled={!sel.length} onClick={() => mark(sel, 'done')}>✓ Done in COM</button>
           <button className="btn btn-ghost btn-sm" disabled={!sel.length} onClick={() => mark(sel, 'to_send')}>↩ Back to send</button>
@@ -109,8 +127,11 @@ function Queue({ status, onMissing }) {
           <td><input type="checkbox" checked={sel.includes(r.id)} onChange={() => toggle(r.id)} /></td>
           <td className="mono"><a href={`/cases?case=${encodeURIComponent(r.case_number)}`}>{r.case_number}</a></td>
           <td>{r.case_type}</td>
-          <td><b>{r.notification}</b> <span className="text3">{r.notification_code}</span></td>
+          <td><b>{r.notification}</b> <span className="text3">{r.notification_code}</span>
+            {status === 'to_send' && (ready.has(r.id) ? <div className="text3" style={{ fontSize: 10, color: '#0d8a50' }}>✓ in the next file</div>
+              : <div className="text3" style={{ fontSize: 10 }}>⏳ waits for {blocked.has(r.case_number) ? 'the exported step to be Done in COM' : 'the earlier step of this case'}</div>)}</td>
           <td>{saTime(r.service_at)}</td>
+          {status === 'to_send' && null}
           <td>{({ route: '🗺 Route', picking: '📦 Picking', job_card: '📸 Job card', stop_event: '⚠️ Not done' })[r.source] || r.source}</td>
           <td style={{ fontSize: 11, maxWidth: 260 }}>{r.notes}</td>
           {status === 'exported' && <td className="mono" style={{ fontSize: 11 }}>{r.export_batch}</td>}
