@@ -140,6 +140,20 @@ function CrewBoard({ wh }) {
   )
 }
 
+// login helpers: username = employee no. (else first name + warehouse); password = word + 4 digits (no 0/O, 1/l mix-ups)
+const WORDS = ['Cool', 'Frost', 'Ice', 'Snow', 'Polar', 'Chill', 'Fresh', 'Breeze', 'River', 'Sun', 'Star', 'Lion', 'Eagle', 'Rhino']
+function makePassword() {
+  const n = crypto.getRandomValues(new Uint32Array(2))
+  return `${WORDS[n[0] % WORDS.length]}-${String(2000 + (n[1] % 8000))}`
+}
+function suggestUser(r, val) {
+  const emp = String(val(r, 'employee_no') || '').trim()
+  if (/^\d{3,}$/.test(emp)) return emp
+  const first = String(val(r, 'person_name') || '').trim().split(/\s+/)[0].toLowerCase().replace(/[^a-z]/g, '')
+  return first ? `${first}.${r.warehouse_code.toLowerCase()}` : (val(r, 'routeiq_username') || '').toLowerCase()
+}
+const waNumber = p => { const d = String(p || '').replace(/\D/g, ''); return d.length === 10 && d[0] === '0' ? `27${d.slice(1)}` : d.length === 11 && d.startsWith('27') ? d : null }
+
 function Slots({ wh }) {
   const [rows, setRows] = useState(null)
   const [err, setErr] = useState(null)
@@ -159,38 +173,51 @@ function Slots({ wh }) {
       p_login_email: val(r, 'login_email'), p_active: draft[r.id]?.active ?? r.active,
     })
     if (error) return setMsg({ t: 'err', s: error.message })
+    if (has036) {
+      const { error: e2 } = await supabase.rpc('coolerco_field_slot_details', { p_slot: r.id, p_employee_no: val(r, 'employee_no'), p_vehicle: val(r, 'vehicle'), p_vehicle_reg: val(r, 'vehicle_reg'), p_notes: val(r, 'notes') })
+      if (e2) return setMsg({ t: 'err', s: e2.message })
+    }
     setMsg({ t: 'ok', s: `Saved ${val(r, 'person_name') || 'slot'}.` }); setDraft(d => { const n = { ...d }; delete n[r.id]; return n }); load()
   }
+  const has036 = rows?.length > 0 && 'employee_no' in rows[0]   // script 036: employee no., vehicle, notes
   const add = async type => { const { error } = await supabase.rpc('coolerco_field_slot_add', { p_warehouse: wh, p_type: type }); if (error) return setMsg({ t: 'err', s: error.message }); load() }
   const makeLogin = async () => {
     const { data, error } = await supabase.functions.invoke('coolerco-field-login', { body: { slot_id: login.slot.id, email: login.email.trim() || undefined, username: login.username.trim() || undefined, password: login.password } })
     const e = error ? (await error.context?.json?.().catch(() => null))?.error || error.message : data?.error
     if (e) return setMsg({ t: 'err', s: e })
-    setMsg({ t: 'ok', s: `${data.action === 'created' ? 'Login created' : 'Password reset'} for ${login.slot.person_name || 'the slot'}: sign in with ${data.username ? `username "${data.username}"` : data.email} and the password you typed. Tell the person; it is not shown again.` })
+    const user = data.username || data.email
+    setMsg({ t: 'ok', s: `${data.action === 'created' ? 'Login created' : 'Password reset'} for ${login.slot.person_name || 'the slot'}: sign in with ${data.username ? `username "${data.username}"` : data.email} and the password you typed. Tell the person; it is not shown again.`,
+      wa: waNumber(login.slot.phone) && `https://wa.me/${waNumber(login.slot.phone)}?text=${encodeURIComponent(`Hi ${(login.slot.person_name || '').split(' ')[0]}, your CoolerCo Field app login:\nUsername: ${user}\nPassword: ${login.password}\nOpen ${location.origin}/field and tap Install. Please keep your password private.`)}` })
     setLogin(null); load()
   }
 
   return (
     <>
       <p className="text3" style={{ fontSize: 11.5 }}>Each slot is one position. Put the person's real name here — when someone new takes the slot, change only the name (old names are kept with dates). RouteIQ / COM name = the slot the planner routes to (e.g. RTMAGTD2). Contractors keep using the WhatsApp trip-sheet link.</p>
-      {msg && <div className={`form-msg ${msg.t === 'ok' ? 'ok' : 'err'}`}>{msg.s}</div>}
+      {msg && <div className={`form-msg ${msg.t === 'ok' ? 'ok' : 'err'}`}>{msg.s}{msg.wa && <> <a className="btn btn-primary btn-sm" href={msg.wa} target="_blank" rel="noopener noreferrer">💬 Send login by WhatsApp</a></>}</div>}
       {err && <div className="form-msg err">{err}</div>}
       {!rows && !err && <div className="load-state"><span className="spinner" /></div>}
       {rows && ['driver', 'technician'].map(type => (
         <div key={type} className="card">
           <div className="card-title">{type === 'driver' ? '🚚 Drivers' : '🛠 Technicians'} · {WH_NAMES[wh]}</div>
           <div className="tbl-wrap"><table className="tbl">
-            <thead><tr><th>#</th><th>Real name</th><th>Phone</th><th>RouteIQ / COM name</th><th>Login</th><th>Active</th><th /></tr></thead>
+            <thead><tr><th>#</th><th>Real name</th><th>Phone</th><th>RouteIQ / COM name</th>{has036 && <><th>Employee no.</th><th>Vehicle · reg</th><th>Notes</th></>}<th>Login</th><th>Active</th><th /></tr></thead>
             <tbody>{rows.filter(r => r.worker_type === type).map(r => (
               <tr key={r.id}>
                 <td>{r.slot_no}</td>
                 <td><input className="field-ctrl" style={{ minWidth: 160 }} placeholder="Name Surname" value={val(r, 'person_name')} onChange={e => set(r, 'person_name', e.target.value)} /></td>
                 <td><input className="field-ctrl" style={{ width: 120 }} inputMode="tel" value={val(r, 'phone')} onChange={e => set(r, 'phone', e.target.value)} /></td>
                 <td><input className="field-ctrl mono" style={{ width: 130 }} placeholder="RTMA…" value={val(r, 'routeiq_username')} onChange={e => set(r, 'routeiq_username', e.target.value.toUpperCase())} /></td>
+                {has036 && <>
+                  <td><input className="field-ctrl mono" style={{ width: 90 }} inputMode="numeric" value={val(r, 'employee_no')} onChange={e => set(r, 'employee_no', e.target.value.trim())} /></td>
+                  <td><input className="field-ctrl" style={{ width: 110 }} placeholder="Hino 4 Ton" value={val(r, 'vehicle')} onChange={e => set(r, 'vehicle', e.target.value)} />
+                    <input className="field-ctrl mono" style={{ width: 100 }} placeholder="Reg" value={val(r, 'vehicle_reg')} onChange={e => set(r, 'vehicle_reg', e.target.value.toUpperCase())} /></td>
+                  <td><input className="field-ctrl" style={{ width: 150, fontSize: 11 }} value={val(r, 'notes')} onChange={e => set(r, 'notes', e.target.value)} /></td>
+                </>}
                 <td>{r.user_id
                   ? <span className="text3" style={{ fontSize: 11 }}>{r.login_email?.endsWith('@field.smartpartners.co.za') ? `👤 ${r.login_email.split('@')[0]}` : `✉️ ${r.login_email}`}</span>
                   : <input className="field-ctrl" style={{ width: 170 }} placeholder="existing login email (optional)" value={val(r, 'login_email')} onChange={e => set(r, 'login_email', e.target.value)} />}
-                  <button className="btn btn-ghost btn-sm" onClick={() => setLogin({ slot: r, email: '', username: (val(r, 'routeiq_username') || '').toLowerCase(), password: '' })}>{r.user_id ? '🔑 Reset password' : '➕ Create login'}</button></td>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setLogin({ slot: r, email: '', username: suggestUser(r, val), password: makePassword() })}>{r.user_id ? '🔑 Reset password' : '➕ Create login'}</button></td>
                 <td><input type="checkbox" checked={draft[r.id]?.active ?? r.active} onChange={e => set(r, 'active', e.target.checked)} /></td>
                 <td>{draft[r.id] && <button className="btn btn-primary btn-sm" onClick={() => save(r)}>💾 Save</button>}</td>
               </tr>
@@ -207,10 +234,15 @@ function Slots({ wh }) {
               <div className="field-lbl">Email (if the person has one)</div>
               <input className="field-ctrl" type="email" value={login.email} onChange={e => setLogin(l => ({ ...l, email: e.target.value }))} />
               <div className="field-lbl" style={{ marginTop: 8 }}>…or a username (no email needed)</div>
-              <input className="field-ctrl mono" value={login.username} onChange={e => setLogin(l => ({ ...l, username: e.target.value.toLowerCase().replace(/\s/g, '') }))} placeholder="e.g. rtmagtd2" />
+              <input className="field-ctrl mono" value={login.username} onChange={e => setLogin(l => ({ ...l, username: e.target.value.toLowerCase().replace(/\s/g, '') }))} placeholder="employee no., e.g. 179543" />
+              <div className="text3" style={{ fontSize: 11 }}>Use the employee number — the person signs in with just that, no email needed.</div>
             </>}
             <div className="field-lbl" style={{ marginTop: 8 }}>Password (at least 8 characters)</div>
-            <input className="field-ctrl" type="text" value={login.password} onChange={e => setLogin(l => ({ ...l, password: e.target.value }))} />
+            <div className="f-row" style={{ gap: 6 }}>
+              <input className="field-ctrl mono" type="text" value={login.password} onChange={e => setLogin(l => ({ ...l, password: e.target.value }))} />
+              <button className="btn btn-ghost btn-sm" title="New password" onClick={() => setLogin(l => ({ ...l, password: makePassword() }))}>🎲</button>
+            </div>
+            <div className="text3" style={{ fontSize: 11 }}>Easy to type, hard to guess. You can send it by WhatsApp after saving.</div>
             <div className="f-row" style={{ gap: 6, marginTop: 12 }}>
               <button className="btn btn-primary" disabled={login.password.length < 8} onClick={makeLogin}>{login.slot.user_id ? 'Reset' : 'Create'}</button>
               <button className="btn btn-ghost" onClick={() => setLogin(null)}>Cancel</button>
