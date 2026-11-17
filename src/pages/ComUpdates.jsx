@@ -14,7 +14,7 @@ const csvCell = v => { const s = String(v ?? ''); return /[",\n;]/.test(s) ? `"$
 // COM's import does NOT keep the order of two steps for the same case (the case ends in error) → one file holds at most
 // ONE step per case, in the order of COM's process groups (Acknowledge 10 · Information 20 · Issue 100 · Closure 200), and the
 // next step of a case waits until the previous one is marked Done in COM (Wanda 17 Nov).
-const RANK = n => (n === 'WITHIN PROPOSED TIME' ? 10 : /PICKED|ARRIVED|STARTED|DELAYED/.test(n) ? 20 : /^(SERVICE COMPLETE|TO REPAIR|TO BRAND OR DECAL|TO SCRAP)$/.test(n) ? 200 : 100)
+const RANK = n => (n === 'WITHIN PROPOSED TIME' ? 10 : n === 'ROUTE TO INFORMATION' ? 12 : /PICKED|ARRIVED|STARTED|DELAYED/.test(n) ? 20 : /^(SERVICE COMPLETE|TO REPAIR|TO BRAND OR DECAL|TO SCRAP)$/.test(n) ? 200 : 100)
 const CHECK_LABEL = { not_at_pos_in_com: '📍 Not at the POS in COM yet', still_at_pos_in_com: '🏪 COM still shows it at the POS', status_differs: '🔤 Status differs', ok: '✅ Matches' }
 
 export default function ComUpdates() {
@@ -56,6 +56,16 @@ function Queue({ status, onMissing }) {
   }, [status, wh, onMissing])
   useEffect(() => { load() }, [load])
 
+  const [routeDate, setRouteDate] = useState(() => new Date().toLocaleDateString('en-CA'))
+  const routeInCom = async () => {
+    if (!confirm(`Queue ROUTE TO INFORMATION for every stop of the finalised routes on ${routeDate}${wh ? ' in ' + WH_NAMES[wh] : ''}?\nCOM then shows each case routed to the route's driver / technician (RouteIQ name).`)) return
+    setBusy(true)
+    const { data, error } = await supabase.rpc('coolerco_com_route_updates', { p_date: routeDate, p_warehouse: wh || null })
+    setBusy(false)
+    setMsg(error ? { t: 'err', s: /Could not find|does not exist/.test(error.message) ? 'Routing into COM needs database script 039.' : error.message }
+      : { t: 'ok', s: `🗺 ${data.queued} stop(s) queued as ROUTE TO INFORMATION${data.skipped ? ` · ${data.skipped} skipped (already queued, closed or not a COM case)` : ''}.` })
+    load()
+  }
   const findRouteSteps = async () => {
     setBusy(true)
     const { data, error } = await supabase.rpc('coolerco_case_route_events', { p_from: null })
@@ -78,10 +88,15 @@ function Queue({ status, onMissing }) {
   const download = async () => {
     const list = chosen()
     if (!list.length) return
-    // Column headings follow COM's Case Notification form; replace with the import template's exact headings once Wanda sends it.
-    const head = ['Case', 'Notification ID', 'Service Date', 'Receive Date', 'Extra Notes', 'Last Known Location']
-    const lines = [head.join(',')].concat(list.map(r => [r.case_number, r.notification, saTime(r.service_at), saTime(r.service_at),
-      r.notes || '', r.latitude != null ? `${r.latitude},${r.longitude}` : ''].map(csvCell).join(',')))
+    // Headings = COM's own Case Notification columns (UAT export, Wanda 17 Nov). Required: Case + Notification ID.
+    // The closure carries the asset: Asset Reference (global code AST-…) + Case Asset Bucket; a Replacement uses the 2nd set too.
+    const head = ['Case', 'Notification ID', 'Notification', 'Case Number', 'Service Date', 'Receive Date', 'Extra Notes', 'Latitude', 'Longitude',
+      'Last Known Location', 'Asset Reference', 'Asset Reference Type', 'Case Asset Bucket', 'Asset Reference 2', 'Asset 2 Reference Type',
+      'Case Asset 2 Bucket', 'Routed To Portal User', 'Billing ID']
+    const lines = [head.join(',')].concat(list.map(r => [r.case_number, r.notification, r.notification, r.case_number, saTime(r.service_at), saTime(r.service_at),
+      (r.notes || '').slice(0, 1000), r.latitude ?? '', r.longitude ?? '', r.latitude != null ? `${(+r.latitude).toFixed(6)} ${(+r.longitude).toFixed(6)}` : '',
+      r.asset_ref || '', r.asset_ref_type || '', r.asset_bucket || '', r.asset_ref2 || '', r.asset_ref2_type || '', r.asset_bucket2 || '',
+      r.routed_to || '', (r.route_number || '').slice(0, 25)].map(csvCell).join(',')))
     const batch = `COM-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}`
     const a = document.createElement('a')
     a.href = URL.createObjectURL(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }))
@@ -105,7 +120,11 @@ function Queue({ status, onMissing }) {
           <option value="">All warehouses</option>
           {Object.entries(WH_NAMES).map(([k, n]) => <option key={k} value={k}>{n}</option>)}
         </select>
-        {status === 'to_send' && <button className="btn btn-ghost btn-sm" disabled={busy} onClick={findRouteSteps}>🗺 Find route steps</button>}
+        {status === 'to_send' && <button className="btn btn-ghost btn-sm" disabled={busy} onClick={findRouteSteps} title="Cases on a finalised route → WITHIN PROPOSED TIME">✅ Find WPT steps</button>}
+        {status === 'to_send' && <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+          <input type="date" className="field-ctrl" style={{ width: 'auto' }} value={routeDate} onChange={e => setRouteDate(e.target.value)} />
+          <button className="btn btn-ghost btn-sm" disabled={busy} onClick={routeInCom} title="Every stop of that day's finalised routes → ROUTE TO INFORMATION to the route's RouteIQ name">🗺 Route in COM</button>
+        </span>}
         <button className="btn btn-primary btn-sm" disabled={!rows?.length || (status === 'to_send' && !ready.size)} onClick={download}>⬇ File for COM ({status === 'to_send' ? chosen().length : (sel.length || rows?.length || 0)}{status === 'to_send' ? ' — one step per case' : ''})</button>
         {status === 'exported' && <>
           <button className="btn btn-ghost btn-sm" disabled={!sel.length} onClick={() => mark(sel, 'done')}>✓ Done in COM</button>
@@ -128,6 +147,10 @@ function Queue({ status, onMissing }) {
           <td className="mono"><a href={`/cases?case=${encodeURIComponent(r.case_number)}`}>{r.case_number}</a></td>
           <td>{r.case_type}</td>
           <td><b>{r.notification}</b> <span className="text3">{r.notification_code}</span>
+            {(r.asset_ref || r.routed_to) && <div className="text3" style={{ fontSize: 10.5 }}>
+              {r.asset_ref && <>📦 {r.asset_bucket}: <span className="mono">{r.asset_ref}</span></>}
+              {r.asset_ref2 && <> · {r.asset_bucket2}: <span className="mono">{r.asset_ref2}</span></>}
+              {r.routed_to && <>🚚 to {r.routed_to}{r.route_number ? ` · ${r.route_number}` : ''}</>}</div>}
             {status === 'to_send' && (ready.has(r.id) ? <div className="text3" style={{ fontSize: 10, color: '#0d8a50' }}>✓ in the next file</div>
               : <div className="text3" style={{ fontSize: 10 }}>⏳ waits for {blocked.has(r.case_number) ? 'the exported step to be Done in COM' : 'the earlier step of this case'}</div>)}</td>
           <td>{saTime(r.service_at)}</td>
@@ -137,7 +160,7 @@ function Queue({ status, onMissing }) {
           {status === 'exported' && <td className="mono" style={{ fontSize: 11 }}>{r.export_batch}</td>}
         </tr>)}
       </tbody></table></div>}
-      <div className="text3" style={{ fontSize: 11, marginTop: 8 }}>In COM: Case Notifications → ⋮ → Import from Excel → this file. Then check one case shows the step as <b>Executed</b>. Times are South African time.</div>
+      <div className="text3" style={{ fontSize: 11, marginTop: 8 }}>In COM: Case Notifications → ⋮ → Import from Excel → this file (one step per case). Lookups: <b>Case</b> matches on Case Number, <b>Routed To Portal User</b> on the portal user name. Then check one case shows the step as <b>Executed</b>. Times are South African time.</div>
     </div>
   )
 }
