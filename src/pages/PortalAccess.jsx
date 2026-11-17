@@ -101,7 +101,7 @@ export default function PortalAccess() {
 }
 
 function LinkDetail({ link, onSaved }) {
-  const [form, setForm] = useState({ contact_name: link.contact_name || '', contact_number: link.contact_number || '', mobile_number: link.mobile_number || '' })
+  const [form, setForm] = useState({ contact_name: link.contact_name || '', contact_number: link.contact_number || '', mobile_number: link.mobile_number || '', ...('client_code' in link ? { client_code: link.client_code || 'MAGNUM' } : {}) })
   const [qr, setQr] = useState(null)
   const [msg, setMsg] = useState(null)
   const [history, setHistory] = useState([])
@@ -133,7 +133,7 @@ function LinkDetail({ link, onSaved }) {
   async function save() {
     const { data: { user } } = await supabase.auth.getUser()
     const { data, error } = await supabase.from('coolerco_portal_links').update({ ...form, updated_by: user?.email }).eq('id', link.id).select().single()
-    setMsg(error ? { type: 'err', text: error.message } : { type: 'ok', text: '✓ Contact saved (change logged)' })
+    setMsg(error ? { type: 'err', text: error.message } : { type: 'ok', text: '✓ Saved (change logged)' })
     if (!error) onSaved(data)
   }
   async function toggle() {
@@ -178,6 +178,14 @@ function LinkDetail({ link, onSaved }) {
       <details className="sec" open>
         <summary>👤 Store contact (from latest COM case — update here)</summary>
         <div className="sec-body">
+          {'client_code' in form && <>
+            <div className="field-lbl">Client (whose store / requests)</div>
+            <select className="field-ctrl" value={form.client_code} onChange={e => setForm({ ...form, client_code: e.target.value })}>
+              <option value="MAGNUM">🟦 Magnum (COM)</option>
+              <option value="TIGER">🐯 Tiger Brands (CoolerCo is the master)</option>
+            </select>
+            <div className="text3" style={{ fontSize: 11, margin: '2px 0 8px' }}>New requests from this link are logged for this client.</div>
+          </>}
           <div className="field-lbl">Name</div>
           <input className="field-ctrl" value={form.contact_name} onChange={e => setForm({ ...form, contact_name: e.target.value })} />
           <div className="field-lbl" style={{ marginTop: 8 }}>Mobile (WhatsApp)</div>
