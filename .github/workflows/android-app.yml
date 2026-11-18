@@ -1,0 +1,94 @@
+# 🤖 Builds the CoolerCo Field Android app (APK) from /field-android and publishes it as the GitHub release
+# "field-android-latest" → https://github.com/WNVissie/CoolerCo-Ops/releases/download/field-android-latest/CoolerCo-Field.apk
+# Run it: GitHub → Actions → "Android app (CoolerCo Field)" → Run workflow. It also runs when field-android/ changes on main.
+# Needs (Settings → Secrets and variables → Actions):
+#   variable FIELD_APP_URL      e.g. https://<your-site>.netlify.app/field   (or type it when you run the workflow)
+#   secrets  KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD     (the app's signing key — same key forever)
+name: Android app (CoolerCo Field)
+
+on:
+  workflow_dispatch:
+    inputs:
+      site_url:
+        description: 'Address the app opens, e.g. https://your-site.netlify.app/field (empty = variable FIELD_APP_URL)'
+        required: false
+  push:
+    branches: [main]
+    paths: ['field-android/**', '.github/workflows/android-app.yml']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-app
+  cancel-in-progress: false
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      CAP_SERVER_URL: ${{ inputs.site_url || vars.FIELD_APP_URL }}
+      VERSION_CODE: ${{ github.run_number }}
+      VERSION_NAME: 1.0.${{ github.run_number }}
+    steps:
+      - name: Check settings
+        env:
+          HAS_KEY: ${{ secrets.KEYSTORE_BASE64 != '' && secrets.KEYSTORE_PASSWORD != '' && secrets.KEY_ALIAS != '' && secrets.KEY_PASSWORD != '' }}
+        run: |
+          if [ -z "$CAP_SERVER_URL" ]; then echo "::error::Set the variable FIELD_APP_URL (or type the site address when you run the workflow), e.g. https://your-site.netlify.app/field"; exit 1; fi
+          case "$CAP_SERVER_URL" in https://*/field|https://*/field/) ;; *) echo "::error::The address must start with https:// and end with /field — got: $CAP_SERVER_URL"; exit 1;; esac
+          if [ "$HAS_KEY" != "true" ]; then echo "::error::Signing key secrets are missing (KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD)"; exit 1; fi
+          echo "Building CoolerCo Field $VERSION_NAME for $CAP_SERVER_URL"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: field-android/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install + copy settings into the Android project
+        working-directory: field-android
+        run: |
+          npm ci
+          npx cap sync android
+
+      - name: Build the signed APK
+        working-directory: field-android/android
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.jks"
+          export KEYSTORE_PATH="$RUNNER_TEMP/release.jks"
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+          mkdir -p "$RUNNER_TEMP/out"
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/out/CoolerCo-Field.apk"
+          rm -f "$RUNNER_TEMP/release.jks"
+          ls -la "$RUNNER_TEMP/out"
+
+      - name: Publish (release field-android-latest)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: field-android-latest
+          name: CoolerCo Field — Android app (latest)
+          make_latest: false
+          body: |
+            CoolerCo Field ${{ env.VERSION_NAME }} — opens ${{ env.CAP_SERVER_URL }}
+            Download: CoolerCo-Field.apk below. Built from ${{ github.sha }}.
+          files: ${{ runner.temp }}/out/CoolerCo-Field.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CoolerCo-Field-${{ env.VERSION_NAME }}
+          path: ${{ runner.temp }}/out/CoolerCo-Field.apk

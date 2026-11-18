@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">CoolerCo Field</string>
+    <string name="title_activity_main">CoolerCo Field</string>
+    <string name="package_name">za.co.smartpartners.coolercofield</string>
+    <string name="custom_url_scheme">za.co.smartpartners.coolercofield</string>
+</resources>

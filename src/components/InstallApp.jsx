@@ -24,6 +24,15 @@ const STEPS = {
     'Click **Install**. CoolerCo Field opens in its own window and gets a desktop / taskbar icon.',
   ] },
 }
+// Android app for company phones (built on GitHub from /field-android; same Field app inside, plus reminders on a locked phone)
+export const APK_URL = 'https://github.com/WNVissie/CoolerCo-Ops/releases/download/field-android-latest/CoolerCo-Field.apk'
+const APK_STEPS = [
+  'On the phone, open this page in **Chrome** and tap **⬇ Download the Android app**.',
+  'Open the downloaded **CoolerCo-Field.apk** (pull down the notifications → tap it).',
+  'If asked, allow **Chrome** to **install unknown apps** (Settings opens — switch it on, then go back).',
+  'Samsung: if it says it is blocked, switch off **Settings → Security and privacy → Auto Blocker**, install, then switch it on again.',
+  'Tap **Install**, open **CoolerCo Field**, sign in once and **Allow** location, camera and notifications.',
+]
 const bold = t => t.split('**').map((p, i) => (i % 2 ? <b key={i}>{p}</b> : p))
 
 export default function InstallApp({ onClose }) {
@@ -63,6 +72,16 @@ export default function InstallApp({ onClose }) {
           {Object.entries(STEPS).map(([k, v]) => <button key={k} className={`seg-btn${tab === k ? ' on' : ''}`} onClick={() => setTab(k)}>{v.icon} {v.label}</button>)}
         </div>
         <ol className="install-steps">{STEPS[tab].steps.map((s, i) => <li key={i}>{bold(s)}</li>)}</ol>
+        {tab === 'android' && (
+          <details className="sec" style={{ marginTop: 10 }} open>
+            <summary>🤖 Android app for company phones (recommended)</summary>
+            <div className="sec-body">
+              <div className="text3" style={{ fontSize: 11, marginBottom: 6 }}>The same Field app as a real Android app: it also reminds the driver "Have you left the store?" when the phone is locked.</div>
+              <a className="btn btn-primary btn-sm" href={APK_URL}>⬇ Download the Android app</a>
+              <ol className="install-steps">{APK_STEPS.map((s, i) => <li key={i}>{bold(s)}</li>)}</ol>
+            </div>
+          </details>
+        )}
 
         <details className="sec" style={{ marginTop: 10 }}>
           <summary>📤 Put it on someone else's phone</summary>

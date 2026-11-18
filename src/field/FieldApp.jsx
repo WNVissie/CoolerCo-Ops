@@ -6,6 +6,7 @@ import { startAutoFlush, queueCount } from '../lib/offline'
 import { updateAvailable, updateNow, versionLabel } from '../lib/appUpdate'
 import { loadProfile, quoteOfTheDay } from './fieldProfile'
 import LocationAsk from './LocationAsk'
+import { isNative, askNotifications, onReminderTap } from '../lib/native'
 import './field.css'
 
 // CoolerCo Field — installable app for warehouse teams and drivers (same SmartHub login).
@@ -59,6 +60,15 @@ export default function FieldApp() {
       window.removeEventListener('popstate', pop)
     }
   }, [])
+
+  // Android app: ask once for notifications (the "Have you left?" reminder); a tapped reminder opens My trip
+  useEffect(() => {
+    if (!session || !isNative()) return
+    askNotifications()
+    let off = () => {}
+    onReminderTap(() => { setTab('trip'); window.history.pushState({ cc: true }, '', '/field/trip') }).then(f => { off = f })
+    return () => off()
+  }, [session])
 
   useEffect(() => {
     if (!session) return

@@ -11,6 +11,7 @@ import { CrewRequests } from './FieldCrew'
 import { RouteWarehouse, RouteDelay, StopExtras } from './FieldRouteParts'
 import { routeEvents033Ready, serverRouteEvents, pendingRouteRows } from './fieldStops'
 import LocationAsk from './LocationAsk'
+import { isNative, scheduleLeftReminder, cancelLeftReminder } from '../lib/native'
 
 // "Have you left the store?" — asked LEFT_REMIND_MIN after 📍 Arrived while 🚪 Left is not tapped yet.
 // "Still here" asks again after the same time. Only while the app is open (or as soon as it is opened again);
@@ -63,6 +64,9 @@ export default function FieldTrip() {
     return () => { clearInterval(t); document.removeEventListener('visibilitychange', vis) }
   }, [])
   const buzzed = useRef('')
+  // Android app: the same reminder as a phone notification, so it also reaches a locked phone.
+  // Scheduled for each of today's stops with Arrived and no Left; cancelled once Left is tapped.
+  const planned = useRef({})
 
   useEffect(() => { fieldTablesReady().then(ok => { setReady(ok); if (ok) loadReasons().then(setReasons) }) }, [])
   const [v033, setV033] = useState(false)       // 033 installed: warehouse / delays / POS reports
@@ -166,6 +170,18 @@ export default function FieldTrip() {
     setTapBusy(s.id + type)
     try { await recordTap(s, driver, type, opts); refreshPending() } finally { setTapBusy(null) }
   }
+
+  useEffect(() => {
+    if (!isNative() || !ready || !trip || date !== iso(new Date())) return
+    for (const st of trip.stops || []) {
+      const f = fstate[st.id]
+      const was = planned.current[st.id]
+      if (f?.arrived_at && !f.left_at && Date.now() - new Date(f.arrived_at).getTime() < 12 * 3600e3) {
+        const at = Math.max(new Date(f.arrived_at).getTime(), +localStorage.getItem(snoozeKey(st.id)) || 0) + LEFT_REMIND_MIN * 60e3
+        if (at > Date.now() + 5000 && was !== at) { planned.current[st.id] = at; scheduleLeftReminder(st, at) }
+      } else if (was) { delete planned.current[st.id]; cancelLeftReminder(st.id) }
+    }
+  }, [fstate, trip, ready, date, now])
 
   if (picking) return <DriverPicker current={driver} onPick={d => { localStorage.setItem('cc_field_driver', JSON.stringify(d)); setDriver(d); setPicking(false) }} onCancel={driver ? () => setPicking(false) : null} />
 
