@@ -5,6 +5,7 @@ import Login from '../pages/Login'
 import { startAutoFlush, queueCount } from '../lib/offline'
 import { updateAvailable, updateNow, versionLabel } from '../lib/appUpdate'
 import { loadProfile, quoteOfTheDay } from './fieldProfile'
+import LocationAsk from './LocationAsk'
 import './field.css'
 
 // CoolerCo Field — installable app for warehouse teams and drivers (same SmartHub login).
@@ -130,6 +131,7 @@ function FieldHome({ go, waiting, user, newVersion }) {
         <small>{new Date().toLocaleDateString('en-ZA', { weekday: 'long', day: 'numeric', month: 'long' })}{profile?.slot ? ` · ${profile.slot.type === 'technician' ? '🛠 Technician' : '🚚 Driver'}${profile.slot.routeiq ? ` · ${profile.slot.routeiq}` : ''}` : ''}</small>
         <p className="f-quote">💬 {quoteOfTheDay()}</p>
       </div>
+      <LocationAsk />
       {tiles.map(([k, i, t, d]) => (
         <button key={k} className="f-tile" onClick={() => go(k)}>
           <span className="f-tile-ico">{i}</span>

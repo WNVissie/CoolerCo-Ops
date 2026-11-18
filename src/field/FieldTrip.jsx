@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { statusColor, CASE_TYPE_ICON } from '../lib/helpers'
 import { cachedQuery, kvGet, kvSet } from '../lib/offline'
@@ -10,6 +10,13 @@ import { loadProfile, has034 } from './fieldProfile'
 import { CrewRequests } from './FieldCrew'
 import { RouteWarehouse, RouteDelay, StopExtras } from './FieldRouteParts'
 import { routeEvents033Ready, serverRouteEvents, pendingRouteRows } from './fieldStops'
+import LocationAsk from './LocationAsk'
+
+// "Have you left the store?" — asked LEFT_REMIND_MIN after 📍 Arrived while 🚪 Left is not tapped yet.
+// "Still here" asks again after the same time. Only while the app is open (or as soon as it is opened again);
+// a reminder on a locked phone comes with the Android app. GPS is read only at the Arrived and Left taps.
+const LEFT_REMIND_MIN = 15
+const snoozeKey = id => `cc_left_snooze:${id}`
 
 // My trip — read view of the routing app's route for this driver (planned + finalised in the routing app).
 // Live case status from COM, routing outcome, warehouse prep, assets. Outcomes are recorded in the routing
@@ -48,6 +55,14 @@ export default function FieldTrip() {
   const [pending, setPending] = useState([])
   const [card, setCard] = useState(null)          // { stop, mode }
   const [tapBusy, setTapBusy] = useState(null)
+  const [now, setNow] = useState(Date.now())     // ticks every 30 s + when the app comes back to the front
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30000)
+    const vis = () => { if (document.visibilityState === 'visible') setNow(Date.now()) }
+    document.addEventListener('visibilitychange', vis)
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', vis) }
+  }, [])
+  const buzzed = useRef('')
 
   useEffect(() => { fieldTablesReady().then(ok => { setReady(ok); if (ok) loadReasons().then(setReasons) }) }, [])
   const [v033, setV033] = useState(false)       // 033 installed: warehouse / delays / POS reports
@@ -159,6 +174,18 @@ export default function FieldTrip() {
   const isOpenStop = s => !fstate[s.id]?.outcome && s.outcome_status === 'planned'
   const done = stops.filter(isDone).length
   const left = stops.filter(isOpenStop).length
+  // the first stop where Arrived was tapped 15+ min ago (or since "still here") and Left is not tapped yet — today only
+  const leftDue = (ready && date === iso(new Date()) && !card && !far) ? stops.find(s => {
+    const f = fstate[s.id]
+    if (!f?.arrived_at || f.left_at) return false
+    const arr = new Date(f.arrived_at).getTime()
+    if (now - arr > 12 * 3600e3) return false
+    const from = Math.max(arr, +localStorage.getItem(snoozeKey(s.id)) || 0)
+    return now - from >= LEFT_REMIND_MIN * 60e3
+  }) : null
+  const dueKey = leftDue ? leftDue.id + ':' + (localStorage.getItem(snoozeKey(leftDue.id)) || '') : ''
+  if (dueKey && buzzed.current !== dueKey) { buzzed.current = dueKey; try { navigator.vibrate?.([250, 120, 250]) } catch { /* no vibrate */ } }
+  const stillHere = s => { localStorage.setItem(snoozeKey(s.id), String(Date.now())); setNow(Date.now()) }
 
   return (
     <div className="f-pad">
@@ -179,6 +206,7 @@ export default function FieldTrip() {
         {fromPhone && <div className="form-msg warn" style={{ marginTop: 8 }}>📵 No signal — showing the copy saved on this phone ({fmtTime(trip.at)}).</div>}
       </div>
 
+      {ready && date === iso(new Date()) && <LocationAsk compact />}
       {err && <div className="form-msg err">{err}</div>}
       {!trip && !err && <div className="load-state"><span className="spinner" /> Loading your trip…</div>}
       {trip && !trip.routes.length && <div className="f-card" style={{ textAlign: 'center', padding: 24 }}><div style={{ fontSize: 30 }}>🛣️</div><p className="text3">{driver.me ? `No route for you on ${fmtDay(date)} yet. Routes appear here once the planner has finalised them and they are linked to you.` : `No route for ${fmtDay(date)}. Routes appear here once they are saved in the routing app.`}</p></div>}
@@ -269,6 +297,31 @@ export default function FieldTrip() {
       {v033 && trip?.routes.map(r => <RouteWarehouse key={'back' + r.id} where="bottom" route={r} driver={driver} events={rEvents.filter(e => e.route_id === r.id)} onSaved={refreshPending} />)}
       {driver.me && trip && navigator.onLine && <CrewRequests date={date} myRoutes={trip.routes} onChanged={load} />}
       {stops.length > 0 && <p className="text3" style={{ fontSize: 11, textAlign: 'center' }}>{done} done · {left} to go · {ready ? 'Taps and job cards are saved on the phone and sent when there is signal (test system — not sent to RouteIQ yet).' : 'Record arrivals and outcomes in the routing trip sheet'} — COM status updates after the next COM upload.</p>}
+      {leftDue && (() => {
+        const s = leftDue, f = fstate[s.id] || {}
+        const mins = Math.round((now - new Date(f.arrived_at).getTime()) / 60000)
+        return (
+          <div className="f-sheet" role="dialog" aria-label="Have you left the store?">
+            <div className="f-sheet-body">
+              <div style={{ fontSize: 34, textAlign: 'center' }}>🚪</div>
+              <strong style={{ display: 'block', textAlign: 'center', fontSize: 16 }}>Have you left the store?</strong>
+              <p className="text3" style={{ textAlign: 'center', fontSize: 13, margin: '6px 0 12px' }}>{s.point_of_sale}<br />Arrived {fmtTime(f.arrived_at)} · {mins} min ago</p>
+              {f.outcome ? (
+                <button className="btn btn-primary" style={{ width: '100%', minHeight: 46 }} disabled={!!tapBusy}
+                  onClick={() => tap(s, 'left', { note: `Left recorded from the ${LEFT_REMIND_MIN}-minute reminder` })}>{tapBusy === s.id + 'left' ? '📡 Saving…' : "🚪 Yes, I've left — record Left"}</button>
+              ) : (
+                <>
+                  <div className="form-msg warn" style={{ marginBottom: 8 }}>The job card for this stop is not done yet. Do it first, then you can record Left.</div>
+                  <button className="btn btn-primary" style={{ width: '100%', minHeight: 46 }} onClick={() => setCard({ stop: s, mode: 'completed' })}>📝 Job card — completed</button>
+                  <button className="btn btn-ghost" style={{ width: '100%', marginTop: 6, minHeight: 42 }} onClick={() => setCard({ stop: s, mode: 'not_completed' })}>⚠️ Not completed — job card</button>
+                </>
+              )}
+              <button className="btn btn-ghost" style={{ width: '100%', marginTop: 6, minHeight: 42 }} onClick={() => stillHere(s)}>⏳ No, still at the store — ask again in {LEFT_REMIND_MIN} min</button>
+              <p className="text3" style={{ fontSize: 11, textAlign: 'center', marginTop: 6 }}>Your location is saved only with Arrived and Left.</p>
+            </div>
+          </div>
+        )
+      })()}
       {far && (
         <div className="f-sheet" role="dialog" aria-label="Check location">
           <div className="f-sheet-body">
