@@ -156,7 +156,7 @@ export function assetRoles(caseType = '') {
 export const DELAY_TYPES = [['late_departure', 'Late departure'], ['running_late', 'Running late']]
 export const ROUTE_DELAY_REASONS = ['Assets were not ready to load', 'Cases were not assigned to me', 'Tripsheet was not received', 'Assets not assigned on COM']
 export const POS_DELAY_REASONS = ['Customer delay', 'Traffic', 'Parking', 'Finding Location', 'Vehicle Issue', 'Other']
-export const POS_ISSUES = [['incorrect_address', 'Incorrect address'], ['incorrect_pos_name', 'Incorrect POS name'], ['incorrect_gps', 'Incorrect GPS'], ['incorrect_contact', 'Incorrect contact']]
+export const POS_ISSUES = [['incorrect_address', 'Incorrect address'], ['incorrect_pos_name', 'Incorrect POS name'], ['incorrect_gps', 'Incorrect GPS'], ['incorrect_contact', 'Incorrect contact'], ['incorrect_hours', 'Incorrect opening / receiving hours']]
 
 export async function routeEvents033Ready() {
   if (!navigator.onLine) return localStorage.getItem('cc_field_033') === '1'

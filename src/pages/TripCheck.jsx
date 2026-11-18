@@ -3,6 +3,7 @@ import Topbar from '../components/Topbar'
 import { supabase } from '../lib/supabase'
 import { num, WH_NAMES, whCaseName, CASE_TYPE_ICON } from '../lib/helpers'
 import { checkRoute, fromRouteIQ, fromField, km, LIMITS, ROAD_FACTOR } from '../lib/tripCheck'
+import { loadHours, hoursOn, windowKind, statusAt, dayText, saParts } from '../lib/posHours'
 
 // 📏 Trip check — what the Arrived / Left GPS tells us, per route and per driver (no tracking).
 // Sources: 🛣 RouteIQ WhatsApp trip sheet + 📲 CoolerCo Field app. Read only, calculated in the browser
@@ -60,7 +61,16 @@ export default function TripCheck() {
         .select('id,route_id,stop_sequence,case_number,case_type,point_of_sale,pos_local_code,latitude,longitude,use_alternative_address,alternative_latitude,alternative_longitude,planned_leg_distance_km,planned_arrival_at')
         .in('route_version_id', c))
       const events = [...fromRouteIQ(rEv), ...fromField(fStop, fRoute)]
-      const results = routes.map(r => checkRoute(r, stops.filter(s => s.route_id === r.id), events))
+      // 🕘 store hours (036): arrival outside receiving hours (deliver / replace / collect) or opening hours (repairs)
+      const hrs = await loadHours(stops.map(s => s.pos_local_code), { from: date, to: date }).catch(() => null)
+      const hoursCheck = hrs?.ready ? (v, at) => {
+        const h = hoursOn(hrs.byPos[v.pos], hrs.holidays, saParts(at).date)
+        if (!h || h.unknown) return null
+        const kind = v.case_types.some(t => windowKind(t) === 'receive') ? 'receive' : 'open'
+        const st = statusAt(h, kind, saParts(at).minutes)
+        return ['before', 'after', 'closed'].includes(st.state) ? { level: 'warn', text: `Arrived outside ${kind === 'receive' ? 'receiving' : 'opening'} hours (${dayText(h, kind)})` } : null
+      } : null
+      const results = routes.map(r => checkRoute(r, stops.filter(s => s.route_id === r.id), events, hoursCheck))
       return { routes, results }
     })().then(d => live && setData(d)).catch(e => live && setErr(e.message || String(e)))
     return () => { live = false }
@@ -162,7 +172,7 @@ export default function TripCheck() {
             Like warehouse scans at key steps, the phone saves its position only when the driver taps <b>📍 Arrived</b> and <b>🚪 Left</b> (RouteIQ trip sheet 🛣 or CoolerCo Field app 📲).
             A <b>leg</b> runs from Left at one store to Arrived at the next: straight-line distance × {ROAD_FACTOR} for roads (the same factor RouteIQ's capacity model uses).
             It does <b>not</b> show the road driven, detours or stops in between. Legs where a tap was made more than {LIMITS.unreliableM / 1000} km from its store are shown but <b>not counted</b> in the km.
-            <br />Flags: tap more than {LIMITS.farM} m (+ GPS uncertainty) from the store's map point · leg slower than {LIMITS.slowKmh} km/h and at least {LIMITS.slowMinMinutes} min (no delay reported) · faster than {LIMITS.fastKmh} km/h (a tap was not made at the store) · Arrived and Left within 2 min · Left on a later day · out of planned order.
+            <br />Flags: arrived outside the store's receiving / opening hours (🕘 Store hours) · tap more than {LIMITS.farM} m (+ GPS uncertainty) from the store's map point · leg slower than {LIMITS.slowKmh} km/h and at least {LIMITS.slowMinMinutes} min (no delay reported) · faster than {LIMITS.fastKmh} km/h (a tap was not made at the store) · Arrived and Left within 2 min · Left on a later day · out of planned order.
             Several cases at one store count as one visit. The warehouse legs need GPS on Start at WH / Returned (Field app only).
             If several drivers are flagged at the same store, its map point is probably wrong.
           </div>}

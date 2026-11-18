@@ -11,6 +11,7 @@ import { CrewRequests } from './FieldCrew'
 import { RouteWarehouse, RouteDelay, StopExtras } from './FieldRouteParts'
 import { routeEvents033Ready, serverRouteEvents, pendingRouteRows } from './fieldStops'
 import LocationAsk from './LocationAsk'
+import { loadHours, hoursOn, windowKind, statusAt, dayText, saParts, STATE_TAG, STATE_ICON } from '../lib/posHours'
 import { isNative, scheduleLeftReminder, cancelLeftReminder } from '../lib/native'
 
 // "Have you left the store?" — asked LEFT_REMIND_MIN after 📍 Arrived while 🚪 Left is not tapped yet.
@@ -98,7 +99,7 @@ export default function FieldTrip() {
           .eq('resource_username', driver.username).eq('route_date', date).neq('status', 'not_used').order('route_number'))
       }
       if (error) throw error
-      let stops = [], cases = [], contacts = [], prep = []
+      let stops = [], cases = [], contacts = [], prep = [], hours = null
       if (routes?.length) {
         const { data: vers } = await supabase.from('routing_route_versions').select('id,route_id').in('route_id', routes.map(r => r.id)).eq('is_current', true)
         const { data: st } = await supabase.from('routing_route_stops')
@@ -108,11 +109,13 @@ export default function FieldTrip() {
         const caseNos = [...new Set(stops.map(s => s.case_number).filter(Boolean))]
         const posCodes = [...new Set(stops.map(s => s.pos_local_code).filter(Boolean))]
         // parallel: live COM status, store contacts, warehouse prep
-        const [c, k, p] = await Promise.all([
+        const [c, k, p, h] = await Promise.all([
           caseNos.length ? supabase.from('cases').select('case_number,status_reason,sla_status,end_date,service_closure_date,motive,requested_product_base,asset_delivered,asset_removed,asset_repaired').in('case_number', caseNos) : { data: [] },
           posCodes.length ? supabase.from('routing_pos_contacts').select('pos_local_code,customer_contact_name,mobile_phone,business_phone,customer_whatsapp').in('pos_local_code', posCodes) : { data: [] },
           supabase.rpc('coolerco_picking_queue', { p_from: date, p_warehouse: routes[0].warehouse_group }),
+          loadHours(posCodes, { from: date, to: date }).catch(() => null), // 🕘 store hours (036) — nothing shown without it
         ])
+        hours = h?.ready ? h : null
         cases = c.data || []; contacts = k.data || []
         const ids = new Set(routes.map(r => r.id)); prep = (p.data || []).filter(x => ids.has(x.route_id))
       }
@@ -120,7 +123,7 @@ export default function FieldTrip() {
       if (stops.length && localStorage.getItem('cc_field_031') === '1') { try { fs = await serverStatus(stops.map(s => s.id)) } catch { /* 031 missing / no rights */ } }
       let re = { events: [], reports: [] }
       if (routes?.length && localStorage.getItem('cc_field_033') === '1') { try { re = await serverRouteEvents(routes.map(r => r.id)) } catch { /* 033 missing */ } }
-      const t = { routes: routes || [], stops, cases, contacts, prep, fs, re, at: Date.now() }
+      const t = { routes: routes || [], stops, cases, contacts, prep, fs, re, hours, at: Date.now() }
       setTrip(t); kvSet(key, t) // keep for offline
     } catch (e) {
       const saved = await kvGet(key)
@@ -255,6 +258,12 @@ export default function FieldTrip() {
         const phone = k?.mobile_phone || k?.business_phone
         const isOpen = open === s.id
         const f = fstate[s.id] || {}
+        // 🕘 store hours: receiving hours for deliveries / replacements / collections, opening hours for repairs
+        const kind = windowKind(s.case_type)
+        const hrs = trip.hours ? hoursOn(trip.hours.byPos[s.pos_local_code], trip.hours.holidays, date) : null
+        const isToday = date === saParts(new Date(now)).date
+        const live = hrs && isToday && !f.left_at ? statusAt(hrs, kind, saParts(new Date(now)).minutes) : null
+        const planOk = hrs && s.planned_arrival_at ? statusAt(hrs, kind, saParts(s.planned_arrival_at).minutes) : null
         return (
           <div key={s.id} className="f-card">
             <button className="f-row" style={{ width: '100%', background: 'none', border: 0, padding: 0, textAlign: 'left', color: 'inherit', font: 'inherit' }} onClick={() => setOpen(isOpen ? null : s.id)}>
@@ -274,12 +283,16 @@ export default function FieldTrip() {
               {c && <span className={`tag tag-${statusColor(c.status_reason)}`} title="Live status in COM">COM: {c.status_reason}</span>}
               {c?.sla_status && <span className="tag tag-neutral">{c.sla_status}</span>}
               {s.asset_count > 0 && <span className="tag tag-neutral">❄️ {s.asset_count}</span>}
+              {live && live.state !== 'unknown' && <span className={`tag tag-${STATE_TAG[live.state]}`} title={dayText(hrs, kind)}>{STATE_ICON[live.state]} {live.text}</span>}
+              {!live && hrs && !hrs.unknown && <span className={`tag tag-${hrs.closed ? 'red' : 'neutral'}`}>🕘 {dayText(hrs, kind)}</span>}
+              {planOk && !f.arrived_at && ['before', 'after', 'closed'].includes(planOk.state) && <span className="tag tag-orange" title="The planned arrival time is outside the store's hours">⚠️ Planned ⏰ {fmtTime(s.planned_arrival_at)} is outside {kind === 'receive' ? 'receiving' : 'opening'} hours</span>}
             </div>
             <StopAssets stop={s} prep={p} kase={c} />
             {isOpen && (
               <>
                 <div className="f-kv">
                   <span>Address</span><div>{addr || '—'}</div>
+                  {hrs && <><span>Hours</span><div>{hrs.unknown ? 'Not captured for this day' : dayText(hrs, kind)}{hrs.note ? ` · ${hrs.note}` : ''}</div></>}
                   {k && <><span>Contact</span><div>{k.customer_contact_name || '—'}{phone ? ` · ${phone}` : ''}</div></>}
                   <span>Due</span><div>{c?.end_date ? new Date(c.end_date).toLocaleDateString('en-ZA') : s.end_date ? new Date(s.end_date).toLocaleDateString('en-ZA') : '—'}</div>
                   {c?.requested_product_base && <><span>Requested</span><div>{c.requested_product_base}</div></>}

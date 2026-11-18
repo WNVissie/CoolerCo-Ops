@@ -42,6 +42,7 @@ const NAV = [
   { section: 'Customers', icon: '🏪', items: [
     { to: '/requests', icon: '📨', label: 'Requests' },
     { to: '/portal-access', icon: '🔗', label: 'Portal Access' },
+    { to: '/pos-hours', icon: '🕘', label: 'Store hours' },
     { to: '/concessionaires', icon: '🤝', label: 'Concessionaires' },
     { to: '/portal', icon: '🏪', label: 'POS Lookup' },
   ] },

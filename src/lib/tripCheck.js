@@ -52,7 +52,8 @@ export function fromField(stopRows, routeRows) {
 }
 
 // ── one route → visits (several cases at one store = one visit) + legs + flags ──
-export function checkRoute(route, stops, events) {
+// hoursCheck (optional): (visit, arrivedAtIso) → { level, text } | null — store hours flag (see posHours.js)
+export function checkRoute(route, stops, events, hoursCheck = null) {
   const ev = events.filter(e => e.route_id === route.id)
   const byStop = {}
   for (const e of ev) if (e.stop_id) (byStop[e.stop_id] ||= []).push(e)
@@ -90,6 +91,8 @@ export function checkRoute(route, stops, events) {
     if (v.arr_from_store_m != null && v.arr_from_store_m > lim(arr.gps)) v.flags.push({ code: 'arrived_far', level: 'warn', text: `Arrived tapped ${km(v.arr_from_store_m)} from the store` })
     if (v.left_from_store_m != null && v.left_from_store_m > lim(left.gps)) v.flags.push({ code: 'left_far', level: 'warn', text: `Left tapped ${km(v.left_from_store_m)} from the store (tapped late?)` })
     if (arr && left && !sameDay(arr.at, left.at)) v.flags.push({ code: 'left_next_day', level: 'warn', text: 'Left tapped on a later day' })
+    const hf = hoursCheck && arr ? hoursCheck(v, arr.at) : null
+    if (hf) v.flags.push({ code: 'hours', ...hf })
     if (v.dwell_min != null && v.dwell_min < 2) v.flags.push({ code: 'quick', level: 'warn', text: 'Arrived and Left tapped within 2 minutes' })
     if (arr && !left) v.flags.push({ code: 'no_left', level: 'info', text: 'No Left tap' })
     v.arr_far = v.flags.some(f => f.code === 'arrived_far'); v.left_far = v.flags.some(f => f.code === 'left_far')

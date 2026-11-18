@@ -20,6 +20,7 @@ const CaseFlags = lazyPage(() => import('./pages/CaseFlags'))
 const FieldCrew = lazyPage(() => import('./pages/FieldCrew'))
 const TestRoutes = lazyPage(() => import('./pages/TestRoutes'))
 const TripCheck = lazyPage(() => import('./pages/TripCheck'))
+const PosHours = lazyPage(() => import('./pages/PosHours'))
 const Picking = lazyPage(() => import('./pages/Picking'))
 const Routes_ = lazyPage(() => import('./pages/Routes'))
 const AssetStock = lazyPage(() => import('./pages/AssetStock'))
@@ -91,6 +92,7 @@ export default function App() {
               <Route path="/crew" element={<FieldCrew />} />
               <Route path="/test-routes" element={<TestRoutes />} />
               <Route path="/trip-check" element={<TripCheck />} />
+              <Route path="/pos-hours" element={<PosHours />} />
               <Route path="/picking" element={<Picking />} />
               <Route path="/routes" element={<Routes_ />} />
               <Route path="/stock" element={<AssetStock />} />
