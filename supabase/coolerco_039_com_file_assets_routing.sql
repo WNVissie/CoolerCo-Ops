@@ -1,10 +1,10 @@
--- CoolerCo-Ops · 039 · RUN ON TEST after 038 — COM import file = COM's own columns + asset on the notification + routing into COM
--- Wanda 17 Nov (UAT Case Notification export): a Case Notification row can carry the asset itself —
+-- CoolerCo-Ops - 039 - RUN ON TEST after 038 - COM import file = COM's own columns + asset on the notification + routing into COM
+-- Wanda 17 Nov (UAT Case Notification export): a Case Notification row can carry the asset itself -
 --   Asset Reference + Asset Reference Type (Global Code / Serial number / Barcode / External Code) + Case Asset Bucket
---   (Asset Delivered / Removed / Repaired), and a second one (Asset Reference 2 …) for a Replacement. So a closure sets the
---   asset on the case in the same row — no separate case re-import. Routing = notification ROUTE TO INFORMATION (550119) +
---   Routed To Portal User (= the RouteIQ name, e.g. RTMAGTD2 — the same names COM shows in "Portal User Router To").
--- Also: movements are stamped with the exact clock time (two movements in one go — In Transit then To be Repaired — kept
+--   (Asset Delivered / Removed / Repaired), and a second one (Asset Reference 2 ...) for a Replacement. So a closure sets the
+--   asset on the case in the same row - no separate case re-import. Routing = notification ROUTE TO INFORMATION (550119) +
+--   Routed To Portal User (= the RouteIQ name, e.g. RTMAGTD2 - the same names COM shows in "Portal User Router To").
+-- Also: movements are stamped with the exact clock time (two movements in one go - In Transit then To be Repaired - kept
 --   their order; found in the 038 check on TEST).
 -- Additive; coolerco_ only. Rollback: coolerco_039_rollback.sql (puts 038's functions back)
 
@@ -28,7 +28,7 @@ update public.coolerco_case_rules set com_asset_roles = case
   end
  where com_asset_roles is null;
 
--- routing into COM (only sent when you press 🗺 Route in COM)
+-- routing into COM (only sent when you press the Route-in-COM button)
 insert into public.coolerco_case_rules (client_code, case_type, event, notification, notification_code, note)
 select '*', t, 'routed', 'ROUTE TO INFORMATION', '550119', 'routing into COM: Routed To Portal User = the route''s RouteIQ name'
   from unnest(array['Deliver an Asset','Removal of Asset','Replacement of Asset','Repair at Shopper POS','Repair at Workshop','Decal @WH']) t
@@ -112,7 +112,7 @@ begin
     v_role := m ->> 'role';
     v_asset := coalesce(p_assets ->> v_role, case v_role when 'delivered' then k.asset_delivered when 'removed' then k.asset_removed
                                                           when 'repaired' then coalesce(k.asset_repaired, k.mapped_asset) end);
-    if v_asset is not null and v_asset !~ '^AST' then   -- a barcode / local code → asset number
+    if v_asset is not null and v_asset !~ '^AST' then   -- a barcode / local code -> asset number
       select name into v_asset from public.assets_live where v_asset in (bar_code, local_code, serial_number, sap_number) limit 1;
     end if;
     if v_asset is not null and public.coolerco_post_movement(v_asset, m ->> 'code', c, v_role, p_source, p_source_id, not v_coolerco) is not null then
@@ -124,7 +124,7 @@ begin
 
   -- COM (external master): queue the notification for the COM import file
   if not v_coolerco and r.notification is not null then
-    -- the asset(s) COM must see on this step (Case Asset Bucket + Asset Reference, global code AST-…)
+    -- the asset(s) COM must see on this step (Case Asset Bucket + Asset Reference, global code AST-...)
     foreach v_role2 in array coalesce(r.com_asset_roles, '{}') loop
       v_ast := coalesce(p_assets ->> v_role2, case v_role2 when 'delivered' then k.asset_delivered when 'removed' then k.asset_removed
                                                             when 'repaired' then coalesce(k.asset_repaired, k.mapped_asset) end);
@@ -155,7 +155,7 @@ begin
            updated_at = now()
      where case_number = p_case and status_reason is distinct from r.case_status;
     insert into public.coolerco_case_events (case_number, event_type, from_status, to_status, reason_code, notes, actor_type, actor_label, latitude, longitude)
-    values (p_case, 'rule:' || p_event, k.status_reason, r.case_status, r.notification, p_notes, 'system', 'CoolerCo rules · ' || p_source, p_lat, p_lng);
+    values (p_case, 'rule:' || p_event, k.status_reason, r.case_status, r.notification, p_notes, 'system', 'CoolerCo rules - ' || p_source, p_lat, p_lng);
     v_out := v_out || jsonb_build_object('status', r.case_status);
     if r.follow_up_case_type is not null then
       v_asset := coalesce(p_assets ->> r.follow_up_asset_role, case r.follow_up_asset_role when 'removed' then k.asset_removed when 'delivered' then k.asset_delivered else coalesce(k.asset_repaired, k.mapped_asset) end);
@@ -191,7 +191,7 @@ begin
   return v_out;
 end $$;
 
--- 🗺 Route in COM: one ROUTE TO INFORMATION per stop of the finalised routes of a day (COM cases only)
+-- Route-in-COM button: one ROUTE TO INFORMATION per stop of the finalised routes of a day (COM cases only)
 create or replace function public.coolerco_com_route_updates(p_date date, p_warehouse text default null)
 returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
 declare s record; v jsonb; v_n int := 0; v_skip int := 0;
