@@ -17,6 +17,7 @@ const ScanReport = lazyPage(() => import('./pages/ScanReport'))
 const CaseAssetExceptions = lazyPage(() => import('./pages/CaseAssetExceptions'))
 const ClosureDiscrepancies = lazyPage(() => import('./pages/ClosureDiscrepancies'))
 const CaseFlags = lazyPage(() => import('./pages/CaseFlags'))
+const CaseCalendar = lazyPage(() => import('./pages/CaseCalendar'))
 const FieldCrew = lazyPage(() => import('./pages/FieldCrew'))
 const TestRoutes = lazyPage(() => import('./pages/TestRoutes'))
 const Picking = lazyPage(() => import('./pages/Picking'))
@@ -87,6 +88,7 @@ export default function App() {
               <Route path="/cases/asset-at-pos" element={<CaseAssetExceptions />} />
               <Route path="/cases/closure-discrepancies" element={<ClosureDiscrepancies />} />
               <Route path="/cases/flags" element={<CaseFlags />} />
+              <Route path="/cases/calendar" element={<CaseCalendar />} />
               <Route path="/crew" element={<FieldCrew />} />
               <Route path="/test-routes" element={<TestRoutes />} />
               <Route path="/picking" element={<Picking />} />
