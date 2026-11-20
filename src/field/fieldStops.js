@@ -177,8 +177,35 @@ export async function pendingRouteRows() {
   const q = await queueAll()
   return { events: q.filter(x => x.type === 'route_event').map(x => ({ ...x.row, pending: true })), reports: q.filter(x => x.type === 'pos_report').map(x => ({ ...x.row, pending: true })) }
 }
-export async function recordRouteEvent(route, driver, event_type, { stop = null, delay_type = null, reason = null, note = null } = {}) {
-  const gps = await getGps(5000)
+// Warehouse pins (same as RouteIQ's trip sheet) — used to say how far a trip start was from the WH.
+export const WAREHOUSE_PINS = {
+  'RTMA Bloemfontein': [-29.0966, 26.1596], 'RTMA Cape Town': [-33.8084, 18.5323], 'RTMA Durban': [-29.83339271205558, 30.828805066371313],
+  'RTMA East London': [-32.9809, 27.9116], 'RTMA Gauteng': [-26.0390, 28.2320], 'RTMA George': [-33.9875, 22.4529],
+  'RTMA Nelspruit': [-25.3274, 31.0180], 'RTMA Polokwane': [-23.8842, 29.4591], 'RTMA Port Elizabeth': [-33.9547, 25.5792],
+}
+export const TRIP_START = { warehouse: 'from_warehouse', current_location: 'from_current_location' }
+export const WAREHOUSE_START_TOLERANCE_M = 1000
+export function warehousePin(group = '') {
+  const name = String(group).trim().replace(/\s+(WH|WS|WAREHOUSE|WORKSHOP)$/i, '').toLowerCase()
+  const key = Object.keys(WAREHOUSE_PINS).find(k => k.toLowerCase() === name)
+  return key ? { lat: WAREHOUSE_PINS[key][0], lng: WAREHOUSE_PINS[key][1] } : null
+}
+// Start trip (Wanda 2026-11-20): From Warehouse or From current location, one GPS stamp either way.
+// Saved as left_warehouse (reports + board keep working); reason = from_warehouse / from_current_location,
+// note = distance from the WH pin and an "away from WH" flag for the supervisor.
+export function tripStartNote(startFrom, gps, warehouseGroup) {
+  const pin = warehousePin(warehouseGroup)
+  const metres = gps && pin ? Math.round(distanceM(gps, pin)) : null
+  const away = startFrom === 'current_location' || (metres != null && metres > WAREHOUSE_START_TOLERANCE_M)
+  const where = metres == null ? (gps ? 'distance from WH unknown' : 'location unavailable') : `${(metres / 1000).toFixed(1)} km from WH`
+  return `${startFrom === 'current_location' ? 'Started from current location' : 'Started from warehouse'} · ${where}${away ? ' · NOT FROM WH' : ''}`
+}
+export async function recordTripStart(route, driver, startFrom) {
+  const gps = await getGps(8000)
+  return recordRouteEvent(route, driver, 'left_warehouse', { reason: TRIP_START[startFrom] || TRIP_START.warehouse, note: tripStartNote(startFrom, gps, route.warehouse_group), gps })
+}
+export async function recordRouteEvent(route, driver, event_type, { stop = null, delay_type = null, reason = null, note = null, gps: known } = {}) {
+  const gps = known !== undefined ? known : await getGps(5000)
   const row = {
     id: crypto.randomUUID(), route_id: route.id, stop_id: stop?.id || null, case_number: stop?.case_number || null, pos_local_code: stop?.pos_local_code || null,
     event_type, delay_type, reason, note: note || null, occurred_at: new Date().toISOString(),

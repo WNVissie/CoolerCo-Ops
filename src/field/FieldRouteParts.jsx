@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { getGps } from '../lib/photos'
-import { DELAY_TYPES, ROUTE_DELAY_REASONS, POS_DELAY_REASONS, POS_ISSUES, recordRouteEvent, savePosReport } from './fieldStops'
+import { DELAY_TYPES, ROUTE_DELAY_REASONS, POS_DELAY_REASONS, POS_ISSUES, recordRouteEvent, recordTripStart, savePosReport } from './fieldStops'
 
 // Pieces of RouteIQ's mobile trip sheet, in the Field app (script 033; everything queued on the phone):
-//   RouteWarehouse — 🏭 Start at WH · leaving now / 🏠 Returned to warehouse (+ "after 08:00, have you left?" reminder)
+//   RouteWarehouse — 🚚 Start trip (From Warehouse / From current location, GPS) / 🏠 Returned to warehouse (+ "after 08:00, have you left?" reminder)
 //   RouteDelay     — ⏱ Report a delay (late departure / running late) → Notify planner
 //   StopExtras     — ⏱ delay at this POS · ⚠️ Incorrect POS detail (issues + notes + corrected values + GPS → review)
 const fmtTime = t => (t ? new Date(t).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' }) : '')
@@ -14,14 +14,28 @@ export function RouteWarehouse({ route, driver, events, onSaved, where = 'top' }
   const left = events.find(e => e.event_type === 'left_warehouse')
   const back = events.find(e => e.event_type === 'returned_warehouse')
   const closed = ['cancelled', 'not_used'].includes(route.status)
+  const [choose, setChoose] = useState(false)
   const tap = async type => { setBusy(true); try { await recordRouteEvent(route, driver, type); onSaved() } finally { setBusy(false) } }
+  const start = async from => { setBusy(true); try { await recordTripStart(route, driver, from); setChoose(false); onSaved() } finally { setBusy(false) } }
   if (where === 'top') {
     const remind = !left && !closed && isToday(route.route_date) && new Date().getHours() >= 8
+    const fromHere = left?.reason === 'from_current_location'
+    const away = /NOT FROM WH/.test(left?.note || '')
     return (
       <div className="f-wh">
-        {left ? <div className="f-wh-done">🏭 Left warehouse {fmtTime(left.occurred_at)}{left.pending ? ' · ⏳' : ''}</div>
-          : <button className="btn btn-primary" disabled={busy || closed} onClick={() => tap('left_warehouse')}>{busy ? '…' : '🏭 Start at WH · leaving now'}</button>}
-        {remind && <div className="form-msg warn" style={{ marginTop: 6 }}>⏰ It is after 08:00. Tap <b>Start at WH</b> when you leave the warehouse. If you left earlier, tell your supervisor the actual time.</div>}
+        {left ? <div className="f-wh-done">{fromHere ? '📍 Started from current location' : '🏭 Left warehouse'} {fmtTime(left.occurred_at)}{left.pending ? ' · ⏳' : ''}
+            {left.note && <small className="text3" style={{ display: 'block', ...(away ? { color: '#b45309', fontWeight: 600 } : {}) }}>{away ? '⚠️ ' : ''}{left.note.replace(/^Started from (warehouse|current location) · /, '').replace(' · NOT FROM WH', ' · not from WH')}</small>}</div>
+          : !choose ? <button className="btn btn-primary" disabled={busy || closed} onClick={() => setChoose(true)}>🚚 Start trip · leaving now</button>
+          : <div className="f-card" style={{ margin: 0 }}>
+              <b>Where are you starting from?</b>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                <button className="btn btn-primary" disabled={busy} onClick={() => start('warehouse')}>{busy ? '…' : '🏭 From Warehouse'}</button>
+                <button className="btn" disabled={busy} onClick={() => start('current_location')}>{busy ? '…' : '📍 From current location'}</button>
+                <button className="btn btn-ghost" disabled={busy} onClick={() => setChoose(false)}>Cancel</button>
+              </div>
+              <small className="text3" style={{ display: 'block', marginTop: 6 }}>Saves the time and one GPS location. Use <b>From current location</b> if you are not leaving from the warehouse (sleepover, home). Your supervisor sees where you started.</small>
+            </div>}
+        {remind && <div className="form-msg warn" style={{ marginTop: 6 }}>⏰ It is after 08:00. Tap <b>Start trip</b> when you leave. If you left earlier, tell your supervisor the actual time.</div>}
       </div>
     )
   }
@@ -29,7 +43,7 @@ export function RouteWarehouse({ route, driver, events, onSaved, where = 'top' }
     <div className="f-card">
       {back ? <div className="f-wh-done">🏠 Returned to warehouse {fmtTime(back.occurred_at)}{back.pending ? ' · ⏳' : ''}</div>
         : <button className="btn btn-primary" style={{ width: '100%', minHeight: 46, justifyContent: 'center' }} disabled={busy || !left || closed} onClick={() => tap('returned_warehouse')}>{busy ? '…' : `🏠 Returned to warehouse${route.route_number ? ` · ${route.route_number}` : ''}`}</button>}
-      {!left && !back && <small className="text3" style={{ display: 'block', textAlign: 'center', marginTop: 4 }}>Available after Start at WH.</small>}
+      {!left && !back && <small className="text3" style={{ display: 'block', textAlign: 'center', marginTop: 4 }}>Available after Start trip.</small>}
     </div>
   )
 }

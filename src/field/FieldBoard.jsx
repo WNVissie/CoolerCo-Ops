@@ -14,7 +14,7 @@ const CHECKS = [
   ['arrived', '📍', 'No “Arrived” tap', 'Tap 📍 Arrived when you reach the store — it proves the visit time.'],
   ['left', '🚪', 'No “Left store” tap', 'Tap 🚪 Left store when you drive away.'],
   ['job_card', '📸', 'No job card', 'Done stops need the job card: 2 photos + signature (or the reason it was refused).'],
-  ['late_start', '🏭', 'Late or no warehouse start', 'Tap 🏭 Start at WH when you leave — before 08:00.'],
+  ['late_start', '🏭', 'Late or no warehouse start', 'Tap 🚚 Start trip when you leave — before 08:00.'],
   ['com_open', '⏳', 'Done, but COM still open', 'Done on the App more than a day ago, but COM is not closed yet. Tell your supervisor.'],
 ]
 const fmtDay = d => new Date(d + 'T12:00').toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' })
