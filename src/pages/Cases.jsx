@@ -11,6 +11,8 @@ import {
   SLA_OPTIONS, CASE_TYPES, CASE_TYPE_ICON, DATE_FIELDS, WAREHOUSES, WH_NAMES, whCaseName, OPEN_REASONS,
   caseAssets, caseAssetText, condColor,
 } from '../lib/helpers'
+import { useClientScope, ClientBar } from '../components/ClientScope'
+import { RegisterCases } from './RegisterViews'
 
 const SEARCH_BY = [
   { key: 'caseNumber', label: '🔖 Case no.', ph: 'e.g. CAS-12345' },
@@ -44,7 +46,7 @@ function buildQuery(form) {
   return { q, specific }
 }
 
-export default function Cases() {
+function CasesCom({ clientBar }) {
   const [params] = useSearchParams()
   const [form, setForm] = useState(() => {
     const a = params.get('asset'), c = params.get('case')
@@ -153,6 +155,7 @@ export default function Cases() {
         sub={isOpenView ? 'Showing open cases · search to include closed cases' : 'Search results'}
       />
       <div className="page-content">
+        {clientBar}
         {/* ── Open cases per warehouse: tap to show only that warehouse (tap again for all) ── */}
         <div className="wh-cards" role="group" aria-label="Open cases per warehouse">
           <button type="button" className={`wh-card${!form.warehouse ? ' on' : ''}`} onClick={() => setAndRun('warehouse', '')}>
@@ -388,4 +391,15 @@ function CaseDetail({ c, onAsset }) {
       )}
     </div>
   )
+}
+
+// Magnum (COM) keeps the screen above; CoolerCo clients (Tiger, Demo …) and "All clients"
+// use the combined lists. Users who may not see Magnum never get the COM screen.
+export default function Cases() {
+  const scope = useClientScope()
+  const [params] = useSearchParams()
+
+  if (!scope.ready) return <div className="load-state"><span className="spinner" /> Loading…</div>
+  if (scope.client === 'MAGNUM') return <CasesCom clientBar={<ClientBar scope={scope} />} />
+  return <RegisterCases scope={scope} key={scope.client} initialCase={params.get('case') || ''} />
 }

@@ -3,10 +3,12 @@ import { Link } from 'react-router-dom'
 import Topbar from '../components/Topbar'
 import { supabase } from '../lib/supabase'
 import { num, BAYS, WAREHOUSES, WH_NAMES, condColor, SPARES_APP_URL } from '../lib/helpers'
+import { useClientScope, ClientBar } from '../components/ClientScope'
+import { RegisterStock } from './RegisterViews'
 
 // One small call: the server adds everything up (public.coolerco_wh_asset_stock)
 // and sends back ~a few hundred summary rows instead of ~9,000 asset rows.
-export default function AssetStock() {
+function AssetStockCom({ clientBar }) {
   const [rows, setRows] = useState(null)
   const [err, setErr] = useState(null)
   const [loc, setLoc] = useState('all') // all | Warehouse | Workshop
@@ -44,6 +46,7 @@ export default function AssetStock() {
         actions={<><Link to="/stock/check" className="btn btn-ghost btn-sm">🧭 Location check</Link><a href={SPARES_APP_URL} target="_blank" rel="noopener noreferrer" className="btn btn-ghost btn-sm">🔧 Spares stock ↗</a></>}
       />
       <div className="page-content">
+        {clientBar}
         {err && (
           <div className="notice warn">
             {missingView
@@ -118,4 +121,14 @@ export default function AssetStock() {
       </div>
     </>
   )
+}
+
+// Magnum (COM) keeps the screen above; CoolerCo clients (Tiger, Demo …) and "All clients"
+// use the combined lists. Users who may not see Magnum never get the COM screen.
+export default function AssetStock() {
+  const scope = useClientScope()
+
+  if (!scope.ready) return <div className="load-state"><span className="spinner" /> Loading…</div>
+  if (scope.client === 'MAGNUM') return <AssetStockCom clientBar={<ClientBar scope={scope} />} />
+  return <RegisterStock scope={scope} />
 }

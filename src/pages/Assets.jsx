@@ -9,6 +9,8 @@ import {
   fmt, num, PS, condColor, CONDITIONS, WAREHOUSES, WH_NAMES, whAssetAccounts,
   BAYS, BAY_STATUSES, bayForStatus, caseAssets, statusColor, CASE_TYPE_ICON,
 } from '../lib/helpers'
+import { useClientScope, ClientBar } from '../components/ClientScope'
+import { RegisterAssets } from './RegisterViews'
 
 const ALL_RTMA_ACCOUNTS = WAREHOUSES.flatMap(whAssetAccounts)
 const COLS_SELECT = 'id,name,bar_code,local_code,asset_type,condition,asset_location,assign_account,responsible_ordering_party,pos_local_code,points_of_sale,product_base,brand_hierarchy,asset_status,last_touch_date,date_of_last_movement,elapsed_in_wh_days,related_case,imported_at'
@@ -24,7 +26,7 @@ export function whereIs(a) {
   return { icon: '📍', text: `${a.asset_location || ''} · ${acc || '—'}`, rtma }
 }
 
-export default function Assets() {
+function AssetsCom({ clientBar }) {
   const [params] = useSearchParams()
   const autoOpened = useRef(false)
   const [rows, setRows] = useState([])
@@ -86,6 +88,7 @@ export default function Assets() {
         actions={<Link to="/stock" className="btn btn-ghost btn-sm">📊 Stock by bay</Link>}
       />
       <div className="page-content">
+        {clientBar}
         <div className="filters">
           <div className="search-wrap" style={{ flex: '1 1 260px' }}>
             <span className="ico">🔍</span>
@@ -271,4 +274,14 @@ function AssetHistory({ a }) {
       </div>
     </details>
   )
+}
+
+// Magnum (COM) keeps the screen above; CoolerCo clients (Tiger, Demo …) and "All clients"
+// use the combined lists. Users who may not see Magnum never get the COM screen.
+export default function Assets() {
+  const scope = useClientScope()
+  const [params] = useSearchParams()
+  if (!scope.ready) return <div className="load-state"><span className="spinner" /> Loading…</div>
+  if (scope.client === 'MAGNUM') return <AssetsCom clientBar={<ClientBar scope={scope} />} />
+  return <RegisterAssets scope={scope} key={scope.client} initialQ={params.get('q') || ''} />
 }
