@@ -194,7 +194,9 @@ export default function CaseNew() {
   return (
     <>
       <Topbar title="New case" sub="For clients CoolerCo manages end to end" actions={<Link to={`/cases?client=${client || 'ALL'}`} className="btn btn-ghost btn-sm">📂 Cases</Link>} />
-      <div className="page-content" style={{ maxWidth: 860 }}>
+      <div className="page-content">
+       <div className="nc-layout">
+        <div className="nc-main">
         {opt.clients.length > 1 && (
           <Step n={++step} title="Client">
             <div className="chip-pick">{opt.clients.map(c => <button key={c.code} type="button" className={`chip-opt${client === c.code ? ' on' : ''}`} onClick={() => setClient(c.code)}>🟩 {c.name}</button>)}</div>
@@ -288,6 +290,22 @@ export default function CaseNew() {
               <label><span>Contact mobile</span><input className="field-ctrl" value={contact.mobile} onChange={e => setContact(c => ({ ...c, mobile: e.target.value }))} /></label>
             </div>
             <label className="nc-full"><span>Notes</span><textarea className="field-ctrl" rows={3} value={desc} onChange={e => setDesc(e.target.value)} placeholder="Anything the team should know" /></label>
+          </Step>
+        )}
+
+        </div>
+
+        <aside className="nc-side">
+          <div className="card nc-summary">
+            <div className="nc-step-hd">🧾 Summary</div>
+            <dl className="nc-dl">
+              <dt>Client</dt><dd>{opt.clients.find(c => c.code === client)?.name || '—'}</dd>
+              <dt>Case type</dt><dd>{type ? <>{CASE_TYPE_ICON[type]} {type}</> : '—'}</dd>
+              {ct?.outlet && <><dt>Outlet</dt><dd>{outlet ? outlet.name : '—'}</dd></>}
+              {ct?.asset && <><dt>Cooler</dt><dd className="mono">{asset ? asset.asset_number : '—'}</dd></>}
+              {ct?.model && <><dt>Model wanted</dt><dd>{models.find(m => m.model_code === model)?.description || '—'}</dd></>}
+              {ct?.symptom && <><dt>Problem</dt><dd>{sym?.label || '—'}{impact ? ` · ${opt.impacts.find(i => i.code === impact)?.label}` : ''}</dd></>}
+            </dl>
             {preview && (
               <div className="nc-sla">
                 ⏱ <strong>SLA {preview.sla_class}</strong> · {preview.hours} working hours · due <strong>{fmt(preview.due)} {new Date(preview.due).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' })}</strong>
@@ -300,14 +318,13 @@ export default function CaseNew() {
                 )}
               </div>
             )}
-          </Step>
-        )}
 
-        {msg && <div className={`form-msg ${msg.type}`}>{msg.text}</div>}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '10px 0 30px' }}>
-          <button className="btn btn-primary" disabled={!!missing || busy} onClick={submit}>{busy ? 'Logging…' : '✅ Log case'}</button>
-          {missing && <span className="text3" style={{ fontSize: 11 }}>{missing}</span>}
-        </div>
+            {msg && <div className={`form-msg ${msg.type}`}>{msg.text}</div>}
+            <button className="btn btn-primary nc-submit" disabled={!!missing || busy} onClick={submit}>{busy ? 'Logging…' : '✅ Log case'}</button>
+            {missing && <div className="text3 nc-missing">👉 {missing}</div>}
+          </div>
+        </aside>
+       </div>
       </div>
     </>
   )
