@@ -114,7 +114,7 @@ export default function PortalApp({ token }) {
   async function submit() {
     setBusy(true)
     setErr(null)
-    const request = { kind, asset: asset?.asset, family_id: family?.id, description: desc, contact_name: name, contact_phone: phone, photos: photos.map(p => p.path) }
+    const request = { kind, asset: asset?.asset, family_id: family?.id, model_code: family?.model_code, description: desc, contact_name: name, contact_phone: phone, photos: photos.map(p => p.path) }
     if (guided) { request.symptom = symptom.code; request.product_impact = needImpact ? impact?.code : null }
     // Writes are never retried (no duplicates)
     const { data, error } = await supabase.rpc(opts ? 'coolerco_portal_submit_v2' : 'coolerco_portal_submit', { p_token: token, p_request: request })

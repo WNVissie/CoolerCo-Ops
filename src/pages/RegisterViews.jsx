@@ -3,7 +3,7 @@
 // which only return rows the signed-in user may see (warehouse staff: every client
 // in their warehouse; client users: their own client).
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import Topbar from '../components/Topbar'
 import DataTable from '../components/DataTable'
 import Drawer from '../components/Drawer'
@@ -106,7 +106,8 @@ export function RegisterCases({ scope, initialCase = '' }) {
 
   return (
     <>
-      <Topbar title="Cases" sub={scope.client === 'ALL' ? 'All clients you may see' : `${clientName(scope, scope.client)} cases`} />
+      <Topbar title="Cases" sub={scope.client === 'ALL' ? 'All clients you may see' : `${clientName(scope, scope.client)} cases`}
+        actions={<Link to={`/cases/new${scope.client !== 'ALL' ? `?client=${scope.client}` : ''}`} className="btn btn-primary btn-sm">➕ New case</Link>} />
       <div className="page-content">
         <ClientBar scope={scope} />
         <div className="card search-panel">

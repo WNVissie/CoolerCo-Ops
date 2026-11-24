@@ -683,3 +683,21 @@ input.field-ctrl:focus, textarea.field-ctrl:focus { border-color: var(--accent);
 /* 👥 Users & roles — switch-off button inside a role chip */
 .tag-x { border: 0; background: transparent; cursor: pointer; padding: 0 0 0 4px; font-size: 10px; color: inherit; opacity: .7; }
 .tag-x:hover { opacity: 1; }
+
+/* ➕ New case (CaseNew.jsx) */
+.nc-step { padding: 12px 14px; margin-bottom: 10px; }
+.nc-step-hd { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; margin-bottom: 8px; }
+.nc-n { display: inline-flex; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 11px; align-items: center; justify-content: center; }
+.nc-types { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.nc-type { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); cursor: pointer; font-size: 12px; }
+.nc-type.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-l); }
+.nc-ico { font-size: 20px; }
+.nc-list { display: flex; flex-direction: column; max-height: 300px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; margin-top: 6px; }
+.nc-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; text-align: left; padding: 8px 10px; border: 0; border-bottom: 1px solid var(--border); background: var(--surface); cursor: pointer; font-size: 12px; min-height: 40px; }
+.nc-row:hover:not(:disabled), .nc-row.on { background: var(--accent-l); }
+.nc-row:disabled { opacity: .55; cursor: not-allowed; }
+.nc-picked { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12.5px; }
+.nc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
+.nc-grid label, .nc-full { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--text2); }
+.nc-full { margin-top: 8px; }
+.nc-sla { margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: var(--surface2); font-size: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }

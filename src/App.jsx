@@ -27,6 +27,7 @@ const AssetStock = lazyPage(() => import('./pages/AssetStock'))
 const LocationCheck = lazyPage(() => import('./pages/LocationCheck'))
 const Setup = lazyPage(() => import('./pages/Setup'))
 const Users = lazyPage(() => import('./pages/Users'))
+const CaseNew = lazyPage(() => import('./pages/CaseNew'))
 const Catalogue = lazyPage(() => import('./pages/Catalogue'))
 const Requests = lazyPage(() => import('./pages/Requests'))
 const Inbox = lazyPage(() => import('./pages/Inbox'))
@@ -84,6 +85,7 @@ export default function App() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/assets" element={<Assets />} />
               <Route path="/cases" element={<Cases />} />
+              <Route path="/cases/new" element={<CaseNew />} />
               <Route path="/scan" element={<Scan />} />
               <Route path="/scan/export" element={<ComTouchExport />} />
               <Route path="/scan/stocktake" element={<StocktakeExceptions />} />
