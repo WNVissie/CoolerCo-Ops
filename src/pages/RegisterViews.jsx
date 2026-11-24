@@ -8,7 +8,7 @@ import Topbar from '../components/Topbar'
 import DataTable from '../components/DataTable'
 import Drawer from '../components/Drawer'
 import CaseActions from '../components/CaseActions'
-import { ClientBar, clientName } from '../components/ClientScope'
+import { ClientBar, ClientBadge, clientName } from '../components/ClientScope'
 import { supabase } from '../lib/supabase'
 import { fmt, num, PS, CASE_TYPE_ICON, condColor } from '../lib/helpers'
 
@@ -22,7 +22,7 @@ function stColor(s) {
   if (['waiting for approval', 'on hold', 'action required', 'waiting'].includes(v)) return 'orange'
   return 'blue'
 }
-const ClientTag = ({ scope, code }) => <span className={`tag tag-${code === 'MAGNUM' ? 'blue' : 'green'}`} style={{ fontSize: 10 }}>{clientName(scope, code)}</span>
+const ClientTag = ({ scope, code }) => <ClientBadge scope={scope} code={code} small />
 function Field({ label, children }) { return <div className="dl-field"><div className="lbl">{label}</div><div className="val">{children || '—'}</div></div> }
 function Section({ title, open, children }) { return <details className="sec" open={open}><summary>{title}</summary><div className="sec-body">{children}</div></details> }
 
@@ -94,7 +94,7 @@ export function RegisterCases({ scope, initialCase = '' }) {
 
   const COLS = [
     { key: 'case_number', label: 'Case #', cls: 'mono', render: v => <strong style={{ fontSize: 11 }}>{v}</strong> },
-    ...(scope.client === 'ALL' ? [{ key: 'client_code', label: 'Client', render: v => <ClientTag scope={scope} code={v} /> }] : []),
+    { key: 'client_code', label: 'Client', render: v => <ClientTag scope={scope} code={v} /> },
     { key: 'case_type', label: 'Type', render: v => <span className="trunc" style={{ maxWidth: 150, display: 'block' }} title={v}>{CASE_TYPE_ICON[v] || '•'} {v || '—'}</span> },
     { key: 'status_reason', label: 'Status', render: v => <span className={`tag tag-${stColor(v)}`}>{v || '—'}</span> },
     { key: 'end_date', label: 'Due', render: (v, r) => v ? <span className={isLate(r) ? 'tag tag-red' : 'text3'}>{fmt(v)}{isLate(r) ? ' · late' : ''}</span> : <span className="text3">—</span> },
@@ -240,7 +240,7 @@ export function RegisterAssets({ scope, initialQ = '' }) {
 
   const COLS = [
     { key: 'asset_number', label: 'Asset', cls: 'mono', render: v => <strong style={{ fontSize: 10.5 }}>{v}</strong> },
-    ...(scope.client === 'ALL' ? [{ key: 'client_code', label: 'Client', render: v => <ClientTag scope={scope} code={v} /> }] : []),
+    { key: 'client_code', label: 'Client', render: v => <ClientTag scope={scope} code={v} /> },
     { key: 'model', label: 'Model', render: v => <span className="trunc" style={{ maxWidth: 170, display: 'block' }} title={v}>{v || '—'}</span> },
     { key: 'branding', label: 'Branding' },
     { key: 'condition', label: 'Cond.', render: v => v ? <span className={`tag tag-${condColor(v)}`}>{v}</span> : '—' },
@@ -353,7 +353,7 @@ export function RegisterStock({ scope }) {
             <summary className="wh-card-hd">
               <strong>🏭 {w.code}</strong><span className="card-count">{num(w.total)} assets</span>
               <span style={{ marginLeft: 'auto', display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                {sorted(w.clients).map(([c, n]) => <span key={c} className="tag tag-green" style={{ fontSize: 10 }}>{clientName(scope, c)} {n}</span>)}
+                {sorted(w.clients).map(([c, n]) => <span key={c} style={{ display: 'inline-flex', gap: 3, alignItems: 'center' }}><ClientTag scope={scope} code={c} /><b style={{ fontSize: 11 }}>{n}</b></span>)}
               </span>
             </summary>
             <div className="wh-card-body">
