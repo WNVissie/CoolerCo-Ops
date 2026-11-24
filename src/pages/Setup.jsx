@@ -217,7 +217,86 @@ function Families({ by }) {
   )
 }
 
+// Which catalogue to edit: Magnum = product families; clients CoolerCo manages = their models (053)
 export function PortalCatalogue({ by }) {
+  const [clients, setClients] = useState([])
+  const [pick, setPick] = useState('MAGNUM')
+  useEffect(() => {
+    supabase.from('coolerco_clients').select('code,name,system_of_record').order('name')
+      .then(({ data }) => setClients((data || []).filter(c => c.system_of_record === 'coolerco')))
+  }, [])
+  return (
+    <div>
+      {clients.length > 0 && (
+        <div className="filters"><div className="seg">
+          <button className={`seg-btn${pick === 'MAGNUM' ? ' on' : ''}`} onClick={() => setPick('MAGNUM')}>Magnum (families)</button>
+          {clients.map(c => <button key={c.code} className={`seg-btn${pick === c.code ? ' on' : ''}`} onClick={() => setPick(c.code)}>{c.name}</button>)}
+        </div></div>
+      )}
+      {pick === 'MAGNUM' ? <FamilyCatalogue by={by} /> : <ModelCatalogueSetup key={pick} client={pick} />}
+    </div>
+  )
+}
+
+function ModelCatalogueSetup({ client }) {
+  const [rows, setRows] = useState(null)
+  const [urls, setUrls] = useState({})
+  const [msg, setMsg] = useState(null)
+  const [missing, setMissing] = useState(false)
+  async function load() {
+    const { data, error } = await supabase.from('coolerco_asset_models')
+      .select('id,model_code,description,asset_type,product_family,capacity_litres,photo_path,display_name,portal_description,show_in_portal,sort_order,active')
+      .eq('client_code', client).order('sort_order').order('description')
+    if (error) { setMissing(true); setRows([]); return }
+    setRows(data || [])
+    const paths = (data || []).map(x => x.photo_path).filter(Boolean)
+    if (paths.length) {
+      const { data: u } = await supabase.storage.from('coolerco-cases').createSignedUrls(paths, 3600)
+      setUrls(Object.fromEntries((u || []).filter(x => x.signedUrl).map(x => [x.path, x.signedUrl])))
+    }
+  }
+  useEffect(() => { load() }, [client])
+  async function patch(m, change) {
+    const { error } = await supabase.from('coolerco_asset_models').update({ ...change, updated_at: new Date().toISOString() }).eq('id', m.id)
+    setMsg(error ? { type: 'err', text: error.message } : { type: 'ok', text: '✓ Saved' }); if (!error) load()
+  }
+  async function upload(m, file) {
+    const path = `catalogue/${client}/${m.model_code}-${Date.now()}.jpg`
+    const { error } = await supabase.storage.from('coolerco-cases').upload(path, file, { contentType: file.type || 'image/jpeg' })
+    if (error) { setMsg({ type: 'err', text: error.message }); return }
+    patch(m, { photo_path: path })
+  }
+  if (missing) return <div className="notice">The model catalogue needs database script 053.</div>
+  if (!rows) return <div className="text3">Loading…</div>
+  return (
+    <div>
+      <div className="notice">These are this client's <strong>models</strong>. Staff see them on ➕ New case and outlets see the ticked ones on their portal. Add a photo, a friendly name and a short description.</div>
+      <div className="fam-grid">
+        {rows.map(m => (
+          <div key={m.id} className="card" style={{ padding: 10, display: 'flex', gap: 10, opacity: m.active ? 1 : .55 }}>
+            <label className="cat-photo" title="Upload photo">
+              {urls[m.photo_path] ? <img src={urls[m.photo_path]} alt="" /> : <span>🧊<small>photo</small></span>}
+              <input type="file" accept="image/*" hidden onChange={e => e.target.files[0] && upload(m, e.target.files[0])} />
+            </label>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="loc-hd"><strong className="trunc">{m.description}</strong> <span className="text3 mono" style={{ fontSize: 10.5 }}>{m.model_code}</span>
+                <label style={{ marginLeft: 'auto', fontSize: 11, display: 'flex', gap: 4, alignItems: 'center' }}>
+                  <input type="checkbox" checked={m.show_in_portal} onChange={e => patch(m, { show_in_portal: e.target.checked })} /> portal</label></div>
+              <input className="field-ctrl" style={{ marginTop: 6, fontSize: 11.5 }} placeholder="Display name (optional)" defaultValue={m.display_name || ''} onBlur={e => e.target.value !== (m.display_name || '') && patch(m, { display_name: e.target.value || null })} />
+              <input className="field-ctrl" style={{ marginTop: 4, fontSize: 11.5 }} placeholder={`Short description (default: ${[m.product_family, m.capacity_litres && m.capacity_litres + ' L'].filter(Boolean).join(' / ')})`} defaultValue={m.portal_description || ''} onBlur={e => e.target.value !== (m.portal_description || '') && patch(m, { portal_description: e.target.value || null })} />
+              <label className="text3" style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center', marginTop: 4 }}>Order
+                <input type="number" className="field-ctrl" style={{ width: 70, fontSize: 11.5 }} defaultValue={m.sort_order ?? 100} onBlur={e => +e.target.value !== m.sort_order && patch(m, { sort_order: +e.target.value || 100 })} /></label>
+            </div>
+          </div>
+        ))}
+        {!rows.length && <div className="text3">No models for this client yet.</div>}
+      </div>
+      {msg && <div className={`form-msg ${msg.type}`}>{msg.text}</div>}
+    </div>
+  )
+}
+
+function FamilyCatalogue({ by }) {
   const [fams, setFams] = useState([])
   const [mode, setMode] = useState('all')
   const [urls, setUrls] = useState({})

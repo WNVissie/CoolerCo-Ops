@@ -59,6 +59,7 @@ export default function CaseNew() {
   const [models, setModels] = useState([])
   const [ready, setReady] = useState({})
   const [model, setModel] = useState('')
+  const [modelPhotos, setModelPhotos] = useState({})
   const [symptom, setSymptom] = useState('')
   const [impact, setImpact] = useState('')
   const [desc, setDesc] = useState('')
@@ -146,8 +147,19 @@ export default function CaseNew() {
   // models + how many are ready in the outlet's warehouse
   useEffect(() => {
     if (!client) return
-    supabase.from('coolerco_asset_models').select('model_code,description,asset_type,product_family').eq('client_code', client).eq('active', true).order('description')
-      .then(({ data }) => setModels(data || []))
+    // 053 adds photo / display name / portal tick; without 053 the plain list is used
+    ;(async () => {
+      let { data, error } = await supabase.from('coolerco_asset_models')
+        .select('model_code,description,asset_type,product_family,capacity_litres,doors,photo_path,display_name,portal_description,sort_order')
+        .eq('client_code', client).eq('active', true).order('sort_order').order('description')
+      if (error) ({ data } = await supabase.from('coolerco_asset_models').select('model_code,description,asset_type,product_family,capacity_litres,doors').eq('client_code', client).eq('active', true).order('description'))
+      setModels(data || [])
+      const paths = (data || []).map(m => m.photo_path).filter(Boolean)
+      if (paths.length) {
+        const { data: urls } = await supabase.storage.from('coolerco-cases').createSignedUrls(paths, 3600)
+        setModelPhotos(Object.fromEntries((urls || []).filter(u => u.signedUrl).map(u => [u.path, u.signedUrl])))
+      } else setModelPhotos({})
+    })()
   }, [client])
   useEffect(() => {
     if (!client || !outlet?.warehouse_code) { setReady({}); return }
@@ -313,14 +325,7 @@ export default function CaseNew() {
 
         {ct?.model && (!ct.outlet || outlet) && (
           <Step n={++step} title={type === 'Replacement of Asset' ? 'New cooler wanted' : 'Model wanted'}>
-            <div className="nc-list">
-              {models.map(m => (
-                <button key={m.model_code} type="button" className={`nc-row${model === m.model_code ? ' on' : ''}`} onClick={() => setModel(m.model_code)}>
-                  <strong>{m.description}</strong><span className="text3">{m.asset_type}</span>
-                  <span className={`tag tag-${ready[m.model_code] ? 'green' : 'neutral'}`}>{ready[m.model_code] || 0} ready in the warehouse</span>
-                </button>
-              ))}
-            </div>
+            <ModelCatalogue models={models} photos={modelPhotos} ready={ready} value={model} onChange={setModel} warehouse={outlet?.warehouse_code} />
           </Step>
         )}
 
@@ -358,7 +363,7 @@ export default function CaseNew() {
               {ct?.outlet && outlet && <><dt>Address</dt><dd>{fullAddress(outlet) || '—'}</dd></>}
               {ct?.outlet && outlet && <><dt>GPS</dt><dd>{hasGps ? '✅ on file' : gps ? '✅ added on this form' : <span className="text3">⚠ none (optional)</span>}</dd></>}
               {ct?.asset && <><dt>Cooler</dt><dd className="mono">{asset ? asset.asset_number : '—'}</dd></>}
-              {ct?.model && <><dt>Model wanted</dt><dd>{models.find(m => m.model_code === model)?.description || '—'}</dd></>}
+              {ct?.model && <><dt>Model wanted</dt><dd>{modelName(models.find(m => m.model_code === model)) || '—'}</dd></>}
               {ct?.symptom && <><dt>Problem</dt><dd>{sym?.label || '—'}{impact ? ` · ${opt.impacts.find(i => i.code === impact)?.label}` : ''}</dd></>}
             </dl>
             {preview && (
@@ -391,5 +396,56 @@ function Step({ n, title, children }) {
       <div className="nc-step-hd"><span className="nc-n">{n}</span>{title}</div>
       {children}
     </div>
+  )
+}
+
+const modelName = m => m ? (m.display_name || m.description) : ''
+const modelLine = m => m.portal_description || [m.product_family, m.capacity_litres ? `${m.capacity_litres} L` : null, m.doors ? `${m.doors} door${m.doors > 1 ? 's' : ''}` : null].filter(Boolean).join(' · ')
+const TYPE_ICON = t => /chest/i.test(t || '') ? '🧊' : /counter/i.test(t || '') ? '🥤' : /freezer/i.test(t || '') ? '❄️' : '🚪'
+
+// Catalogue of the client's models (same as the customer portal): photo, name, type, size,
+// how many are ready in the outlet's warehouse. Once one is chosen only that one shows.
+function ModelCatalogue({ models, photos, ready, value, onChange, warehouse }) {
+  const [q, setQ] = useState('')
+  const [kind, setKind] = useState('')
+  const [inStock, setInStock] = useState(false)
+  const chosen = models.find(m => m.model_code === value)
+  const Card = ({ m, on }) => (
+    <button type="button" className={`nc-cat${on ? ' on' : ''}`} onClick={() => onChange(on ? '' : m.model_code)}>
+      <span className="nc-cat-img">{photos[m.photo_path] ? <img src={photos[m.photo_path]} alt="" /> : <span>{TYPE_ICON(m.asset_type)}</span>}</span>
+      <span className="nc-cat-body">
+        <strong>{modelName(m)}</strong>
+        <span className="text3">{modelLine(m)}</span>
+        <span className="nc-cat-tags"><span className="tag tag-neutral">{m.asset_type}</span>
+          <span className={`tag tag-${ready[m.model_code] ? 'green' : 'neutral'}`}>{ready[m.model_code] || 0} ready{warehouse ? ` in ${warehouse}` : ''}</span></span>
+      </span>
+      {on && <span className="nc-cat-check">✓</span>}
+    </button>
+  )
+  if (chosen) return (
+    <div className="nc-cat-chosen">
+      <Card m={chosen} on />
+      <button type="button" className="btn btn-ghost btn-sm" onClick={() => onChange('')}>Change model</button>
+      {!ready[chosen.model_code] && <div className="form-msg warn">None ready in the warehouse right now — the case can still be logged; it waits for stock.</div>}
+    </div>
+  )
+  const kinds = [...new Set(models.map(m => m.asset_type).filter(Boolean))]
+  const list = models.filter(m => (!kind || m.asset_type === kind) && (!inStock || ready[m.model_code])
+    && (!q || [m.description, m.display_name, m.model_code, m.product_family, m.asset_type].join(' ').toLowerCase().includes(q.toLowerCase())))
+  return (
+    <>
+      <div className="nc-cat-filters">
+        <div className="search-wrap"><span className="ico">🔍</span><input type="text" placeholder="Search the catalogue" value={q} onChange={e => setQ(e.target.value)} /></div>
+        <div className="chip-pick">
+          <button type="button" className={`chip-opt${!kind ? ' on' : ''}`} onClick={() => setKind('')}>All ({models.length})</button>
+          {kinds.map(k => <button key={k} type="button" className={`chip-opt${kind === k ? ' on' : ''}`} onClick={() => setKind(k)}>{TYPE_ICON(k)} {k}</button>)}
+          <label className="nc-cat-stock"><input type="checkbox" checked={inStock} onChange={e => setInStock(e.target.checked)} /> only ready in the warehouse</label>
+        </div>
+      </div>
+      <div className="nc-cat-grid">
+        {list.map(m => <Card key={m.model_code} m={m} />)}
+        {!list.length && <div className="text3" style={{ padding: 6 }}>Nothing matches.</div>}
+      </div>
+    </>
   )
 }

@@ -729,3 +729,19 @@ input.field-ctrl:focus, textarea.field-ctrl:focus { border-color: var(--accent);
 .nc-gps.missing { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px dashed var(--orange); border-radius: 8px; background: var(--orange-bg); }
 .nc-gps-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .nc-gps-actions a.btn { text-decoration: none; }
+
+/* New case: model catalogue (053) */
+.nc-cat-filters { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.nc-cat-stock { display: inline-flex; gap: 4px; align-items: center; font-size: 11.5px; margin-left: 4px; }
+.nc-cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; max-height: min(60vh, 560px); overflow: auto; padding: 2px; }
+.nc-cat { position: relative; display: flex; gap: 10px; align-items: center; text-align: left; padding: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); cursor: pointer; font-size: 12px; }
+.nc-cat:hover { border-color: var(--accent); }
+.nc-cat.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-l); background: var(--accent-l); }
+.nc-cat-img { flex: 0 0 64px; height: 64px; border-radius: 8px; background: var(--bg, #f1f4f8); display: flex; align-items: center; justify-content: center; font-size: 28px; overflow: hidden; }
+.nc-cat-img img { width: 100%; height: 100%; object-fit: contain; }
+.nc-cat-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.nc-cat-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.nc-cat-check { position: absolute; top: 6px; right: 8px; color: var(--accent); font-weight: 700; }
+.nc-cat-chosen { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.nc-cat-chosen .nc-cat { flex: 1 1 280px; max-width: 460px; }
+.nc-cat-chosen .form-msg { flex-basis: 100%; }
