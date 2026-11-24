@@ -16,7 +16,7 @@ const NAV = [
     { to: '/cases/flags', icon: '🚩', label: 'Case flags' },
     { to: '/com-updates', icon: '📤', label: 'COM updates & movements' },
     { to: '/assets',   icon: '🏭', label: 'Assets' },
-    { to: '/picking',  icon: '📦', label: 'Warehouse Prep' },
+    { to: '/picking', icon: '📦', label: 'Picking' },
     { to: '/routes',   icon: '🗺️', label: 'Routes' },
     { to: '/crew',     icon: '👷', label: 'Field crew' },
     { to: '/test-routes', icon: '🧪', label: 'Test routes (TEST only)' },
@@ -34,6 +34,7 @@ const NAV = [
     { to: '/scan/report',   icon: '📊', label: 'Scan report' },
     { to: '/scan/export',   icon: '⬆️', label: 'COM Touch sync' },
     { to: '/scan/stocktake', icon: '📋', label: 'Stock take exceptions' },
+    { to: '/wms/labels',    icon: '🏷', label: 'Asset labels' },
     { href: 'https://smartscanmagnum.netlify.app/', icon: '🔗', label: 'SmartScan (COM)' },
     { to: '/wms/receiving', icon: '📥', label: 'Receiving' },
     { to: '/wms/transfers', icon: '🔄', label: 'Transfers' },
@@ -49,6 +50,7 @@ const NAV = [
   { section: 'Admin', icon: '⚙️', items: [
     { to: '/catalogue', icon: '🛍️', label: 'Catalogue' },
     { to: '/setup', icon: '⚙️', label: 'Setup' },
+    { to: '/users', icon: '👥', label: 'Users & roles' },
   ] },
 ]
 

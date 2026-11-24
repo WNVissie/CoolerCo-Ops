@@ -26,6 +26,7 @@ const Routes_ = lazyPage(() => import('./pages/Routes'))
 const AssetStock = lazyPage(() => import('./pages/AssetStock'))
 const LocationCheck = lazyPage(() => import('./pages/LocationCheck'))
 const Setup = lazyPage(() => import('./pages/Setup'))
+const Users = lazyPage(() => import('./pages/Users'))
 const Catalogue = lazyPage(() => import('./pages/Catalogue'))
 const Requests = lazyPage(() => import('./pages/Requests'))
 const Inbox = lazyPage(() => import('./pages/Inbox'))
@@ -37,6 +38,7 @@ const Receiving = lazyPage(() => import('./pages/wms/Receiving'))
 const Transfers = lazyPage(() => import('./pages/wms/Transfers'))
 const Stocktake = lazyPage(() => import('./pages/wms/Stocktake'))
 const Dispatch = lazyPage(() => import('./pages/wms/Dispatch'))
+const Labels = lazyPage(() => import('./pages/wms/Labels'))
 
 export default function App() {
   // Desktop: collapse to icons (remembered). Phone: menu slides in over the page.
@@ -98,6 +100,7 @@ export default function App() {
               <Route path="/stock" element={<AssetStock />} />
               <Route path="/stock/check" element={<LocationCheck />} />
               <Route path="/setup" element={<Setup />} />
+              <Route path="/users" element={<Users />} />
               <Route path="/catalogue" element={<Catalogue />} />
               <Route path="/requests" element={<Requests />} />
               <Route path="/inbox" element={<Inbox />} />
@@ -107,6 +110,7 @@ export default function App() {
               <Route path="/wms/transfers" element={<Transfers />} />
               <Route path="/wms/stocktake" element={<Stocktake />} />
               <Route path="/wms/dispatch" element={<Dispatch />} />
+              <Route path="/wms/labels" element={<Labels />} />
               <Route path="/portal" element={<CustomerPortal />} />
               <Route path="/newcase" element={<NewCase />} />
               <Route path="*" element={<Navigate to="/" replace />} />

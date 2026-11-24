@@ -7,6 +7,8 @@ import { compressImage, getGps } from '../lib/photos'
 import { whereIs } from './Assets'
 import CameraScan, { codeCandidates } from '../components/CameraScan'
 import PlaceBadge, { PlaceLegend } from '../components/PlaceBadge'
+import LabelPrompt, { labelAfterScan } from '../components/LabelPrompt'
+import { entryTimer, labelNeed } from '../lib/labels'
 import { dbScanType, queueAdd, queueAll, flushQueue, startAutoFlush, isNetErr, offlineLookup, cachedQuery, saveWarehouseAssets, savedAssetsInfo, storageUsed } from '../lib/offline'
 
 // Bay scan = COM Asset Touch. Saves to public.coolerco_asset_touch (CoolerCo table).
@@ -29,6 +31,8 @@ const buzz = bad => { try { navigator.vibrate?.(bad ? [160, 80, 160, 80, 160] : 
 export default function Scan({ field = false }) {
   const [code, setCode] = useState('')
   const [asset, setAsset] = useState(null)
+  const [labelReason, setLabelReason] = useState(null) // 🏷 the cooler's label did not scan → offer to print it
+  const timer = useRef(entryTimer()) // typed by a person, or a hand scanner?
   const [wh, setWh] = useState(() => { try { return localStorage.getItem('cc_scan_wh') || '' } catch { return '' } })
   const [ws, setWs] = useState(false) // COM location: WH or WS
   const [bay, setBay] = useState('')
@@ -128,7 +132,7 @@ export default function Scan({ field = false }) {
 
   function reset() {
     photos.forEach(p => p.url && URL.revokeObjectURL(p.url)) // release on-screen previews
-    setAsset(null); setCode(''); setNotes(''); setExpected(null); setPhotos([]); setFound({}); setGps(undefined); touchId.current = null
+    setAsset(null); setLabelReason(null); setCode(''); setNotes(''); setExpected(null); setPhotos([]); setFound({}); setGps(undefined); touchId.current = null
   }
 
   // Find an asset by any code (online: assets_live · no signal: the list saved on this phone)
@@ -136,7 +140,7 @@ export default function Scan({ field = false }) {
     // QR codes can hold a URL or text: try every likely key (asset no., barcode, local code, serial, external code, SAP no.)
     const keys = codeCandidates(raw).map(k => k.replace(/[,()"\\]/g, '')).filter(Boolean)
     const list = keys.map(k => `"${k}"`).join(',')
-    let a = null, fromPhone = false
+    let a = null, fromPhone = false, matchedBy = null
     try {
       if (!navigator.onLine) throw new Error('offline')
       const { data, error } = await supabase.from('assets_live')
@@ -146,11 +150,12 @@ export default function Scan({ field = false }) {
       // best match: asset no. → barcode → local code → serial → external → SAP
       const rank = x => ['name', 'bar_code', 'local_code', 'serial_number', 'external_code', 'sap_number'].findIndex(f => keys.includes(String(x[f] || '')))
       a = (data || []).sort((x, y) => rank(x) - rank(y))[0]
+      if (a) matchedBy = ['name', 'bar_code', 'local_code', 'serial_number', 'external_code', 'sap_number'][rank(a)]
     } catch (err) {
       if (!isNetErr(err)) return { error: err.message }
       a = await offlineLookup(keys); fromPhone = true // no signal: the warehouse list saved on this phone
     }
-    return { a, fromPhone }
+    return { a, fromPhone, matchedBy }
   }
   // Where it should be (location rules) + where CoolerCo last scanned it
   async function locationCheck(a, fromPhone) {
@@ -165,14 +170,17 @@ export default function Scan({ field = false }) {
     e?.preventDefault?.()
     const raw = (scanned ?? code).trim()
     if (!raw) return
+    const how = scanned ? 'camera' : timer.current.wasScanner(raw) ? 'scanner' : 'typed'
     if (scanned) setCode(scanned)
-    setBusy(true); setMsg(null); setAsset(null); setPhotos([])
-    const { a, fromPhone, error } = await findAsset(raw)
+    setBusy(true); setMsg(null); setAsset(null); setPhotos([]); setLabelReason(null)
+    const { a, fromPhone, matchedBy, error } = await findAsset(raw)
     if (error) { setBusy(false); setMsg({ type: 'err', text: error }); return }
     if (!a) { setBusy(false); setMsg({ type: 'err', text: fromPhone ? `No signal and not in this phone's saved list. Code read: "${raw.slice(0, 120)}"` : `Not found in the asset register. Code read: "${raw.slice(0, 120)}"` }); return }
     if (fromPhone) setMsg({ type: 'warn', text: '📶 No signal — asset details from the list saved on this phone' })
     touchId.current = crypto.randomUUID()
     setAsset(a)
+    const need = fromPhone ? null : labelNeed(a, matchedBy, how)
+    setLabelReason(need); if (!need && !fromPhone) labelAfterScan(a)
     setFound({ condition: a.condition || '', brand: a.brand_hierarchy || '', variant: a.product_variant || '', serial: a.serial_number || '', ext: '' })
     setWs(/ WS$/i.test(a.assign_account || ''))
     const suggested = bayForStatus(a.asset_status)
@@ -263,14 +271,14 @@ export default function Scan({ field = false }) {
 
   // ⚡ Quick scan: find → compare with where the scanner is → save (or ask when it is in the wrong place)
   const scanPlace = locs.find(l => l.id === scanLoc && l.warehouse_code === wh) || null
-  async function quickScan(raw) {
+  async function quickScan(raw, how = 'camera') {
     raw = String(raw || '').trim()
     if (!raw) return
     const whRow = whs.find(w => w.code === wh)
     if (!scanPlace || !whRow) { setMsg({ type: 'warn', text: '📍 First choose where you are scanning — warehouse and area.' }); return }
     setMsg(null); setCode(''); setQc({ status: 'looking', code: raw })
     getGps().then(g => { gpsRef.current = g }) // in the background, used for the next save
-    const { a, fromPhone, error } = await findAsset(raw)
+    const { a, fromPhone, matchedBy, error } = await findAsset(raw)
     if (error || !a) {
       buzz(true)
       setQc({ status: 'notfound', code: raw, text: error || (fromPhone ? "No signal and not in this phone's saved list" : 'Not found in the asset register') }); return
@@ -282,7 +290,9 @@ export default function Scan({ field = false }) {
       expBay: bayForStatus(a.asset_status),
       areaOk: chk?.expected_location_id ? chk.expected_location_id === scanPlace.id : null, // location rules
       whOk: comWh ? comWh === WH_NAMES[wh] : false, // COM: is it booked to this warehouse at all?
+      label: fromPhone ? null : labelNeed(a, matchedBy, how), // 🏷 label did not scan → offer to print
     }
+    if (!card.label && !fromPhone) labelAfterScan(a)
     if (card.areaOk === false || card.whOk === false) { buzz(true); setQc({ ...card, status: 'wrong' }); return }
     buzz(false); await quickSave(card)
   }
@@ -388,14 +398,14 @@ export default function Scan({ field = false }) {
                     </div>
                   </div>
                 </details>
-                <form onSubmit={e => { e.preventDefault(); quickScan(code) }} className="scan-find">
+                <form onSubmit={e => { e.preventDefault(); quickScan(code, timer.current.wasScanner(code.trim()) ? 'scanner' : 'typed') }} className="scan-find">
                   <button type="button" className="btn btn-primary scan-cam-btn" disabled={!scanPlace} onClick={() => setCam(true)}>📷 Scan</button>
                   <div className="search-wrap">
                     <span className="ico">⌨</span>
-                    <input ref={inputRef} autoFocus enterKeyHint="search" autoComplete="off" placeholder="or type / hand-scanner, then Enter" value={code} onChange={e => setCode(e.target.value)} />
+                    <input ref={inputRef} autoFocus enterKeyHint="search" autoComplete="off" placeholder="or type / hand-scanner, then Enter" value={code} onChange={e => { timer.current.onChange(e.target.value); setCode(e.target.value) }} />
                   </div>
                 </form>
-                {cam && <CameraScan continuous paused={qc?.status === 'wrong' || qc?.status === 'looking'} onClose={() => setCam(false)} onResult={quickScan}>
+                {cam && <CameraScan continuous paused={qc?.status === 'wrong' || qc?.status === 'looking'} onClose={() => setCam(false)} onResult={txt => quickScan(txt, 'camera')}>
                   {qc && <QuickCard qc={qc} onAccept={() => quickSave(qc)} onSkip={() => setQc({ ...qc, status: 'skipped' })} onChange={() => openFull(qc)} dark />}
                 </CameraScan>}
                 {qc && <QuickCard qc={qc} onAccept={() => quickSave(qc)} onSkip={() => setQc({ ...qc, status: 'skipped' })} onChange={() => openFull(qc)} />}
@@ -406,7 +416,7 @@ export default function Scan({ field = false }) {
               <button type="button" className="btn btn-primary scan-cam-btn" onClick={() => setCam(true)} title="Scan a QR code or barcode with the camera">📷 Scan</button>
               <div className="search-wrap">
                 <span className="ico">⌨</span>
-                <input ref={inputRef} autoFocus enterKeyHint="search" autoComplete="off" placeholder="or type / hand-scanner: barcode, local code, serial" value={code} onChange={e => setCode(e.target.value)} />
+                <input ref={inputRef} autoFocus enterKeyHint="search" autoComplete="off" placeholder="or type / hand-scanner: barcode, local code, serial" value={code} onChange={e => { timer.current.onChange(e.target.value); setCode(e.target.value) }} />
               </div>
               <button className="btn btn-ghost btn-sm" disabled={busy}>Find</button>
               {asset && <button type="button" className="btn btn-ghost btn-sm" onClick={reset} aria-label="Clear">✕</button>}
@@ -429,6 +439,7 @@ export default function Scan({ field = false }) {
                   <div><span>Local code</span><b className="mono">{asset.local_code || '—'}</b></div>
                   <div><span>Status (COM) 🔒</span><b><span className="tag tag-neutral">{asset.asset_status || '—'}</span></b></div>
                 </div>
+                <LabelPrompt key={asset.name} asset={asset} reason={labelReason} />
                 {!where.rtma && <div className="form-msg warn" style={{ marginBottom: 8 }}>⚠ COM does not list this asset in RTMA stock — the touch will show "Not in Expected Location".</div>}
 
                 <details className="sec" open>
@@ -627,6 +638,7 @@ function QuickCard({ qc, onAccept, onSkip, onChange, dark = false }) {
         {qc.chk?.scanned_location && <div className="text3">Last CoolerCo scan: {qc.chk.scanned_location}</div>}
       </div>}
       <div style={{ fontSize: 11, marginTop: 4 }}>{state[1]}</div>
+      {qc.label && <LabelPrompt key={qc.id} asset={a} reason={qc.label} dark={dark} />}
       <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
         {qc.status === 'wrong' && <><button type="button" className="btn btn-primary btn-sm" onClick={onAccept}>✓ Accept here</button>
           <button type="button" className="btn btn-ghost btn-sm" onClick={onSkip}>Skip</button></>}
