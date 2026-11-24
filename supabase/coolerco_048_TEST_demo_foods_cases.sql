@@ -133,7 +133,7 @@ select replace(replace(replace(encode(extensions.gen_random_bytes(18), 'base64')
   from public.coolerco_outlets o
  where o.client_code = 'DEMOFOODS' and not exists (select 1 from public.coolerco_portal_links l where l.pos_local_code = o.outlet_code);
 
--- 4. Service levels with the app's case type names (working days; case calendar uses them)
+-- 4. Service levels with the app case type names (working days; case calendar uses them)
 insert into public.coolerco_sla_rules (client_code, case_type, warehouse_workshop, working_days, clock_starts, note)
 select c, t, null, d, s, 'Demo target (048)' from (values ('Deliver an Asset', 3, 'approved'), ('Repair at Shopper POS', 1, 'logged'), ('Repair at Workshop', 3, 'logged'),
      ('Removal of Asset', 5, 'approved'), ('Replacement of Asset', 3, 'approved'), ('Decal @WH', 5, 'logged')) x(t, d, s)
