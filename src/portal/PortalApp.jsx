@@ -7,6 +7,7 @@ import './portal.css'
 // Server functions used: coolerco_portal_context, coolerco_portal_options (symptom + query lists, saved contact),
 // coolerco_portal_submit_v2 (falls back to coolerco_portal_submit where 017 is not installed),
 // coolerco_portal_case + coolerco_portal_case_query (ask about an open case) and coolerco_portal_propose_contact.
+// 🏪 My store (042): coolerco_portal_store_details + coolerco_portal_update_details (changes wait for a supervisor).
 const KINDS = [
   { key: 'repair',     icon: '🔧', label: 'Repair',     desc: 'An asset is not working properly' },
   { key: 'collection', icon: '📦', label: 'Collection', desc: 'Remove an asset from the store' },
@@ -65,6 +66,7 @@ export default function PortalApp({ token }) {
   const [saveContact, setSaveContact] = useState(true) // keep changed details for next time (supervisor approves)
   const [contactNote, setContactNote] = useState(null)
   const [hit, setHit] = useState(null) // open case that stopped this request
+  const [store, setStore] = useState(null) // saved store details (script 042); null = tab hidden
 
   async function load() {
     setErr(null)
@@ -80,6 +82,11 @@ export default function PortalApp({ token }) {
     }
   }
   useEffect(() => { load() }, [token])
+  // Store details for the 🏪 My store tab (hidden where 042 is not installed)
+  const loadStore = () => rpcRead('coolerco_portal_store_details', { p_token: token }).then(({ data, error }) => {
+    if (!error && data && !data.error) setStore(data)
+  })
+  useEffect(() => { loadStore() }, [token])
   // Symptom lists load alongside the store (parallel). If they are not available the old free-text screen is used.
   useEffect(() => {
     rpcRead('coolerco_portal_options', { p_token: token }).then(({ data, error }) => {
@@ -148,7 +155,10 @@ export default function PortalApp({ token }) {
       <div className="p-tabs">
         <button className={tab === 'new' ? 'on' : ''} onClick={() => setTab('new')}>➕ Log a request</button>
         <button className={tab === 'mine' ? 'on' : ''} onClick={() => setTab('mine')}>📋 My requests {ctx.requests?.length ? <span className="p-count">{ctx.requests.length}</span> : null}</button>
+        {store && <button className={tab === 'store' ? 'on' : ''} onClick={() => { setTab('store'); setCaseView(null) }}>🏪 My store</button>}
       </div>
+
+      {!caseView && tab === 'store' && store && <StoreDetails token={token} store={store} onSaved={loadStore} />}
 
       {caseView && <CaseView token={token} caseNo={caseView} reasons={opts?.query_reasons || []} onBack={() => { setCaseView(null); load() }} />}
 
@@ -489,6 +499,97 @@ function Catalogue({ items, photos, value, onChange }) {
         ))}
         {!list.length && <p className="p-muted">Nothing matches.</p>}
       </div>
+    </div>
+  )
+}
+
+// 🏪 My store — the customer can update the store's details at any time.
+// Nothing changes straight away: the change goes to CoolerCo's Inbox for a supervisor to confirm.
+const STORE_FIELDS = [
+  { key: 'contact_name',   label: 'Contact person', type: 'text', auto: 'name' },
+  { key: 'mobile_number',  label: 'Mobile number',  type: 'tel',  auto: 'tel' },
+  { key: 'contact_number', label: 'Other number (landline)', type: 'tel', auto: 'tel' },
+  { key: 'email',          label: 'Email (optional)', type: 'email', auto: 'email', ph: 'name@example.com' },
+  { key: 'trading_hours',  label: 'Trading and receiving hours', type: 'area', ph: 'e.g. Open Mon–Sat 07:00–21:00, deliveries only 09:00–15:00, closed Sundays' },
+  { key: 'delivery_notes', label: 'Notes for our drivers', type: 'area', ph: 'e.g. Use the back entrance, ask for the manager' },
+]
+const STORE_ERRORS = { nothing_to_change: 'Nothing was changed.', bad_email: 'Please check the email address.', invalid_link: ERRORS.invalid_link }
+
+function StoreDetails({ token, store, onSaved }) {
+  const start = () => Object.fromEntries([...STORE_FIELDS.map(f => [f.key, store[f.key] || '']), ['notify_email', !!store.notify_email], ['notify_whatsapp', !!store.notify_whatsapp]])
+  const [v, setV] = useState(start)
+  const [edit, setEdit] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState(null)
+  useEffect(() => { if (!edit) setV(start()) }, [store]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const changes = {}
+  for (const f of STORE_FIELDS) if ((v[f.key] || '').trim() !== (store[f.key] || '')) changes[f.key] = (v[f.key] || '').trim()
+  for (const k of ['notify_email', 'notify_whatsapp']) if (v[k] !== !!store[k]) changes[k] = v[k]
+  const n = Object.keys(changes).length
+
+  async function save() {
+    setBusy(true); setMsg(null)
+    const { data, error } = await supabase.rpc('coolerco_portal_update_details', { p_token: token, p_values: changes })
+    setBusy(false)
+    if (error) { setMsg({ bad: true, text: isNetErr(error) ? NET_MSG + ' Your changes were not sent yet.' : error.message }); return }
+    if (data?.error) { setMsg({ bad: true, text: STORE_ERRORS[data.error] || data.error }); return }
+    setMsg({ text: 'Thank you. Your changes were sent to CoolerCo to confirm. Your details will update once they are confirmed.' })
+    setEdit(false); onSaved()
+  }
+
+  const pending = store.pending && Object.keys(store.pending).length ? store.pending : null
+  const label = k => STORE_FIELDS.find(f => f.key === k)?.label || (k === 'notify_email' ? 'Email updates' : k === 'notify_whatsapp' ? 'WhatsApp updates' : k)
+  const show = x => (x === true ? 'Yes' : x === false ? 'No' : x || '—')
+
+  return (
+    <div className="p-card">
+      <h3>🏪 My store details</h3>
+      <p className="p-muted" style={{ fontSize: 12 }}>{store.point_of_sale} · {store.pos_local_code}. Keep these up to date so our team can reach you and deliver at the right time.</p>
+
+      {pending && (
+        <div className="p-contact" style={{ display: 'block' }}>
+          <strong>⏳ Waiting for CoolerCo to confirm</strong>
+          <div className="p-muted" style={{ fontSize: 12 }}>Sent {fmtDate(store.pending_since)}</div>
+          {Object.entries(pending).map(([k, x]) => <div key={k} style={{ fontSize: 12.5 }}>{label(k)}: <strong>{show(x)}</strong></div>)}
+          <div className="p-muted" style={{ fontSize: 11.5 }}>You can still change them below; your new changes are added to the same request.</div>
+        </div>
+      )}
+
+      {!edit ? (
+        <>
+          {STORE_FIELDS.map(f => (
+            <div key={f.key} style={{ marginTop: 8 }}>
+              <div className="p-label">{f.label}</div>
+              <div style={{ whiteSpace: 'pre-wrap', fontSize: 14 }}>{store[f.key] || <span className="p-muted">Not given yet</span>}</div>
+            </div>
+          ))}
+          <div className="p-label" style={{ marginTop: 8 }}>How we keep you updated</div>
+          <div style={{ fontSize: 14 }}>{[store.notify_email && '✉️ Email', store.notify_whatsapp && '💬 WhatsApp'].filter(Boolean).join(' · ') || <span className="p-muted">By phone call</span>}</div>
+          {msg && <p className={msg.bad ? 'p-tag bad' : 'p-muted'} style={{ fontSize: 12.5 }}>{msg.bad ? '⚠️ ' : '✓ '}{msg.text}</p>}
+          <div className="p-nav"><button className="p-btn" onClick={() => { setV(start()); setEdit(true); setMsg(null) }}>✏️ Update my details</button></div>
+        </>
+      ) : (
+        <>
+          {STORE_FIELDS.map(f => (
+            <div key={f.key}>
+              <div className="p-label">{f.label}</div>
+              {f.type === 'area'
+                ? <textarea rows={2} value={v[f.key]} placeholder={f.ph} onChange={e => setV({ ...v, [f.key]: e.target.value })} />
+                : <input type={f.type} value={v[f.key]} placeholder={f.ph} autoComplete={f.auto} onChange={e => setV({ ...v, [f.key]: e.target.value })} />}
+            </div>
+          ))}
+          <div className="p-label">How we keep you updated</div>
+          <label className="p-checkline"><input type="checkbox" checked={v.notify_email} disabled={!v.email.trim()} onChange={e => setV({ ...v, notify_email: e.target.checked })} /> ✉️ Email me updates on my requests</label>
+          <label className="p-checkline"><input type="checkbox" checked={v.notify_whatsapp} onChange={e => setV({ ...v, notify_whatsapp: e.target.checked })} /> 💬 WhatsApp me updates (when available)</label>
+          {msg && <p className="p-tag bad" style={{ fontSize: 12.5 }}>⚠️ {msg.text}</p>}
+          <p className="p-muted" style={{ fontSize: 11.5 }}>CoolerCo confirms changes before they are used.</p>
+          <div className="p-nav">
+            <button className="p-btn ghost" onClick={() => { setEdit(false); setMsg(null) }}>Cancel</button>
+            <button className="p-btn" disabled={busy || !n} onClick={save}>{busy ? 'Sending…' : n ? `Send ${n} change${n > 1 ? 's' : ''}` : 'No changes yet'}</button>
+          </div>
+        </>
+      )}
     </div>
   )
 }
