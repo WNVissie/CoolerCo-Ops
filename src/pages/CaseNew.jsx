@@ -27,8 +27,20 @@ const ERR = {
   model_required: 'Choose the model wanted.',
   symptom_required: 'Choose what is wrong.',
   no_warehouse: 'The outlet has no servicing warehouse set up.',
+  bad_gps: 'The GPS point is not valid (must be in South Africa).',
 }
 const clean = s => s.replace(/[,()%*]/g, ' ').trim()
+const fullAddress = o => [o?.street_address, o?.suburb, o?.town, o?.province, o?.postal_code].filter(Boolean).join(', ')
+const inSA = (lat, lng) => lat >= -35.5 && lat <= -21.5 && lng >= 16 && lng <= 33.5
+const mapLink = (lat, lng) => `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
+// Reads "-26.25, 27.85", or a Google Maps link (…@-26.25,27.85… / ?q=-26.25,27.85 / ll=…)
+function parseGps(text) {
+  const t = (text || '').trim()
+  const m = t.match(/@(-?\d+\.\d+),\s*(-?\d+\.\d+)/) || t.match(/[?&](?:q|query|ll|destination)=(-?\d+\.\d+),\s*(-?\d+\.\d+)/) || t.match(/^(-?\d+(?:\.\d+)?)\s*[,; ]\s*(-?\d+(?:\.\d+)?)$/)
+  if (!m) return null
+  const lat = Number(m[1]), lng = Number(m[2])
+  return inSA(lat, lng) ? { lat, lng } : { lat, lng, outside: true }
+}
 
 export default function CaseNew() {
   const [params] = useSearchParams()
@@ -52,6 +64,9 @@ export default function CaseNew() {
   const [desc, setDesc] = useState('')
   const [contact, setContact] = useState({ name: '', mobile: '' })
   const [cls, setCls] = useState('')
+  const [gps, setGps] = useState(null) // GPS found on this form for an outlet that has none
+  const [gpsText, setGpsText] = useState('')
+  const [gpsMsg, setGpsMsg] = useState(null)
   const [preview, setPreview] = useState(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState(null)
@@ -78,7 +93,7 @@ export default function CaseNew() {
     if (!client || !ct?.outlet) return
     const t = setTimeout(() => {
       const s = clean(outletQ)
-      let q = supabase.from('coolerco_outlets').select('outlet_code,name,town,suburb,contact_person,mobile_number,warehouse_code')
+      let q = supabase.from('coolerco_outlets').select('outlet_code,name,street_address,suburb,town,province,postal_code,latitude,longitude,contact_person,mobile_number,warehouse_code')
         .eq('client_code', client).eq('active', true).order('name').limit(25)
       if (s) q = q.or(`name.ilike.%${s}%,outlet_code.ilike.%${s}%,town.ilike.%${s}%,suburb.ilike.%${s}%`)
       q.then(({ data }) => setOutlets(data || []))
@@ -86,7 +101,27 @@ export default function CaseNew() {
     return () => clearTimeout(t)
   }, [client, ct, outletQ])
 
-  useEffect(() => { if (outlet) setContact({ name: outlet.contact_person || '', mobile: outlet.mobile_number || '' }) }, [outlet])
+  useEffect(() => { if (outlet) setContact({ name: outlet.contact_person || '', mobile: outlet.mobile_number || '' }); setGps(null); setGpsText(''); setGpsMsg(null) }, [outlet])
+  const hasGps = outlet && outlet.latitude != null && outlet.longitude != null
+
+  function useMyLocation() {
+    if (!navigator.geolocation) { setGpsMsg('This device cannot share its location.'); return }
+    setGpsMsg('Getting your location…')
+    navigator.geolocation.getCurrentPosition(
+      p => { const lat = +p.coords.latitude.toFixed(6), lng = +p.coords.longitude.toFixed(6)
+        if (!inSA(lat, lng)) { setGpsMsg('That location is outside South Africa.'); return }
+        setGps({ lat, lng, source: 'my location', acc: Math.round(p.coords.accuracy) }); setGpsMsg(null) },
+      () => setGpsMsg('Location not shared. Allow location for this site, or paste a map link.'),
+      { enableHighAccuracy: true, timeout: 10000 })
+  }
+  function usePasted(t) {
+    setGpsText(t)
+    if (!t.trim()) { setGps(g => (g?.source === 'map link' ? null : g)); setGpsMsg(null); return }
+    const g = parseGps(t)
+    if (!g) setGpsMsg('Paste a Google Maps link or coordinates like -26.2041, 28.0473')
+    else if (g.outside) setGpsMsg('Those coordinates are outside South Africa.')
+    else { setGps({ lat: g.lat, lng: g.lng, source: 'map link' }); setGpsMsg(null) }
+  }
 
   // coolers to choose from + their open cases
   useEffect(() => {
@@ -146,6 +181,7 @@ export default function CaseNew() {
       client, case_type: type, outlet: outlet?.outlet_code, asset: asset?.asset_number, model,
       symptom: symptom || null, product_impact: impact || null, description: desc,
       contact_name: contact.name, contact_mobile: contact.mobile, sla_class: cls || null,
+      latitude: !hasGps && gps ? gps.lat : null, longitude: !hasGps && gps ? gps.lng : null, gps_source: gps?.source || null,
     }
     const { data, error } = await supabase.rpc('coolerco_case_create', { p: req })
     setBusy(false)
@@ -217,13 +253,30 @@ export default function CaseNew() {
         {ct?.outlet && (
           <Step n={++step} title="Outlet">
             {outlet ? (
-              <div className="nc-picked">🏪 <strong>{outlet.name}</strong> <span className="text3">{outlet.outlet_code} · {[outlet.suburb, outlet.town].filter(Boolean).join(', ')}</span>
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setOutlet(null); setAsset(null) }}>Change</button></div>
+              <>
+                <div className="nc-picked">🏪 <strong>{outlet.name}</strong> <span className="text3 mono">{outlet.outlet_code}</span>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setOutlet(null); setAsset(null) }}>Change</button></div>
+                <div className="nc-addr">📮 {fullAddress(outlet) || <span className="text3">No address on the register</span>}</div>
+                {hasGps ? (
+                  <div className="nc-gps ok">📍 GPS {(+outlet.latitude).toFixed(5)}, {(+outlet.longitude).toFixed(5)} · <a href={mapLink(outlet.latitude, outlet.longitude)} target="_blank" rel="noopener noreferrer">🗺 View on map</a></div>
+                ) : (
+                  <div className="nc-gps missing">
+                    <div><strong>📍 This outlet has no GPS point yet.</strong> Add one so the driver can navigate there. It is saved on the outlet for next time.</div>
+                    <div className="nc-gps-actions">
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={useMyLocation}>📱 Use my location (I am at the outlet)</button>
+                      <a className="btn btn-ghost btn-sm" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([outlet.name, fullAddress(outlet)].filter(Boolean).join(', '))}`} target="_blank" rel="noopener noreferrer">🔎 Find it on Google Maps</a>
+                    </div>
+                    <input className="field-ctrl" placeholder="Paste the map link or coordinates, e.g. -26.2041, 28.0473" value={gpsText} onChange={e => usePasted(e.target.value)} />
+                    {gpsMsg && <div className="text3" style={{ fontSize: 11 }}>{gpsMsg}</div>}
+                    {gps && <div className="nc-gps ok">✅ Point found: {gps.lat}, {gps.lng}{gps.acc ? ` (within ${gps.acc} m)` : ''} · <a href={mapLink(gps.lat, gps.lng)} target="_blank" rel="noopener noreferrer">🗺 Check on map</a> <button type="button" className="linkish" onClick={() => { setGps(null); setGpsText('') }}>✕ clear</button></div>}
+                  </div>
+                )}
+              </>
             ) : (
               <>
                 <div className="search-wrap"><span className="ico">🔍</span><input type="text" placeholder="Outlet name, code or town" value={outletQ} onChange={e => setOutletQ(e.target.value)} /></div>
                 <div className="nc-list">
-                  {outlets.map(o => <button key={o.outlet_code} type="button" className="nc-row" onClick={() => setOutlet(o)}><strong>{o.name}</strong><span className="text3">{o.outlet_code} · {[o.suburb, o.town].filter(Boolean).join(', ')}</span></button>)}
+                  {outlets.map(o => <button key={o.outlet_code} type="button" className="nc-row" onClick={() => setOutlet(o)}><strong>{o.name}</strong><span className="text3">{o.outlet_code} · {fullAddress(o)}</span>{(o.latitude == null || o.longitude == null) && <span className="tag tag-orange">No GPS</span>}</button>)}
                   {!outlets.length && <div className="text3" style={{ padding: 6 }}>No outlets found.</div>}
                 </div>
               </>
@@ -302,6 +355,8 @@ export default function CaseNew() {
               <dt>Client</dt><dd>{opt.clients.find(c => c.code === client)?.name || '—'}</dd>
               <dt>Case type</dt><dd>{type ? <>{CASE_TYPE_ICON[type]} {type}</> : '—'}</dd>
               {ct?.outlet && <><dt>Outlet</dt><dd>{outlet ? outlet.name : '—'}</dd></>}
+              {ct?.outlet && outlet && <><dt>Address</dt><dd>{fullAddress(outlet) || '—'}</dd></>}
+              {ct?.outlet && outlet && <><dt>GPS</dt><dd>{hasGps ? '✅ on file' : gps ? '✅ added on this form' : <span className="text3">⚠ none (optional)</span>}</dd></>}
               {ct?.asset && <><dt>Cooler</dt><dd className="mono">{asset ? asset.asset_number : '—'}</dd></>}
               {ct?.model && <><dt>Model wanted</dt><dd>{models.find(m => m.model_code === model)?.description || '—'}</dd></>}
               {ct?.symptom && <><dt>Problem</dt><dd>{sym?.label || '—'}{impact ? ` · ${opt.impacts.find(i => i.code === impact)?.label}` : ''}</dd></>}

@@ -723,3 +723,9 @@ input.field-ctrl:focus, textarea.field-ctrl:focus { border-color: var(--accent);
   .nc-summary .nc-dl { display: none; }
   .nc-summary { box-shadow: 0 -4px 14px rgba(0,0,0,.08); border-radius: 12px 12px 0 0; margin-bottom: 0; }
 }
+
+.nc-addr { font-size: 12px; margin-top: 6px; }
+.nc-gps { font-size: 12px; margin-top: 6px; }
+.nc-gps.missing { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px dashed var(--orange); border-radius: 8px; background: var(--orange-bg); }
+.nc-gps-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.nc-gps-actions a.btn { text-decoration: none; }
