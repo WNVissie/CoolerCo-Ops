@@ -1,8 +1,8 @@
--- CoolerCo-Ops · 032 · RUN ON TEST — job card matches RouteIQ's trip-sheet job card
+-- CoolerCo-Ops - 032 - RUN ON TEST - job card matches RouteIQ trip-sheet job card
 -- Adds (to our own coolerco_field_* objects only):
---   · Service result (same 5 choices as RouteIQ): Service completed · Service Denied/Refused · Incorrect Location ·
---     Location Closed · Repair Failed
---   · repair details + spares used, customer name, reason the customer would not sign
+--   - Service result (same 5 choices as RouteIQ): Service completed - Service Denied/Refused - Incorrect Location -
+--     Location Closed - Repair Failed
+--   - repair details + spares used, customer name, reason the customer would not sign
 -- The app keeps working without this script (it then saves the job card without these fields).
 -- Rollback: coolerco_032_rollback.sql
 
