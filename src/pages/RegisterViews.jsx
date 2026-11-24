@@ -144,8 +144,11 @@ export function RegisterCases({ scope, initialCase = '' }) {
 function RegisterCaseDetail({ c, scope }) {
   const navigate = useNavigate()
   const [events, setEvents] = useState(null)
+  const [sla, setSla] = useState(null)
   useEffect(() => {
     if (c.source === 'COM') { setEvents([]); return }
+    supabase.from('coolerco_cases').select('sla_class,sla_hours,sla_override,priority,symptom_code,product_impact,repeat_of_case').eq('case_number', c.case_number).maybeSingle()
+      .then(({ data }) => setSla(data || null))
     supabase.from('coolerco_case_events').select('created_at,from_status,to_status,notes,actor_label').eq('case_number', c.case_number).order('created_at')
       .then(({ data }) => setEvents(data || []))
   }, [c.case_number])
@@ -157,6 +160,8 @@ function RegisterCaseDetail({ c, scope }) {
         <span className="tag tag-neutral">{c.case_type}</span>
         <span className={`tag tag-${stColor(c.status_reason)}`}>{c.status_reason}</span>
         {c.priority && <span className={`tag tag-${c.priority === 'High' ? 'red' : 'neutral'}`}>{c.priority} priority</span>}
+        {sla?.sla_class && <span className="tag tag-orange" title={`${sla.sla_hours} working hours${sla.sla_override ? ' (set by hand)' : ''}`}>⏱ SLA {sla.sla_class}</span>}
+        {sla?.repeat_of_case && <span className="tag tag-red">🔁 Repeat of {sla.repeat_of_case}</span>}
         {isLate(c) && <span className="tag tag-red">⏰ {c.is_open ? 'overdue' : 'closed late'}</span>}
       </div>
       <CaseActions caseNumber={c.case_number} />
@@ -173,7 +178,7 @@ function RegisterCaseDetail({ c, scope }) {
       <Section title="📅 Dates" open>
         <div className="dl-grid">
           <Field label="Created">{fmt(c.created_on)}</Field><Field label="Approved / start">{fmt(c.begin_date)}</Field>
-          <Field label="Due">{fmt(c.end_date)}</Field><Field label="Closed">{fmt(c.service_closure_date)}</Field>
+          <Field label="Due">{fmt(c.end_date)}{c.end_date ? ` ${new Date(c.end_date).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' })}` : ''}</Field><Field label="Closed">{fmt(c.service_closure_date)}</Field>
         </div>
       </Section>
       <Section title="🏪 Outlet & contact">

@@ -351,7 +351,7 @@ function Cases({ call }) {
                     <div><span>Status</span><span className={`p-tag ${statusTag(c.status)}`}>{c.status || '—'}</span></div>
                     <div><span>{c.case_type === 'Replacement of Asset' ? 'New asset' : 'Asset'}</span><span className="c-mono">{c.asset || '—'}</span></div>
                     {c.asset_removed && <div><span>Removed</span><span className="c-mono">{c.asset_removed}</span></div>}
-                    <div><span>Due</span>{fmtD(c.end_date)}{c.sla ? ` · ${c.sla}` : ''}</div>
+                    <div><span>Due</span>{fmtD(c.end_date)}{c.sla_class ? ` · SLA ${c.sla_class}` : ''}{c.sla ? ` · ${c.sla}` : ''}</div>
                     {c.closed && <div><span>Closed</span>{fmtD(c.closed)}</div>}
                     {c.motive && <div><span>Reason</span>{c.motive}</div>}
                     <div><span>Warehouse</span>{c.warehouse}</div>
