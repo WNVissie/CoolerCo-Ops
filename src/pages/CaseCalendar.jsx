@@ -27,6 +27,7 @@ const BUCKET_TAG = {
 }
 const VIEWS = {
   overdue: 'Overdue — still open', due_soon: 'Due today or next working day', needs_action: 'Needs action in COM',
+  action_hold: 'Action Required — asset held until the case is cancelled or rescheduled (oldest first)',
   carried: 'Open from earlier months', gap: 'Done on the app · still open in COM', not_placed: 'Open — not on a route',
 }
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -146,7 +147,11 @@ export default function CaseCalendar() {
     { view: 'overdue', icon: '⏰', label: 'Overdue, still open', value: k.overdue, c: 'red', sub: 'Past the SLA due date — any month' },
     { view: 'due_soon', icon: '📌', label: 'Due today or next working day', value: (k.due_today || 0) + (k.due_next || 0), c: 'orange',
       sub: cal ? `${num(k.due_today)} today · ${num(k.due_next)} on ${fmt(cal.next_working_day)}` : '' },
-    { view: 'needs_action', icon: '⚠️', label: 'Needs action', value: k.needs_action, c: 'orange', sub: 'Action Required / Error / Approval Required' },
+    // 041: Action Required = closure; supervisors check it gets cancelled / rescheduled so the asset is released
+    k.action_hold !== undefined
+      ? { view: 'action_hold', icon: '⏸️', label: 'Action Required · asset on hold', value: k.action_hold, c: 'orange',
+          sub: k.action_hold_old ? `${num(k.action_hold_old)} waiting > 2 days — cancelled or rescheduled?` : 'Check cancelled or rescheduled in COM' }
+      : { view: 'needs_action', icon: '⚠️', label: 'Needs action', value: k.needs_action, c: 'orange', sub: 'Action Required / Error / Approval Required' },
     { view: 'carried', icon: '↩️', label: 'Open from earlier months', value: k.carried, c: 'accent', sub: `Placed before ${cal ? monthLabel(cal.from) : 'this month'}` },
     { view: null, icon: '✅', label: 'Closed within SLA', value: pct(k.closed_ontime, k.closed), c: 'green', sub: cal ? `${num(k.closed_ontime)} of ${num(k.closed)} closed in ${monthLabel(cal.from)}` : '' },
     ...(showGap ? [{ view: 'gap', icon: '📱', label: 'Done on app · open in COM', value: k.gap, c: 'teal', sub: 'Driver tapped completed — close in COM' }] : []),
@@ -257,7 +262,7 @@ export default function CaseCalendar() {
           )}
           {cal && (
             <div className="text3" style={{ fontSize: 11, marginTop: 8 }}>
-              Due date = COM&apos;s own SLA end date (Magnum) or the case&apos;s end date; cases still waiting for approval use the SLA rule (2 working days, weekends and public holidays skipped).
+              Due date = COM&apos;s own SLA end date (Magnum) or the case&apos;s end date; cases still waiting for approval use the SLA rule (2 working days, weekends and public holidays skipped). Action Required counts as closed (RTMA&apos;s closure) — the ⏸️ card lists them until COM cancels or reschedules the case and the asset is released.
               {cal.com_data_up_to && <> · COM data up to {new Date(cal.com_data_up_to).toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Johannesburg' })}</>}
             </div>
           )}
@@ -288,7 +293,9 @@ export default function CaseCalendar() {
                   <div className="cal-row-main">
                     <div className="chip-row" style={{ marginBottom: 4 }}>
                       <span className={`tag tag-${bc}`}>{bl}{r.days_late ? ` · ${r.days_late}d` : ''}</span>
-                      {r.needs_action && <span className="tag tag-orange">⚠️ Needs action</span>}
+                      {r.action_hold
+                        ? <span className="tag tag-orange" title="Asset is only released when the case is cancelled or rescheduled">⏸️ Action Required{r.action_days != null ? ` · ${r.action_days}d` : ''} · asset on hold</span>
+                        : r.needs_action && <span className="tag tag-orange">⚠️ Needs action</span>}
                       {/^high/i.test(r.priority || '') && <span className="tag tag-red">⚡ High priority</span>}
                       {r.app_done_com_open && <span className="tag tag-teal">📱 Done on app · open in COM</span>}
                       <span className={`tag tag-${r.source === 'COM' ? 'blue' : 'green'}`}>{r.source === 'COM' ? '🟦 COM' : `🟩 ${r.client_code === 'TIGER' ? 'Tiger' : 'CoolerCo'}`}</span>
