@@ -769,3 +769,9 @@ input.field-ctrl:focus, textarea.field-ctrl:focus { border-color: var(--accent);
 .audit-day-hd .btn { margin-left: auto; }
 .audit-stops { margin: 0; padding-left: 20px; font-size: 12px; line-height: 1.7; }
 .audit-stops li.done { opacity: .65; }
+
+/* 📦 Stock drill-down (062) */
+.wh-card > .wh-card-hd { cursor: pointer; }
+.wh-card.on { outline: 2px solid var(--accent); }
+.stock-detail { margin-bottom: 12px; scroll-margin-top: 70px; }
+.stock-detail .stock-model:hover { filter: brightness(.97); }

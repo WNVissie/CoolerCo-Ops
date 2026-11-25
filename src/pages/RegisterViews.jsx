@@ -2,6 +2,7 @@
 // "All clients". Reads the combined lists coolerco_all_cases / coolerco_all_assets,
 // which only return rows the signed-in user may see (warehouse staff: every client
 // in their warehouse; client users: their own client).
+import StockDetail from '../components/StockDetail'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import Topbar from '../components/Topbar'
@@ -374,6 +375,7 @@ export function RegisterStock({ scope }) {
   }, [rows])
   const sorted = o => Object.entries(o).sort((a, b) => b[1] - a[1])
 
+  const [sel, setSel] = useState(null) // warehouse opened for the model / condition / branding drill-down (062)
   return (
     <>
       <Topbar title="Asset Stock" sub={`${scope.client === 'ALL' ? 'All clients' : clientName(scope, scope.client)} · assets in the warehouses`} />
@@ -382,9 +384,13 @@ export function RegisterStock({ scope }) {
         {err && <div className="notice warn">Could not load stock: {err.message}</div>}
         {!rows && !err && <div className="load-state"><span className="spinner" /> Loading stock…</div>}
         {rows && !rows.length && <div className="notice">No assets in a warehouse for this client.</div>}
+        {sel && (scope.client === 'ALL'
+          ? <div className="notice">Pick one client above to see the stock by model, condition and branding.</div>
+          : <StockDetail client={scope.client} wh={sel} whName={sel} onClose={() => setSel(null)} />)}
         {byWh.map(w => (
-          <details key={w.code} className="card wh-card" open>
-            <summary className="wh-card-hd">
+          <details key={w.code} className={`card wh-card${sel === w.code ? ' on' : ''}`} open>
+            <summary className="wh-card-hd" title="Open the stock by model, condition and branding"
+              onClick={e => { e.preventDefault(); setSel(sel === w.code ? null : w.code); setTimeout(() => document.getElementById('stock-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50) }}>
               <strong>🏭 {w.code}</strong><span className="card-count">{num(w.total)} assets</span>
               <span style={{ marginLeft: 'auto', display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                 {sorted(w.clients).map(([c, n]) => <span key={c} style={{ display: 'inline-flex', gap: 3, alignItems: 'center' }}><ClientTag scope={scope} code={c} /><b style={{ fontSize: 11 }}>{n}</b></span>)}

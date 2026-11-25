@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 import { num, BAYS, WAREHOUSES, WH_NAMES, condColor, SPARES_APP_URL } from '../lib/helpers'
 import { useClientScope, ClientBar } from '../components/ClientScope'
 import { RegisterStock } from './RegisterViews'
+import StockDetail from '../components/StockDetail'
 
 // One small call: the server adds everything up (public.coolerco_wh_asset_stock)
 // and sends back ~a few hundred summary rows instead of ~9,000 asset rows.
@@ -12,6 +13,7 @@ function AssetStockCom({ clientBar }) {
   const [rows, setRows] = useState(null)
   const [err, setErr] = useState(null)
   const [loc, setLoc] = useState('all') // all | Warehouse | Workshop
+  const [sel, setSel] = useState(null)  // warehouse opened for the model / condition / branding drill-down (062)
 
   useEffect(() => {
     supabase.from('coolerco_wh_asset_stock').select('*').then(({ data, error }) => {
@@ -78,10 +80,12 @@ function AssetStockCom({ clientBar }) {
               ))}
             </div>
 
+            {sel && <StockDetail client="MAGNUM" wh={sel} whName={WH_NAMES[sel]} loc={loc} onClose={() => setSel(null)} />}
             <div className="wh-grid">
               {byWh.map(w => (
-                <details key={w.code} className="card wh-card">
-                  <summary className="wh-card-hd">
+                <details key={w.code} className={`card wh-card${sel === w.code ? ' on' : ''}`}>
+                  <summary className="wh-card-hd" title="Open the stock by model, condition and branding"
+                    onClick={e => { e.preventDefault(); setSel(sel === w.code ? null : w.code); setTimeout(() => document.getElementById('stock-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50) }}>
                     <div style={{ minWidth: 0 }}>
                       <div className="card-title">🏢 {w.name} <span className="text3" style={{ fontWeight: 400 }}>· {w.code}</span></div>
                       <div className="text3" style={{ fontSize: 10.5 }}>{num(w.total)} assets{w.workshop ? ` · ${num(w.workshop)} in workshop` : ''}</div>
