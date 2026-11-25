@@ -6,7 +6,7 @@ import { supabase } from '../lib/supabase'
 //   • Store name, full address, contact, 🗺 View on map, 📂 all cases of this store
 //   • ✏️ Update store details (incl. GPS: paste a Google Maps link / coordinates, or 📱 use my location)
 //       Tiger / Demo (self-managed): saved straight away on the outlet + its open cases, logged (script 055)
-//       Magnum (COM is master): goes to the outlet-correction review list (033); COM keeps the old details until fixed there
+//       Magnum (COM is master): saved in RouteIQ's correction tables (056) + "To fix in COM" list; without 056 → review list (033)
 //   • 💬 Send portal link by WhatsApp: the store's own secure link (/p/…) so the customer logs and follows requests
 const inSA = (lat, lng) => lat >= -35.5 && lat <= -21.5 && lng >= 16 && lng <= 33.5
 const mapLink = (lat, lng) => `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
@@ -82,7 +82,24 @@ export default function CaseStore({ caseNumber }) {
       if (data?.error) return setMsg({ bad: true, t: ERR[data.error] || data.error })
       setMsg({ t: `✅ Saved (${data.changed} change${data.changed === 1 ? '' : 's'}) — the store and its open cases now use these details.` }); setEdit(false); load()
     } else {
-      // Magnum: file a correction for review (COM / RouteIQ are the masters)
+      // Magnum: straight into RouteIQ's own correction tables (056) — the same tables RouteIQ's POS Reconciliations write.
+      // COM keeps the old details: the change also lands on the "To fix in COM" list (Customers & portal links → Magnum).
+      const p = {}
+      if (form.name !== (c.point_of_sale || '')) p.name = form.name
+      const addr = [form.street_address, form.suburb, form.town].filter(Boolean).join(', ')
+      if (form.street_address !== (c.address || '')) p.address = addr
+      if (form.contact_person !== (c.case_contact_name || '')) p.contact_name = form.contact_person
+      if (form.mobile_number !== (c.case_mobile_number || c.case_contact_number || '')) p.mobile = form.mobile_number
+      if (gps) { p.latitude = gps.lat; p.longitude = gps.lng }
+      if (!Object.keys(p).length) { setBusy(false); return setMsg({ t: 'Nothing changed.' }) }
+      const r = await supabase.rpc('coolerco_magnum_store_update', { p_pos: c.pos_local_code, p, p_case: c.case_number })
+      if (!r.error && !r.data?.error) {
+        setBusy(false); setEdit(false)
+        return setMsg({ t: `✅ Saved in RouteIQ (${r.data.changed} change${r.data.changed === 1 ? '' : 's'}) — routes and the Field app use it now. COM still has the old details: it is on the "To fix in COM" list.` })
+      }
+      if (r.data?.error) { setBusy(false); return setMsg({ bad: true, t: { bad_phone: 'Type a full SA mobile number, e.g. 082 123 4567.', bad_gps: ERR.bad_gps, not_found: 'This store is not in COM.', not_allowed: 'Your user may not change Magnum store details.' }[r.data.error] || r.data.error }) }
+      if (!/does not exist|PGRST202/i.test(r.error.message)) { setBusy(false); return setMsg({ bad: true, t: r.error.message }) }
+      // database without 056: fall back to the review list (033)
       const issues = {}
       if (form.name !== (c.point_of_sale || '')) issues.incorrect_pos_name = 'Corrected from a case in CoolerCo-Ops'
       if (form.street_address !== (c.address || '')) issues.incorrect_address = 'Corrected from a case in CoolerCo-Ops'
@@ -152,7 +169,7 @@ export default function CaseStore({ caseNumber }) {
 
         {edit && (
           <div className="req-box" style={{ marginTop: 6 }}>
-            <div className="lbl">{magnum ? '✏️ Correct the store details (goes to review — COM is the master for Magnum stores)' : '✏️ Update store details (saved on the store and its open cases)'}</div>
+            <div className="lbl">{magnum ? '✏️ Correct the store details (saved in RouteIQ; COM is fixed by hand from the "To fix in COM" list)' : '✏️ Update store details (saved on the store and its open cases)'}</div>
             <div className="dl-grid" style={{ gap: 6 }}>
               {FIELDS.filter(([k]) => outlet || ['name', 'contact_person', 'mobile_number', 'street_address'].includes(k)).map(([k, label]) => (
                 <label key={k} className="dl-field" style={{ margin: 0 }}><span className="lbl">{label}</span>
@@ -169,7 +186,7 @@ export default function CaseStore({ caseNumber }) {
               ? <div className="text3" style={{ fontSize: 11, marginTop: 4 }}>✅ Point found: {gps.lat}, {gps.lng} · <a href={mapLink(gps.lat, gps.lng)} target="_blank" rel="noopener noreferrer">🗺 Check on map</a></div>
               : <div className="form-msg err">{gps?.outside ? ERR.bad_gps : 'Not a map link or coordinates yet.'}</div>)}
             <div className="modal-btns" style={{ justifyContent: 'flex-start', marginTop: 8 }}>
-              <button className="btn btn-primary btn-sm" disabled={busy} onClick={save}>{busy ? 'Saving…' : magnum ? '📝 Send for review' : '💾 Save'}</button>
+              <button className="btn btn-primary btn-sm" disabled={busy} onClick={save}>{busy ? 'Saving…' : magnum ? '💾 Save to RouteIQ' : '💾 Save'}</button>
               <button className="btn btn-ghost btn-sm" onClick={() => { setEdit(false); setMsg(null) }}>Cancel</button>
             </div>
           </div>

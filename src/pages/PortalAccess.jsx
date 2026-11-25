@@ -110,12 +110,50 @@ export default function PortalAccess() {
             ))}
           </div>
         </details>
+        <ComFixList />
         </>}
       </div>
       <Drawer open={!!open} onClose={() => setOpen(null)} title={open?.point_of_sale || 'Portal link'} icon="🔗">
         {open && <LinkDetail link={open} onSaved={l => { setOpen(l); setLinks(x => ({ ...x, [l.pos_local_code]: l })); loadRecent() }} />}
       </Drawer>
     </>
+  )
+}
+
+// 🛠 To fix in COM: Magnum store corrections saved in RouteIQ from CoolerCo (056). COM still has the old details until
+// someone changes them there; tick → ✓ Fixed in COM.
+function ComFixList() {
+  const [rows, setRows] = useState(null)
+  const [sel, setSel] = useState([])
+  const [err, setErr] = useState(null)
+  const load = () => supabase.from('coolerco_outlet_changes').select('*').eq('client_code', 'MAGNUM').is('com_fixed_at', null).order('changed_at', { ascending: false }).limit(500)
+    .then(({ data, error }) => { if (error) { setErr(/com_fixed_at|does not exist/i.test(error.message) ? null : error.message); setRows(error ? [] : data || []) } else setRows(data || []) })
+  useEffect(() => { load() }, [])
+  async function done() {
+    const { error } = await supabase.rpc('coolerco_outlet_change_com_fixed', { p_ids: sel })
+    if (error) setErr(error.message); else { setSel([]); load() }
+  }
+  if (!rows || (!rows.length && !err)) return null
+  return (
+    <details className="sec" open>
+      <summary>🛠 To fix in COM ({num(rows.length)})</summary>
+      <div className="sec-body">
+        <div className="text3" style={{ fontSize: 11, marginBottom: 6 }}>Magnum store details corrected in CoolerCo. RouteIQ and the Field app already use them; COM still has the old details until you change them there.</div>
+        {err && <div className="form-msg err">{err}</div>}
+        <div className="tbl-wrap"><table className="tbl">
+          <thead><tr><th></th><th>Store</th><th>What</th><th>Was</th><th>Now</th><th>By · when</th><th>Case</th></tr></thead>
+          <tbody>{rows.map(r => (
+            <tr key={r.id}>
+              <td><input type="checkbox" checked={sel.includes(r.id)} onChange={e => setSel(x => e.target.checked ? [...x, r.id] : x.filter(v => v !== r.id))} /></td>
+              <td className="mono" style={{ fontSize: 10.5 }}>{r.outlet_code}</td><td>{r.field}</td>
+              <td className="text3">{r.old_value || '—'}</td><td><strong>{r.new_value || '—'}</strong></td>
+              <td className="text3" style={{ fontSize: 10.5 }}>{r.changed_by} · {fmt(r.changed_at)}</td>
+              <td className="mono" style={{ fontSize: 10.5 }}>{r.case_number || ''}</td>
+            </tr>))}</tbody>
+        </table></div>
+        <button className="btn btn-primary btn-sm" style={{ marginTop: 6 }} disabled={!sel.length} onClick={done}>✓ Fixed in COM ({sel.length})</button>
+      </div>
+    </details>
   )
 }
 
@@ -128,15 +166,29 @@ function ClientOutlets({ scope, client, onOpen }) {
   const [rep, setRep] = useState('')
   const [region, setRegion] = useState('')
   const [msg, setMsg] = useState(null)
+  const [rops, setRops] = useState([])        // regions / reps / concessionaires of this client (056)
+  const [ropBy, setRopBy] = useState({})      // outlet → Responsible Ordering Party name
+  const [sel, setSel] = useState([])          // ticked outlets
+  const [linkTo, setLinkTo] = useState('')
+  const [newRop, setNewRop] = useState(null)  // { name, kind } while adding
   const load = async () => {
     setRows(null)
     let r = supabase.from('coolerco_outlets').select('client_code,outlet_code,name,town,suburb,province,warehouse_code,region,rep_code,contact_person,mobile_number,latitude,longitude,active').eq('active', true).order('name').limit(2000)
     if (client !== 'ALL') r = r.eq('client_code', client)
-    const [{ data, error }, l, c] = await Promise.all([
+    let rq = supabase.from('coolerco_concessionaires').select('id,display_name,kind,client_code,active').eq('active', true).neq('client_code', 'MAGNUM').order('display_name')
+    if (client !== 'ALL') rq = rq.eq('client_code', client)
+    const [{ data, error }, l, c, rp] = await Promise.all([
       r,
       supabase.from('coolerco_portal_links').select('*').neq('client_code', 'MAGNUM').limit(5000),
       supabase.from('coolerco_all_cases').select('pos_local_code').neq('source', 'COM').eq('is_open', true).limit(5000),
+      rq,
     ])
+    setRops(rp.data || [])
+    const codes = (data || []).map(o => o.outlet_code)
+    if (codes.length) {
+      const { data: pw } = await supabase.from('coolerco_pos_warehouse').select('pos_local_code,concessionaire').in('pos_local_code', codes.slice(0, 1000))
+      setRopBy(Object.fromEntries((pw || []).map(x => [x.pos_local_code, x.concessionaire])))
+    }
     if (error) { setMsg({ bad: true, t: error.message }); setRows([]); return }
     setRows(data || [])
     setLinks(Object.fromEntries((l.data || []).map(x => [x.pos_local_code, x])))
@@ -145,8 +197,29 @@ function ClientOutlets({ scope, client, onOpen }) {
   useEffect(() => { load() }, [client]) // eslint-disable-line react-hooks/exhaustive-deps
   const uniq = k => [...new Set((rows || []).map(r => r[k]).filter(Boolean))].sort()
   const s = q.trim().toLowerCase()
-  const list = (rows || []).filter(r => (!wh || r.warehouse_code === wh) && (!rep || r.rep_code === rep) && (!region || r.region === region)
+  const ropOf = o => ropBy[o.outlet_code] || o.rep_code || ''
+  const list = (rows || []).filter(r => (!wh || r.warehouse_code === wh) && (!rep || ropOf(r) === rep) && (!region || r.region === region)
     && (!s || [r.name, r.outlet_code, r.town, r.suburb, r.contact_person].some(v => String(v || '').toLowerCase().includes(s))))
+  const ropNames = [...new Set((rows || []).map(ropOf).filter(Boolean))].sort()
+  const oneClient = client !== 'ALL' ? client : null
+  async function linkSelected() {
+    if (!linkTo || !sel.length) return
+    const target = rops.find(r => r.id === linkTo)
+    setMsg(null)
+    const { data, error } = await supabase.rpc('coolerco_outlets_set_rop', { p_client: target.client_code, p_outlets: sel, p_rop: linkTo })
+    if (error) return setMsg({ bad: true, t: /does not exist|PGRST202/i.test(error.message) ? 'Linking needs database script 056 on this database.' : error.message })
+    if (data?.error) return setMsg({ bad: true, t: { not_allowed: 'Your user may not change this.', bad_rop: 'That region / rep belongs to another client.', com_master: 'Magnum stores are linked in COM.' }[data.error] || data.error })
+    setMsg({ t: `✅ ${data.linked} store(s) linked to ${target.display_name}. Their open cases now carry it; its portal users see them.` }); setSel([]); load()
+  }
+  async function addRop() {
+    if (!newRop?.name?.trim() || !oneClient) return
+    const { data, error } = await supabase.rpc('coolerco_rop_add', { p_client: oneClient, p_name: newRop.name.trim(), p_kind: newRop.kind })
+    if (error) return setMsg({ bad: true, t: /does not exist|PGRST202/i.test(error.message) ? 'Adding needs database script 056 on this database.' : error.message })
+    if (data?.error) return setMsg({ bad: true, t: { exists: 'That name already exists.', not_allowed: 'Your user may not add regions.', name_required: 'Type a name.' }[data.error] || data.error })
+    setMsg({ t: `✅ ${newRop.name.trim()} added. Tick stores and link them; add its users under Responsible Ordering Parties.` }); setNewRop(null); setLinkTo(data.id); load()
+  }
+  const allTicked = list.length > 0 && list.slice(0, 500).every(o => sel.includes(o.outlet_code))
+
   async function makeLink(o) {
     setMsg(null)
     const { data, error } = await supabase.rpc('coolerco_portal_link_for_outlet', { p_client: o.client_code, p_outlet: o.outlet_code })
@@ -160,24 +233,45 @@ function ClientOutlets({ scope, client, onOpen }) {
           <input placeholder="Store, code, town or contact…" value={q} onChange={e => setQ(e.target.value)} /></div>
         <select value={wh} onChange={e => setWh(e.target.value)}><option value="">🏢 All warehouses</option>{uniq('warehouse_code').map(w => <option key={w} value={w}>{WH_NAMES[w] || w}</option>)}</select>
         {uniq('region').length > 0 && <select value={region} onChange={e => setRegion(e.target.value)}><option value="">🗺 All regions</option>{uniq('region').map(w => <option key={w}>{w}</option>)}</select>}
-        {uniq('rep_code').length > 0 && <select value={rep} onChange={e => setRep(e.target.value)}><option value="">🤝 All Responsible Ordering Parties</option>{uniq('rep_code').map(w => <option key={w}>{w}</option>)}</select>}
+        {ropNames.length > 0 && <select value={rep} onChange={e => setRep(e.target.value)}><option value="">🤝 All Responsible Ordering Parties</option>{ropNames.map(w => <option key={w}>{w}</option>)}</select>}
         <button className="btn btn-ghost btn-sm" onClick={load}>↻ Refresh</button>
+      </div>
+      <div className="req-box" style={{ margin: '0 0 8px', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <span className="lbl" style={{ margin: 0 }}>🗺 Region / Responsible Ordering Party</span>
+        <span className="text3" style={{ fontSize: 11 }}>{sel.length ? `${sel.length} store(s) ticked` : 'Tick stores below, then link them'}</span>
+        <select value={linkTo} onChange={e => setLinkTo(e.target.value)} style={{ minWidth: 200 }}>
+          <option value="">Link to…</option>
+          {['region', 'representative', 'concessionaire'].map(k => rops.some(r => r.kind === k) && (
+            <optgroup key={k} label={k === 'region' ? 'Regions' : k === 'representative' ? 'Reps' : 'Concessionaires'}>
+              {rops.filter(r => r.kind === k).map(r => <option key={r.id} value={r.id}>{r.display_name}{client === 'ALL' ? ` (${r.client_code})` : ''}</option>)}
+            </optgroup>))}
+        </select>
+        <button className="btn btn-primary btn-sm" disabled={!linkTo || !sel.length} onClick={linkSelected}>🔗 Link {sel.length || ''}</button>
+        {oneClient && !newRop && <button className="btn btn-ghost btn-sm" onClick={() => setNewRop({ name: '', kind: 'region' })}>➕ New region / rep</button>}
+        {newRop && <>
+          <input className="field-ctrl" style={{ width: 180 }} placeholder="e.g. Tiger Inland" value={newRop.name} onChange={e => setNewRop({ ...newRop, name: e.target.value })} />
+          <select value={newRop.kind} onChange={e => setNewRop({ ...newRop, kind: e.target.value })}><option value="region">Region</option><option value="representative">Rep</option><option value="concessionaire">Concessionaire</option></select>
+          <button className="btn btn-primary btn-sm" onClick={addRop}>Add</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setNewRop(null)}>Cancel</button>
+        </>}
+        {!oneClient && <span className="text3" style={{ fontSize: 10.5 }}>Pick one client to add a region.</span>}
       </div>
       {msg && <div className={`form-msg ${msg.bad ? 'err' : 'ok'}`}>{msg.t}</div>}
       <div className="card">
         <div className="card-header"><span className="card-title">🏪 Stores</span><span className="card-count">{rows ? `${num(list.length)} of ${num(rows.length)}` : ''}</span></div>
         {!rows ? <div className="load-state"><span className="spinner" /> Loading stores…</div> : !list.length ? <div className="text3" style={{ padding: 12 }}>No stores match.</div> : (
           <div className="tbl-wrap"><table className="tbl">
-            <thead><tr>{client === 'ALL' && <th>Client</th>}<th>Store</th><th>Town</th><th>Warehouse</th><th>Region / ROP</th><th>Contact</th><th>Open cases</th><th>Portal link</th></tr></thead>
+            <thead><tr><th><input type="checkbox" aria-label="Tick all" checked={allTicked} onChange={e => setSel(e.target.checked ? list.slice(0, 500).map(o => o.outlet_code) : [])} /></th>{client === 'ALL' && <th>Client</th>}<th>Store</th><th>Town</th><th>Warehouse</th><th>Region / ROP</th><th>Contact</th><th>Open cases</th><th>Portal link</th></tr></thead>
             <tbody>{list.slice(0, 500).map(o => {
               const l = links[o.outlet_code]
               return (
                 <tr key={o.client_code + o.outlet_code}>
+                  <td><input type="checkbox" aria-label={`Tick ${o.name}`} checked={sel.includes(o.outlet_code)} onChange={e => setSel(x => e.target.checked ? [...x, o.outlet_code] : x.filter(v => v !== o.outlet_code))} /></td>
                   {client === 'ALL' && <td><ClientBadge scope={scope} code={o.client_code} small /></td>}
                   <td><strong style={{ fontSize: 12 }}>{o.name}</strong><div className="text3 mono" style={{ fontSize: 10 }}>{o.outlet_code}{o.latitude == null ? ' · ⚠ no GPS' : ''}</div></td>
                   <td>{o.town || o.suburb || '—'}</td>
                   <td>{WH_NAMES[o.warehouse_code] || o.warehouse_code || '—'}</td>
-                  <td>{[o.region, o.rep_code].filter(Boolean).join(' · ') || '—'}</td>
+                  <td>{o.region ? <span className="tag tag-blue" style={{ fontSize: 10 }}>🗺 {o.region}</span> : null} {ropOf(o) && ropOf(o).toLowerCase() !== (o.region || '').toLowerCase() ? <span className="text3" style={{ fontSize: 10.5 }}>{ropOf(o)}</span> : null}{!o.region && !ropOf(o) ? '—' : ''}</td>
                   <td>{o.contact_person || '—'}{o.mobile_number ? <div className="text3" style={{ fontSize: 10 }}>{o.mobile_number}</div> : null}</td>
                   <td>{openBy[o.outlet_code] ? <Link to={`/cases?client=${o.client_code}&pos=${encodeURIComponent(o.outlet_code)}`}>📂 {openBy[o.outlet_code]} open</Link> : <span className="text3">—</span>}</td>
                   <td>{l ? <button className="btn btn-ghost btn-sm" onClick={() => onOpen(l)}>{l.active ? '🔗 Share / QR' : '⏸ off · edit'}</button>
