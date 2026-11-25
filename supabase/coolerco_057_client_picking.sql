@@ -174,6 +174,9 @@ begin
   update public.coolerco_assets set status = coalesce(p.status_before, 'In warehouse, ready to work'), updated_at = now(), updated_by = coalesce(auth.jwt() ->> 'email', 'user')
    where client_code = p.client_code and asset_number = p.asset_number and status = 'Picked';
   update public.coolerco_cases set asset_delivered = null, updated_at = now() where case_number = p_case and asset_delivered = p.asset_number;
+  -- the pick is undone here, so a later cancel must not reverse it a second time
+  update public.coolerco_asset_movements set reversed = true
+   where case_number = p_case and asset = p.asset_number and movement = 'pick' and source = 'client_picking' and not reversed;
   insert into public.coolerco_asset_movements (asset, movement, warehouse, route_id, case_number, how, expected, exception, override_reason,
          by_label, client_code, case_type, asset_role, from_kind, from_code, to_kind, to_code, status_before, status_after, source)
   values (p.asset_number, 'unpick', p.warehouse_code, p.route_id, p_case, 'screen', true, false, nullif(trim(p_reason), ''),

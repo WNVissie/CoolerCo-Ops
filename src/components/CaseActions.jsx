@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import CaseStore from './CaseStore'
+import CaseOfficeClose from './CaseOfficeClose'
 
 const COM_PORTAL_TICKETS = 'https://emeaportal.unilevercom.com/en/tickets?toApprove=true'
 
@@ -12,7 +13,7 @@ const COM_PORTAL_TICKETS = 'https://emeaportal.unilevercom.com/en/tickets?toAppr
 //  • CoolerCo case → "Cancel case" with a reason (staff roles only, logged in the case history)
 // Needs script 022 (coolerco_case_actions / coolerco_case_cancel). Without it this block shows nothing.
 const ERR = {
-  not_allowed: 'Your user does not have a role that may cancel cases.',
+  not_allowed: 'Your user does not have a role that may cancel this case.',
   reason_required: 'Choose a reason.',
   note_required: 'Add a short note for "Other".',
   already_closed: 'This case is already closed.',
@@ -35,11 +36,15 @@ export default function CaseActions({ caseNumber, onChanged }) {
   const [rejReasons, setRejReasons] = useState([])
   const [rej, setRej] = useState('')
   const [decNote, setDecNote] = useState('')
+  const [opts, setOpts] = useState(null)          // 058: office close + client cancel options (Demo / Tiger cases)
+  const [closeOpen, setCloseOpen] = useState(false)
 
   const load = () => supabase.rpc('coolerco_case_actions', { p_case: caseNumber })
     .then(({ data, error }) => setA(error || !data || data.error ? null : data))
 
-  useEffect(() => { setA(null); setCancelOpen(false); setMsg(null); if (caseNumber) load() }, [caseNumber])
+  const loadOpts = () => supabase.rpc('coolerco_case_close_options', { p_case: caseNumber })
+    .then(({ data, error }) => setOpts(error || !data || data.error ? null : data))
+  useEffect(() => { setA(null); setOpts(null); setCancelOpen(false); setCloseOpen(false); setMsg(null); if (caseNumber) { load(); loadOpts() } }, [caseNumber])
   useEffect(() => {
     if (decide !== 'reject' || rejReasons.length) return
     supabase.from('coolerco_reason_codes').select('code,label').eq('status', 'Rejected').eq('active', true).order('sort_order')
@@ -52,6 +57,7 @@ export default function CaseActions({ caseNumber, onChanged }) {
   }, [cancelOpen])
 
   if (!a) return null
+  const canCancel = a.can_cancel || !!opts?.can_cancel
 
   const copy = () => {
     navigator.clipboard?.writeText(a.case_number).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })
@@ -77,8 +83,8 @@ export default function CaseActions({ caseNumber, onChanged }) {
     setBusy(false)
     if (error) return setMsg({ bad: true, t: error.message })
     if (data?.error) return setMsg({ bad: true, t: ERR[data.error] || data.error })
-    setMsg({ t: '✅ Case cancelled — logged in the case history.' }); setCancelOpen(false); setReason(''); setNote('')
-    load(); onChanged?.()
+    setMsg({ t: `✅ Case cancelled — logged in the case history.${data?.on_route ? ` Marked as cancelled on route ${data.on_route}.` : ''}` }); setCancelOpen(false); setReason(''); setNote('')
+    load(); loadOpts(); onChanged?.()
   }
 
   return (
@@ -92,7 +98,8 @@ export default function CaseActions({ caseNumber, onChanged }) {
         {a.source === 'COM' && (
           <button className="btn btn-ghost btn-sm" onClick={openPortal} title="Copies the case number and opens the COM portal tickets page — sign in with your own portal login">Open in COM portal ↗</button>
         )}
-        {a.can_cancel && !cancelOpen && <button className="btn btn-danger btn-sm" onClick={() => setCancelOpen(true)}>🚫 Cancel case</button>}
+        {opts?.can_close && !closeOpen && !cancelOpen && <button className="btn btn-primary btn-sm" onClick={() => setCloseOpen(true)} title="When the driver cannot close it on the phone">✅ Close case</button>}
+        {canCancel && !cancelOpen && !closeOpen && <button className="btn btn-danger btn-sm" onClick={() => setCancelOpen(true)}>🚫 Cancel case</button>}
       </div>
       {a.source === 'CoolerCo' && a.status === 'Waiting for Approval' && (
         <div className="req-box" style={{ marginTop: 6 }}>
@@ -128,12 +135,15 @@ export default function CaseActions({ caseNumber, onChanged }) {
       {a.source === 'COM' && a.is_open && (
         <div className="text3" style={{ fontSize: 10.5 }}>COM cases are cancelled in COM (CoolerCo never changes COM). Open it, cancel there — the next COM upload shows it here.</div>
       )}
-      {a.source === 'CoolerCo' && a.is_open && !a.can_cancel && (
+      {closeOpen && opts && <CaseOfficeClose opts={opts} onCancel={() => setCloseOpen(false)}
+        onDone={t => { setCloseOpen(false); setMsg({ t }); load(); loadOpts(); onChanged?.() }} />}
+      {a.source === 'CoolerCo' && a.is_open && !canCancel && (
         <div className="text3" style={{ fontSize: 10.5 }}>Only supplier, manager or administrator users can cancel CoolerCo cases.</div>
       )}
       {cancelOpen && (
         <div className="req-box" style={{ marginTop: 6 }}>
           <div className="lbl">Cancel {a.case_number}</div>
+          {opts?.on_route && <div className="form-msg warn" style={{ display: 'block', marginBottom: 6 }}>🚚 This case is on route <b>{opts.on_route.route}</b> ({opts.on_route.date}). It will be recorded as <b>cancelled on route</b> (charged as a route visit, not a plain cancellation).</div>}
           <select className="field-ctrl" value={reason} onChange={e => setReason(e.target.value)} style={{ width: '100%', marginBottom: 6 }}>
             <option value="">Reason…</option>
             {reasons.map(r => <option key={r.code} value={r.code}>{r.label}</option>)}
