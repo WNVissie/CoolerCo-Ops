@@ -75,12 +75,12 @@ export default function ConcPortal({ link }) {
     ...(alerts && alerts.length ? [['action', '⚠️', 'Needs action', openAlerts]] : []),
     ['approve', '✅', 'To approve', ctx.to_approve],
     // self-managed clients (Demo, Tiger): CoolerCo is the system of record — no COM step (061)
-    ...(ctx.self_managed && !ctx.to_log ? [] : [['log', '📝', 'Log in COM', ctx.to_log]]),
+    ...(ctx.self_managed ? [] : [['log', '📝', 'Log in COM', ctx.to_log]]), // COM (Magnum) only — never for Demo / Tiger / other clients
     ['cases', '📋', 'Cases', (ctx.open_com || 0) + (ctx.attention_com || 0)],
     ['stores', '🏪', 'Stores', ctx.stores],
   ]
   return (
-    <Shell who={ctx.concessionaire} sub={ctx.actor} onLogout={staff ? null : logout}>
+    <Shell who={ctx.concessionaire} sub={ctx.actor} self={!!ctx.self_managed} onLogout={staff ? null : logout}>
       {ctx.actor_type === 'staff' && <div className="p-card p-dup" style={{ padding: 10, fontSize: 12.5 }}>👁 Staff view — you see exactly what <b>{ctx.concessionaire}</b> sees. Anything you do is logged under your name.</div>}
       <div className="c-kpis">
         <div><span>❄️</span><b>{(ctx.assets_at_pos || 0).toLocaleString()}</b><small>assets at your stores</small></div>
@@ -98,23 +98,23 @@ export default function ConcPortal({ link }) {
       </div>
       {tab === 'action' && <NeedsAction call={call} alerts={alerts || []} onChange={() => { loadAlerts(); loadCtx() }} />}
       {tab === 'approve' && <Approve call={call} onChange={loadCtx} self={!!ctx.self_managed} />}
-      {tab === 'log' && <LogCom call={call} onChange={loadCtx} />}
+      {tab === 'log' && !ctx.self_managed && <LogCom call={call} onChange={loadCtx} />}
       {tab === 'cases' && <Cases call={call} self={!!ctx.self_managed} />}
       {tab === 'stores' && <Stores call={call} ctx={ctx} />}
     </Shell>
   )
 }
 
-function Shell({ who, sub, onLogout, children }) {
+function Shell({ who, sub, self, onLogout, children }) {
   return (
     <div className="p-root">
       <header className="p-head">
         <div className="p-logo">Cooler<span>Co</span></div>
-        {who && <div className="p-store"><small>CONCESSIONAIRE</small><strong>{who}</strong></div>}
+        {who && <div className="p-store"><small>{self ? 'REGION / REP' : 'CONCESSIONAIRE'}</small><strong>{who}</strong></div>}
         {onLogout && <button className="c-out" onClick={onLogout} title="Sign out">⎋</button>}
       </header>
       <main className="p-main c-main">{children}</main>
-      <footer className="p-foot">{sub ? `Signed in as ${sub} · ` : ''}CoolerCo · RTMA</footer>
+      <footer className="p-foot">{sub ? `Signed in as ${sub} · ` : ''}{self ? 'CoolerCo' : 'CoolerCo · RTMA'}</footer>
     </div>
   )
 }
