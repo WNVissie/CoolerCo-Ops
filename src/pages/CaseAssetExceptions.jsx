@@ -4,21 +4,25 @@ import Topbar from '../components/Topbar'
 import { supabase } from '../lib/supabase'
 import { fmt, num, condColor, slaColor, WH_NAMES, whCaseName } from '../lib/helpers'
 import { useAccess } from '../lib/access'
+import { useClientScope } from '../components/ClientScope'
 
 // Self-managed clients (Tiger, Demo …): CoolerCo keeps the asset register, so the check runs on THEIR cases and THEIR
 // assets (coolerco_all_cases + coolerco_all_assets) — never COM. Open Deliver / Replacement cases whose delivered asset
 // already stands at an outlet: at this outlet (= delivered, case still open) or at another one.
-async function clientExceptions(since) {
+async function clientExceptions(since, client) {
   const { data: cs, error } = await supabase.from('coolerco_all_cases')
     .select('case_number,client_code,case_type,status_reason,point_of_sale,pos_local_code,warehouse_workshop,responsible_ordering_party,asset_delivered,created_on,end_date,requested_product_base,requested_asset_condition')
-    .neq('source', 'COM').eq('is_open', true).in('case_type', ['Deliver an Asset', 'Replacement of Asset']).not('asset_delivered', 'is', null)
-    .gte('created_on', since).limit(2000)
+    .neq('source', 'COM').eq('is_open', true).in('case_type', ['Deliver an Asset', 'Replacement of Asset'])
+    .gte('created_on', since).match(client ? { client_code: client } : {}).limit(5000)
   if (error) return { error }
-  const names = [...new Set((cs || []).map(c => c.asset_delivered))]
+  // what was checked: every open Deliver / Replacement case of these clients (shown as counts, also when there are no exceptions)
+  const checked = (cs || []).map(c => ({ client_code: c.client_code, warehouse: c.warehouse_workshop, picked: !!c.asset_delivered }))
+  const names = [...new Set((cs || []).map(c => c.asset_delivered).filter(Boolean))]
   const { data: as } = names.length ? await supabase.from('coolerco_all_assets').select('asset_number,bar_code,model,condition,location_type,location_code,location_name').in('asset_number', names) : { data: [] }
   const byA = Object.fromEntries((as || []).map(a => [a.asset_number, a]))
   const rows = []
   for (const c of cs || []) {
+    if (!c.asset_delivered) continue
     const a = byA[c.asset_delivered]
     if (!a || a.location_type !== 'Outlet') continue
     rows.push({ kind: a.location_code === c.pos_local_code ? 'delivered_open' : 'other_pos', case_number: c.case_number, case_type: c.case_type,
@@ -27,7 +31,7 @@ async function clientExceptions(since) {
       asset_product_base: a.model, asset_condition: a.condition, asset_source: 'Delivered on the case', asset_now: `${a.location_name || a.location_code} (${a.location_code})`,
       requested_product_base: c.requested_product_base, requested_condition: c.requested_asset_condition, client_code: c.client_code })
   }
-  return { data: rows }
+  return { data: rows, checked }
 }
 
 // Open cases where COM already shows the asset at the store (or back in the warehouse) — the case was not closed.
@@ -65,6 +69,9 @@ export default function CaseAssetExceptions() {
   const [busy, setBusy] = useState(false)
   const [seen, setSeen] = useState(loadSeen) // exceptions already looked at on this device → the rest show 🆕
   const [comAt, setComAt] = useState(null)
+  const scope = useClientScope()
+  const [client, setClient] = useState('')   // other clients: one client or all
+  const [checked, setChecked] = useState(null) // other clients: open Deliver / Replacement cases looked at
 
   // Live: every load reads the latest COM upload. Re-checks every 5 min (only while visible) and when you come back to the tab.
   useEffect(() => {
@@ -72,9 +79,10 @@ export default function CaseAssetExceptions() {
     if (!access.ready) return
     setErr(null); setBusy(true)
     if (source === 'clients') {
-      clientExceptions(since).then(({ data, error }) => {
+      clientExceptions(since, client).then(({ data, error, checked }) => {
         if (!live) return
-        if (error) setErr(error.message); else setRows((data || []).filter(r => !wh || (r.warehouse || '').includes(WH_NAMES[wh] || wh)))
+        if (error) setErr(error.message)
+        else { setRows((data || []).filter(r => !wh || r.warehouse === wh)); setChecked((checked || []).filter(r => !wh || r.warehouse === wh)) }
         setComAt(null); setCheckedAt(new Date()); setBusy(false)
       })
       return () => { live = false }
@@ -89,8 +97,9 @@ export default function CaseAssetExceptions() {
       setComAt(a.data?.[0]?.last_synced_at || null); setCheckedAt(new Date()); setBusy(false)
     })
     return () => { live = false }
-  }, [since, wh, tick, source, access.ready])
-  useEffect(() => { setRows(null); setShown(PAGE) }, [since, wh, source])
+  }, [since, wh, tick, source, access.ready, client])
+  useEffect(() => { setRows(null); setShown(PAGE) }, [since, wh, source, client])
+  useEffect(() => { setWh(''); setChecked(null) }, [source])
   useEffect(() => {
     const t = setInterval(() => { if (document.visibilityState === 'visible') setTick(n => n + 1) }, REFRESH_MS)
     const back = () => { if (document.visibilityState === 'visible' && checkedAt && Date.now() - checkedAt > 60000) setTick(n => n + 1) }
@@ -147,9 +156,15 @@ export default function CaseAssetExceptions() {
         <div className="filters" style={{ flexWrap: 'wrap', gap: 8 }}>
           <label className="text3" style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 6 }}>Cases created since
             <input type="date" className="field-ctrl" style={{ width: 'auto' }} value={since} onChange={e => e.target.value && setSince(e.target.value)} /></label>
+          {source === 'clients' && <select className="field-ctrl" style={{ width: 'auto' }} value={client} onChange={e => { setClient(e.target.value); setWh('') }} aria-label="Client">
+            <option value="">👥 All other clients</option>
+            {(scope.clients || []).filter(c => c.code !== 'MAGNUM').map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
+          </select>}
           <select className="field-ctrl" style={{ width: 'auto' }} value={wh} onChange={e => setWh(e.target.value)}>
             <option value="">🏢 All warehouses</option>
-            {Object.entries(WH_NAMES).map(([c, n]) => <option key={c} value={c}>{n}</option>)}
+            {source === 'clients'
+              ? [...new Set((checked || []).map(r => r.warehouse).filter(Boolean).concat(wh ? [wh] : []))].sort().map(w => <option key={w} value={w}>{w}</option>)
+              : Object.entries(WH_NAMES).map(([c, n]) => <option key={c} value={c}>{n}</option>)}
           </select>
           <div className="search-wrap" style={{ flex: 1, minWidth: 180 }}><span className="ico">🔍</span>
             <input placeholder="Case no., store, L-code, barcode, concessionaire…" value={q} onChange={e => { setQ(e.target.value); setShown(PAGE) }} /></div>
@@ -163,6 +178,9 @@ export default function CaseAssetExceptions() {
         {err && <div className="form-msg err">{err}</div>}
 
         <div className="stats-row">
+          {source === 'clients' && <div className="stat-card c-accent" title="Open Deliver / Replacement cases of the clients above, created since the date">
+            <div className="stat-label">📂 Open deliver / replacement</div><div className="stat-value">{checked ? num(checked.length) : '…'}</div>
+            <div className="stat-sub">{checked ? `${num(checked.filter(r => r.picked).length)} with a cooler picked · checked against the cooler register` : 'checking…'}</div></div>}
           {KINDS.map(([k, l, c, d]) => (
             <div key={k} className={`stat-card c-${c === 'blue' ? 'accent' : c}`} style={{ cursor: 'pointer', outline: tab === k ? '2px solid var(--accent)' : 'none' }} onClick={() => { setTab(tab === k ? 'all' : k); setShown(PAGE) }} title={d}>
               <div className="stat-label">{l}</div><div className="stat-value">{rows ? num(counts[k]) : '…'}</div>
@@ -218,7 +236,7 @@ export default function CaseAssetExceptions() {
             </div>
           )}
         </div>
-        <div className="text3" style={{ fontSize: 10.5, marginTop: 8 }}>Open = Open, In Progress, Waiting, In Service, On Hold. "Picked / prepared" = the routing app's warehouse prep pick, else COM's Asset Delivered. Read only — COM is not changed; close or correct the case in COM.</div>
+        <div className="text3" style={{ fontSize: 10.5, marginTop: 8 }}>{source === 'clients' ? 'Open = Open, In Progress, Waiting, In Service, On Hold. Checked against the CoolerCo cooler register: the cooler picked / delivered on the case already stands at a store. Close the case from the case drawer (✅ Close case).' : <>Open = Open, In Progress, Waiting, In Service, On Hold. "Picked / prepared" = the routing app's warehouse prep pick, else COM's Asset Delivered. Read only — COM is not changed; close or correct the case in COM.</>}</div>
       </div>
     </>
   )
