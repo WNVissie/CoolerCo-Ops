@@ -99,7 +99,7 @@ export default function FieldTrip() {
           supabase.rpc('coolerco_client_picks_for_routes', { p_routes: routes.map(r => r.id) }), // script 057; missing → error, ignored
         ])
         const seen = new Set((c.data || []).map(x => x.case_number))
-        cases = [...(c.data || []), ...(cc.data || []).filter(x => !seen.has(x.case_number))]; contacts = k.data || []
+        cases = [...(c.data || []).map(x => ({ ...x, _com: true })), ...(cc.data || []).filter(x => !seen.has(x.case_number))]; contacts = k.data || [] // _com: status comes from COM (Magnum); Demo / Tiger cases are CoolerCo's own
         const ids = new Set(routes.map(r => r.id)); prep = (p.data || []).filter(x => ids.has(x.route_id))
         // Demo / Tiger coolers picked in CoolerCo (057) show on the stop like RouteIQ's preparation
         const prepCases = new Set(prep.map(x => x.case_number))
@@ -199,7 +199,7 @@ export default function FieldTrip() {
               : <span className={`tag tag-${oc[1]}`}>{oc[0]}</span>}
             {f.left_at && <span className="tag tag-neutral">🚪 Left {fmtTime(f.left_at)}</span>}
             {f.pending && <span className="tag tag-orange" title="Saved on this phone, waiting for signal">⏳ waiting to send</span>}
-            {c && <span className={`tag tag-${statusColor(c.status_reason)}`} title="Live status in COM">COM: {c.status_reason}</span>}
+            {c && <span className={`tag tag-${statusColor(c.status_reason)}`} title={c._com ? 'Live status in COM' : 'Case status in CoolerCo'}>{c._com ? 'COM: ' : ''}{c.status_reason}</span>}
             {c?.sla_status && <span className="tag tag-neutral">{c.sla_status}</span>}
             {s.asset_count > 0 && <span className="tag tag-neutral">❄️ {s.asset_count}</span>}
           </div>
@@ -212,7 +212,7 @@ export default function FieldTrip() {
                 <span>Due</span><div>{c?.end_date ? new Date(c.end_date).toLocaleDateString('en-ZA') : s.end_date ? new Date(s.end_date).toLocaleDateString('en-ZA') : '—'}</div>
                 {c?.requested_product_base && <><span>Requested</span><div>{c.requested_product_base}</div></>}
                 {s.outcome_recorded_at && <><span>Recorded</span><div>{fmtTime(s.outcome_recorded_at)} · {s.actual_case_status || ''}{s.outcome_reason ? ` · ${s.outcome_reason}` : ''}</div></>}
-                {c?.service_closure_date && <><span>Closed (COM)</span><div>{new Date(c.service_closure_date).toLocaleString('en-ZA')}</div></>}
+                {c?.service_closure_date && <><span>{c._com ? 'Closed (COM)' : 'Closed'}</span><div>{new Date(c.service_closure_date).toLocaleString('en-ZA')}</div></>}
               </div>
               <div className="f-acts">
                 <a className="btn btn-primary btn-sm" href={nav} target="_blank" rel="noopener noreferrer">🧭 Navigate</a>
@@ -286,7 +286,7 @@ export default function FieldTrip() {
 
       {v033 && trip?.routes.map(r => <RouteWarehouse key={'back' + r.id} where="bottom" route={r} driver={driver} events={rEvents.filter(e => e.route_id === r.id)} onSaved={refreshPending} />)}
       {driver.me && trip && navigator.onLine && <CrewRequests date={date} myRoutes={trip.routes} onChanged={load} />}
-      {stops.length > 0 && <p className="text3" style={{ fontSize: 11, textAlign: 'center' }}>{done} done · {left} to go · {ready ? 'Taps and job cards are saved on the phone and sent when there is signal (test system — not sent to RouteIQ yet).' : 'Record arrivals and outcomes in the routing trip sheet'} — COM status updates after the next COM upload.</p>}
+      {stops.length > 0 && <p className="text3" style={{ fontSize: 11, textAlign: 'center' }}>{done} done · {left} to go · {ready ? 'Taps and job cards are saved on the phone and sent when there is signal (test system — not sent to RouteIQ yet).' : 'Record arrivals and outcomes in the routing trip sheet'}{trip?.cases?.some(x => x._com) ? ' — COM status updates after the next COM upload.' : ''}</p>}
       {far && (
         <div className="f-sheet" role="dialog" aria-label="Check location">
           <div className="f-sheet-body">
