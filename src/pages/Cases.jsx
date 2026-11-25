@@ -48,7 +48,7 @@ function buildQuery(form) {
 }
 
 function CasesCom({ clientBar }) {
-  const [params] = useSearchParams()
+  const [params, setParams] = useSearchParams()
   const [form, setForm] = useState(() => {
     const a = params.get('asset'), c = params.get('case'), pos = params.get('pos')
     return c ? { ...EMPTY, by: 'caseNumber', text: c, status: 'all' } : a ? { ...EMPTY, by: 'asset', text: a, status: 'all' }
@@ -65,6 +65,7 @@ function CasesCom({ clientBar }) {
   const [exp, setExp] = useState(null) // export dialog state
   const [whCounts, setWhCounts] = useState(null) // open cases per warehouse (cards at the top)
   const openFromLink = useRef(params.get('case')) // opened from the Dashboard: show that case straight away
+  const [fromLink, setFromLink] = useState(params.get('case') || params.get('pos') || params.get('asset') || '') // list filtered by a link
 
   // Open cases per warehouse: 9 tiny count-only requests, all at once
   useEffect(() => {
@@ -106,7 +107,12 @@ function CasesCom({ clientBar }) {
     setMsg(null); setPage(0); setQuery(q)
   }
 
-  function clearAll() { setForm(EMPTY); setMsg(null); setPage(0); setQuery(buildQuery(EMPTY).q) }
+  function clearAll() {
+    setForm(EMPTY); setMsg(null); setPage(0); setQuery(buildQuery(EMPTY).q); setFromLink('')
+    if (['case', 'pos', 'asset'].some(k => params.get(k))) { const p = new URLSearchParams(params); ['case', 'pos', 'asset'].forEach(k => p.delete(k)); setParams(p, { replace: true }) }
+  }
+  // closing the case that a link opened → back to the normal open-cases list
+  const closeCase = () => { const n = selected?.case_number; setSelected(null); if (fromLink && n === fromLink && form.text === fromLink) clearAll() }
 
   function searchAsset(asset) {
     const f = { ...EMPTY, by: 'asset', text: asset, status: 'all' }
@@ -184,9 +190,10 @@ function CasesCom({ clientBar }) {
             <select value={form.by} onChange={e => set('by', e.target.value)} className="sp-by">
               {SEARCH_BY.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
             </select>
-            <div className="search-wrap sp-text">
+            <div className={`search-wrap sp-text${query.caseNumber || query.pos || query.asset ? ' on' : ''}`}>
               <span className="ico">🔍</span>
               <input type="text" placeholder={active.ph} value={form.text} onChange={e => set('text', e.target.value)} />
+              {form.text && <button type="button" className="search-clear" title="Clear search" aria-label="Clear search" onClick={clearAll}>✕</button>}
             </div>
             <button type="submit" className="btn btn-primary btn-sm">Search</button>
             <button type="button" className="btn btn-ghost btn-sm" onClick={() => setMore(m => !m)}>⚙️ Filters {more ? '▴' : '▾'}</button>
@@ -264,7 +271,7 @@ function CasesCom({ clientBar }) {
         </div>
       )}
 
-      <Drawer open={!!selected} onClose={() => setSelected(null)} title={selected?.case_number || 'Case'} icon={CASE_TYPE_ICON[selected?.case_type] || '🔧'}>
+      <Drawer open={!!selected} onClose={closeCase} title={selected?.case_number || 'Case'} icon={CASE_TYPE_ICON[selected?.case_type] || '🔧'}>
         {selected && <CaseDetail c={selected} onAsset={searchAsset} />}
       </Drawer>
     </>

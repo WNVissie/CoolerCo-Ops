@@ -3,7 +3,7 @@
 // which only return rows the signed-in user may see (warehouse staff: every client
 // in their warehouse; client users: their own client).
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import Topbar from '../components/Topbar'
 import DataTable from '../components/DataTable'
 import Drawer from '../components/Drawer'
@@ -48,6 +48,14 @@ export function RegisterCases({ scope, initialCase = '' }) {
   const [err, setErr] = useState(null)
   const [sel, setSel] = useState(null)
   const [facets, setFacets] = useState({ types: [], whs: [] })
+  const [fromLink, setFromLink] = useState(initialCase) // opened from Inbox / Dashboard / a store link
+  const [params, setParams] = useSearchParams()
+  // back to the normal list: empty search, open cases, link removed from the address
+  const clearSearch = () => {
+    setText(''); setQ(''); setStatus('open'); setFromLink('')
+    if (params.get('case') || params.get('pos')) { const p = new URLSearchParams(params); p.delete('case'); p.delete('pos'); setParams(p, { replace: true }) }
+  }
+  const closeCase = () => { setSel(null); if (fromLink && fromLink === sel?.case_number) clearSearch() }
 
   useEffect(() => { const t = setTimeout(() => setQ(clean(text)), 350); return () => clearTimeout(t) }, [text])
   useEffect(() => { setPage(0) }, [q, status, type, wh, scope.client])
@@ -118,12 +126,14 @@ export function RegisterCases({ scope, initialCase = '' }) {
                 <button type="button" key={k} className={`seg-btn${status === k ? ' on' : ''}`} onClick={() => setStatus(k)}>{l}</button>
               ))}
             </div>
-            <div className="search-wrap sp-text"><span className="ico">🔍</span>
+            <div className={`search-wrap sp-text${text.trim() ? ' on' : ''}`}><span className="ico">🔍</span>
               <input type="text" placeholder="Case no., outlet or asset" value={text} onChange={e => setText(e.target.value)} />
+              {text && <button type="button" className="search-clear" title="Clear search" aria-label="Clear search" onClick={clearSearch}>✕</button>}
             </div>
             <select value={type} onChange={e => setType(e.target.value)}><option value="">📋 All case types</option>{facets.types.map(t => <option key={t} value={t}>{CASE_TYPE_ICON[t]} {t}</option>)}</select>
             <select value={wh} onChange={e => setWh(e.target.value)}><option value="">🏢 All warehouses</option>{facets.whs.map(w => <option key={w} value={w}>{w}</option>)}</select>
           </div>
+          {fromLink && text === fromLink && <div className="link-banner">🔎 Showing only <b className="mono">{fromLink}</b> (opened from a link) <button type="button" className="btn btn-ghost btn-sm" onClick={clearSearch}>✕ Show all open cases</button></div>}
           {err && <div className="form-msg err">Could not load cases: {err.message}</div>}
         </div>
         <div className="card">
@@ -135,7 +145,7 @@ export function RegisterCases({ scope, initialCase = '' }) {
           <DataTable cols={COLS} rows={rows} count={count} page={page} setPage={setPage} onRowClick={setSel} loading={loading} />
         </div>
       </div>
-      <Drawer open={!!sel} onClose={() => setSel(null)} title={sel?.case_number || 'Case'} icon={CASE_TYPE_ICON[sel?.case_type] || '🔧'}>
+      <Drawer open={!!sel} onClose={closeCase} title={sel?.case_number || 'Case'} icon={CASE_TYPE_ICON[sel?.case_type] || '🔧'}>
         {sel && <RegisterCaseDetail c={sel} scope={scope} />}
       </Drawer>
     </>
