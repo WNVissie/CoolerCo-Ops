@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import Topbar from '../components/Topbar'
 import { supabase } from '../lib/supabase'
 import { WAREHOUSES, WH_NAMES, fmt } from '../lib/helpers'
+import { useClientScope } from '../components/ClientScope'
 
 // 👥 Users & roles (script 026). Everyone signs in with their SmartHub account; here an administrator gives each person
 // their CoolerCo role(s), for all warehouses or one. Nothing is deleted: a role is switched off/on, every change logged.
@@ -9,7 +10,6 @@ import { WAREHOUSES, WH_NAMES, fmt } from '../lib/helpers'
 const ROLE_ICON = { system_admin: '🛡', administrator: '🗝', manager: '👔', supervisor: '🧑‍✈️', stock_controller: '📦', warehouse_assistant: '🧰',
   supplier: '🏭', client: '🤝', viewer: '👁', contractor_admin: '🏗', technician: '🔧', driver: '🚚' }
 const WAREHOUSE_ROLES = ['supervisor', 'stock_controller', 'warehouse_assistant', 'technician', 'driver']
-const CLIENTS = [['', 'All clients'], ['MAGNUM', 'Magnum'], ['TIGER', 'Tiger Brands']]
 const ERR = { not_allowed: 'Only administrators can manage users.', only_system_admin: 'Only the system administrator can give or remove admin roles.',
   not_yourself: 'You can’t switch off your own system administrator role.', unknown_role: 'Unknown role.', unknown_user: 'User not found.' }
 const ago = d => { if (!d) return 'never'; const days = Math.floor((Date.now() - new Date(d)) / 864e5); return days <= 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago` }
@@ -110,6 +110,7 @@ export default function Users() {
 }
 
 function AddRole({ user, roles, onDone }) {
+  const clientList = useClientScope().clients
   const [role, setRole] = useState('stock_controller')
   const [wh, setWh] = useState(() => (user.smarthub || []).find(m => WAREHOUSES.includes(m.warehouse))?.warehouse || 'JHB')
   const [client, setClient] = useState('')
@@ -131,7 +132,8 @@ function AddRole({ user, roles, onDone }) {
         {WAREHOUSES.map(w => <option key={w} value={w}>{WH_NAMES[w]}</option>)}
       </select>}
       {role === 'client' && <select className="field-ctrl" style={{ width: 'auto' }} value={client} onChange={e => setClient(e.target.value)} aria-label="Client">
-        {CLIENTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        {/* every active client (Demo, Demo Foods, Tiger …) — was Magnum / Tiger only */}
+        {[['', 'All clients'], ...(clientList || []).map(c => [c.code, c.name])].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
       </select>}
       <button className="btn btn-primary btn-sm" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Give role'}</button>
       <button className="btn btn-ghost btn-sm" onClick={() => onDone(null)}>Cancel</button>

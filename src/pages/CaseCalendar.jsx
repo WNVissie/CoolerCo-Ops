@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import Topbar from '../components/Topbar'
+import { useClientScope } from '../components/ClientScope'
 import { supabase } from '../lib/supabase'
 import { fmt, num, statusColor, CASE_TYPES, CASE_TYPE_ICON, WH_NAMES, whCaseName } from '../lib/helpers'
 
@@ -58,6 +59,7 @@ export default function CaseCalendar() {
   const [params, setParams] = useSearchParams()
   const month = params.get('m') && /^\d{4}-\d{2}/.test(params.get('m')) ? `${params.get('m').slice(0, 7)}-01` : monthStart(todaySA())
   const wh = params.get('wh') || ''
+  const scope = useClientScope()
   const client = params.get('client') || ''
   const type = params.get('type') || ''
   const by = PLACE_BY.some(p => p.key === params.get('by')) ? params.get('by') : 'due'
@@ -118,7 +120,7 @@ export default function CaseCalendar() {
   const k = cal?.kpi || {}
   const today = cal?.today || todaySA()
   const holidays = k.holidays || {}
-  const showGap = client !== 'TIGER' && (k.gap || 0) > 0
+  const showGap = (!client || client === 'MAGNUM') && (k.gap || 0) > 0
   const listRef = useRef(null)
   // phones: the list sits under the calendar → bring it into view after a tap
   const pick = s => {
@@ -160,7 +162,8 @@ export default function CaseCalendar() {
       <div className="page-content">
         <div className="filters" style={{ flexWrap: 'wrap', gap: 8 }}>
           <select className="field-ctrl" style={{ width: 'auto' }} value={client} onChange={e => set('client', e.target.value)} aria-label="Client">
-            <option value="">👥 All clients</option><option value="MAGNUM">Magnum (COM)</option><option value="TIGER">Tiger</option>
+            <option value="">👥 All clients</option>
+            {(scope.clients || []).map(c => <option key={c.code} value={c.code}>{c.code === 'MAGNUM' ? 'Magnum (COM)' : c.name}</option>)}
           </select>
           <select className="field-ctrl" style={{ width: 'auto' }} value={wh} onChange={e => set('wh', e.target.value)} aria-label="Warehouse">
             <option value="">🏢 All warehouses</option>
@@ -212,7 +215,7 @@ export default function CaseCalendar() {
 
         <div className="card" style={{ padding: 12, marginBottom: 14 }}>
           <div className="cal-head">
-            <div style={{ fontWeight: 600, fontSize: 14 }}>{monthLabel(month)}{wh ? ` · ${WH_NAMES[wh]}` : ''}{client ? ` · ${client === 'TIGER' ? 'Tiger' : 'Magnum'}` : ''}</div>
+            <div style={{ fontWeight: 600, fontSize: 14 }}>{monthLabel(month)}{wh ? ` · ${WH_NAMES[wh]}` : ''}{client ? ` · ${scope.clients?.find(c => c.code === client)?.name || client}` : ''}</div>
             <div className="cal-legend">
               {SEG.map(x => <span key={x.key}><i style={{ background: x.color }} />{x.label}</span>)}
               {showGap && <span>📱 done on app, open in COM</span>}
@@ -291,7 +294,7 @@ export default function CaseCalendar() {
                       {r.needs_action && <span className="tag tag-orange">⚠️ Needs action</span>}
                       {/^high/i.test(r.priority || '') && <span className="tag tag-red">⚡ High priority</span>}
                       {r.app_done_com_open && <span className="tag tag-teal">📱 Done on app · open in COM</span>}
-                      <span className={`tag tag-${r.source === 'COM' ? 'blue' : 'green'}`}>{r.source === 'COM' ? '🟦 COM' : `🟩 ${r.client_code === 'TIGER' ? 'Tiger' : 'CoolerCo'}`}</span>
+                      <span className={`tag tag-${r.source === 'COM' ? 'blue' : 'green'}`}>{r.source === 'COM' ? '🟦 COM' : `🟩 ${scope.clients?.find(c => c.code === r.client_code)?.name || 'CoolerCo'}`}</span>
                     </div>
                     <div>
                       <Link className="mono" to={`/cases?case=${encodeURIComponent(r.case_number)}`}>{r.case_number}</Link>
