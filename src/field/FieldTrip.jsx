@@ -89,13 +89,26 @@ export default function FieldTrip() {
         const caseNos = [...new Set(stops.map(s => s.case_number).filter(Boolean))]
         const posCodes = [...new Set(stops.map(s => s.pos_local_code).filter(Boolean))]
         // parallel: live COM status, store contacts, warehouse prep
-        const [c, k, p] = await Promise.all([
-          caseNos.length ? supabase.from('cases').select('case_number,status_reason,sla_status,end_date,service_closure_date,motive,requested_product_base,asset_delivered,asset_removed,asset_repaired').in('case_number', caseNos) : { data: [] },
+        const CASE_COLS = 'case_number,status_reason,sla_status,end_date,service_closure_date,motive,requested_product_base,asset_delivered,asset_removed,asset_repaired'
+        const ownCases = caseNos.filter(n => /^CAS-/.test(n)) // CoolerCo case numbers (Demo / Tiger / portal)
+        const [c, k, p, cc, cp] = await Promise.all([
+          caseNos.length ? supabase.from('cases').select(CASE_COLS).in('case_number', caseNos) : { data: [] },
           posCodes.length ? supabase.from('routing_pos_contacts').select('pos_local_code,customer_contact_name,mobile_phone,business_phone,customer_whatsapp').in('pos_local_code', posCodes) : { data: [] },
           supabase.rpc('coolerco_picking_queue', { p_from: date, p_warehouse: routes[0].warehouse_group }),
+          ownCases.length ? supabase.from('coolerco_all_cases').select(CASE_COLS).in('case_number', ownCases) : { data: [] },
+          supabase.rpc('coolerco_client_picks_for_routes', { p_routes: routes.map(r => r.id) }), // script 057; missing → error, ignored
         ])
-        cases = c.data || []; contacts = k.data || []
+        const seen = new Set((c.data || []).map(x => x.case_number))
+        cases = [...(c.data || []), ...(cc.data || []).filter(x => !seen.has(x.case_number))]; contacts = k.data || []
         const ids = new Set(routes.map(r => r.id)); prep = (p.data || []).filter(x => ids.has(x.route_id))
+        // Demo / Tiger coolers picked in CoolerCo (057) show on the stop like RouteIQ's preparation
+        const prepCases = new Set(prep.map(x => x.case_number))
+        for (const x of (cp.error ? [] : cp.data || [])) {
+          if (prepCases.has(x.case_number)) continue
+          prep.push({ route_id: x.route_id, case_number: x.case_number, selected_bar_code: x.asset_number, selected_asset_name: x.asset_number,
+            selected_local_code: x.serial_number, selected_product_base: x.model, selected_condition: x.condition, selected_branding: x.branding,
+            picked: true, rtw: true, packed: false, client_pick: true })
+        }
       }
       let fs = []
       if (stops.length && localStorage.getItem('cc_field_031') === '1') { try { fs = await serverStatus(stops.map(s => s.id)) } catch { /* 031 missing / no rights */ } }

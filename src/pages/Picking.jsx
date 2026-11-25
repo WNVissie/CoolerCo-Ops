@@ -4,6 +4,8 @@ import Drawer from '../components/Drawer'
 import CameraScan from '../components/CameraScan'
 import LabelPrompt from '../components/LabelPrompt'
 import PickingLegacy from './PickingLegacy'
+import ClientPicking from './ClientPicking'
+import { useAccess } from '../lib/access'
 import { supabase } from '../lib/supabase'
 import { num, WAREHOUSES, WH_NAMES, whCaseName, condColor, CASE_TYPE_ICON } from '../lib/helpers'
 import { entryTimer } from '../lib/labels'
@@ -47,7 +49,44 @@ const PROBLEM_FLAGS = ['not_rtw', 'at_pos', 'other_wh', 'family', 'condition', '
 const REASONS = ['No used stock of this model', 'Customer / Magnum asked for it', 'Approved by supervisor', 'Other cooler damaged']
 const Flag = ({ f }) => { const [i, l, c] = FLAG[f] || ['•', f, 'neutral']; return <span className={`tag tag-${c}`} title={l}>{i} {l}</span> }
 
+// 🟦 Magnum (COM stock, RouteIQ preparation) or 🟩 Other clients (CoolerCo register, script 057).
+// Users blocked from Magnum (Demo / Tiger) only get the 🟩 board.
 export default function Picking() {
+  const access = useAccess()
+  const [mode, setMode] = useState(() => keep('cc_pick_mode', 'magnum'))
+  const client = !access.magnum || mode === 'client'
+  useEffect(() => { put('cc_pick_mode', mode) }, [mode])
+  const switcher = access.magnum && (
+    <div className="seg" role="group" aria-label="Which stock" style={{ marginBottom: 10 }}>
+      <button className={`seg-btn${!client ? ' on' : ''}`} onClick={() => setMode('magnum')}>🟦 Magnum (COM)</button>
+      <button className={`seg-btn${client ? ' on' : ''}`} onClick={() => setMode('client')}>🟩 Other clients</button>
+    </div>)
+  if (client) return <ClientPickingPage switcher={switcher} />
+  return <MagnumPicking switcher={switcher} />
+}
+
+function ClientPickingPage({ switcher }) {
+  const [wh, setWh] = useState(() => keep('cc_pick_wh', keep('cc_scan_wh', 'JHB')))
+  const [day, setDay] = useState(today)
+  useEffect(() => { put('cc_pick_wh', wh) }, [wh])
+  const dayNav = <>
+    <div className="seg">
+      <button className="seg-btn" onClick={() => setDay(d => addDays(d, -1))} aria-label="Previous day">‹</button>
+      {[[today(), 'Today'], [addDays(today(), 1), 'Tomorrow']].map(([d, l]) => <button key={d} className={`seg-btn${day === d ? ' on' : ''}`} onClick={() => setDay(d)}>{l}</button>)}
+      <button className="seg-btn" onClick={() => setDay(d => addDays(d, 1))} aria-label="Next day">›</button>
+    </div>
+    <input type="date" className="field-ctrl" style={{ width: 'auto' }} value={day} onChange={e => e.target.value && setDay(e.target.value)} aria-label="Route date" />
+    <span className="text3" style={{ fontSize: 11 }}>{dayLabel(day)}</span>
+  </>
+  return (
+    <>
+      <Topbar title="Picking" sub="Other clients · coolers from CoolerCo's own stock register" />
+      <div className="page-content">{switcher}<ClientPicking wh={wh} setWh={setWh} day={day} dayNav={dayNav} /></div>
+    </>
+  )
+}
+
+function MagnumPicking({ switcher }) {
   const [wh, setWh] = useState(() => keep('cc_pick_wh', keep('cc_scan_wh', 'JHB')))
   const [day, setDay] = useState(today)
   const [data, setData] = useState(null) // { writes, lines }
@@ -114,6 +153,7 @@ export default function Picking() {
       <Topbar title="Picking" sub="Suggested cooler per stop → scan to pick · wrong coolers are stopped"
         actions={writes && <button className="btn btn-primary btn-sm" onClick={() => setScanOpen(o => !o)}>📷 Scan to pick</button>} />
       <div className="page-content">
+        {switcher}
         <div className="filters" style={{ flexWrap: 'wrap', gap: 8 }}>
           <select className="field-ctrl" style={{ width: 'auto' }} value={wh} onChange={e => setWh(e.target.value)} aria-label="Warehouse">
             {WAREHOUSES.map(w => <option key={w} value={w}>🏢 {WH_NAMES[w]}</option>)}
