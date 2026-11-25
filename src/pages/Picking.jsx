@@ -86,8 +86,9 @@ function ClientPickingPage({ switcher }) {
   )
 }
 
-// CoolerCo's own case numbers (Demo, Tiger …): CAS-yymmdd-… ; COM's are CAS-1234567-…
-const isClientCase = n => /^CAS-\d{6}-/.test(n || '')
+// CoolerCo's own case numbers look like CAS-yymmdd-… (COM's: CAS-1234567-…). Only those of a self-managed client
+// (Demo, Tiger …) use CoolerCo stock — a Magnum request logged in CoolerCo still picks from COM stock, so the client is looked up.
+const looksCoolerCo = n => /^CAS-\d{6}-/.test(n || '')
 
 function MagnumPicking({ switcher, onOther }) {
   const [wh, setWh] = useState(() => keep('cc_pick_wh', keep('cc_scan_wh', 'JHB')))
@@ -114,8 +115,19 @@ function MagnumPicking({ switcher, onOther }) {
     return () => { live = false }
   }, [wh, day, tick])
   useEffect(() => { setData(null) }, [wh, day])
+  const [clientOf, setClientOf] = useState({}) // case number → client code, for CoolerCo-numbered stops
+  useEffect(() => {
+    const nums = [...new Set((data?.lines || []).map(l => l.case_number).filter(looksCoolerCo))]
+    if (!nums.length) return setClientOf({})
+    supabase.from('coolerco_cases').select('case_number,client_code').in('case_number', nums)
+      .then(({ data: d }) => setClientOf(Object.fromEntries((d || []).map(x => [x.case_number, x.client_code]))))
+  }, [data])
+  const isClientCase = n => looksCoolerCo(n) && !!clientOf[n] && clientOf[n] !== 'MAGNUM'
 
-  const lines = useMemo(() => data?.lines || [], [data])
+  // The routing app's routes can carry Demo / Tiger stops too (one driver, one truck). Their coolers come from CoolerCo's own
+  // stock, so they are picked on the 🟩 board — the Magnum board shows only the COM stops; a route with only client stops is left out.
+  const lines = useMemo(() => (data?.lines || []).filter(l => !isClientCase(l.case_number)), [data, clientOf]) // eslint-disable-line react-hooks/exhaustive-deps
+  const clientStops = useMemo(() => (data?.lines || []).filter(l => isClientCase(l.case_number)), [data, clientOf]) // eslint-disable-line react-hooks/exhaustive-deps
   const writes = !!data?.writes
   const count = f => lines.filter(l => (l.flags || []).includes(f)).length
   const problems = lines.filter(l => (l.flags || []).some(f => PROBLEM_FLAGS.includes(f))).length
@@ -189,6 +201,8 @@ function MagnumPicking({ switcher, onOther }) {
           {card('upgrade_new', '🆕 New for used', count('upgrade_new'), 'A - New given where used was asked', count('upgrade_new') ? 'purple' : 'green')}
         </div>
 
+        {clientStops.length > 0 && <div className="notice" style={{ marginBottom: 8 }}>🟩 {clientStops.length} Demo / Tiger stop{clientStops.length > 1 ? 's' : ''} on {[...new Set(clientStops.map(l => l.route_number))].join(', ')} — their coolers come from CoolerCo's own stock.
+          <button className="btn btn-primary btn-sm" style={{ marginLeft: 8 }} onClick={onOther}>🟩 Pick them on Other clients</button></div>}
         {!data && !err && <div className="load-state"><span className="spinner" /> Loading routes…</div>}
         {data && !lines.length && <div className="empty-state"><div className="empty-ico">📦</div><div>No delivery or replacement stops on {dayLabel(day)} for {WH_NAMES[wh]}.</div><div className="text3" style={{ fontSize: 11 }}>Routes are made in the routing app.</div></div>}
         {data && lines.length > 0 && !shown.length && <div className="empty-state"><div className="empty-ico">✅</div><div>Nothing in this filter.</div></div>}
