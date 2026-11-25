@@ -62,7 +62,7 @@ export default function Picking() {
       <button className={`seg-btn${client ? ' on' : ''}`} onClick={() => setMode('client')}>🟩 Other clients</button>
     </div>)
   if (client) return <ClientPickingPage switcher={switcher} />
-  return <MagnumPicking switcher={switcher} />
+  return <MagnumPicking switcher={switcher} onOther={() => setMode('client')} />
 }
 
 function ClientPickingPage({ switcher }) {
@@ -86,7 +86,10 @@ function ClientPickingPage({ switcher }) {
   )
 }
 
-function MagnumPicking({ switcher }) {
+// CoolerCo's own case numbers (Demo, Tiger …): CAS-yymmdd-… ; COM's are CAS-1234567-…
+const isClientCase = n => /^CAS-\d{6}-/.test(n || '')
+
+function MagnumPicking({ switcher, onOther }) {
   const [wh, setWh] = useState(() => keep('cc_pick_wh', keep('cc_scan_wh', 'JHB')))
   const [day, setDay] = useState(today)
   const [data, setData] = useState(null) // { writes, lines }
@@ -234,12 +237,15 @@ function MagnumPicking({ switcher }) {
                       <td style={{ fontSize: 11 }}>
                         {l.picked ? <span className="tag tag-green" title={l.picked_at ? new Date(l.picked_at).toLocaleString('en-ZA') : ''}>✅ Picked</span> : null}
                         <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 3 }}>
-                          {(l.flags || []).filter(f => f !== 'not_picked' || !l.picked).map(f => <Flag key={f} f={f} />)}
+                          {isClientCase(l.case_number) ? <span className="tag tag-green">🟩 CoolerCo stock (Demo / Tiger)</span>
+                            : (l.flags || []).filter(f => f !== 'not_picked' || !l.picked).map(f => <Flag key={f} f={f} />)}
                         </div>
                         {l.reserved_for && <div className="text3" style={{ fontSize: 10 }}>also on {l.reserved_for}</div>}
                       </td>
                       {writes && <td style={{ whiteSpace: 'nowrap' }}>
-                        <button className={`btn btn-sm ${l.selected_asset ? 'btn-ghost' : 'btn-primary'}`} onClick={() => setChoose(l)}>✨ {l.selected_asset ? 'Change' : 'Choose'}</button>
+                        {isClientCase(l.case_number)
+                          ? <button className="btn btn-sm btn-primary" title="Demo / Tiger coolers come from CoolerCo's own stock — pick on the 🟩 Other clients board" onClick={onOther}>🟩 Pick on Other clients</button>
+                          : <button className={`btn btn-sm ${l.selected_asset ? 'btn-ghost' : 'btn-primary'}`} onClick={() => setChoose(l)}>✨ {l.selected_asset ? 'Change' : 'Choose'}</button>}
                         {l.selected_asset && <button className="btn btn-ghost btn-sm" title={l.picked ? 'Undo pick' : 'Remove cooler'} onClick={() => undo(l, l.picked ? 'pick' : 'select')}>↩</button>}
                       </td>}
                     </tr>))}
