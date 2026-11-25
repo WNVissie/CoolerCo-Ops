@@ -10,7 +10,8 @@ const ERR = {
   delivered_required: 'Which cooler was delivered? Type or scan its number.', removed_required: 'Which cooler was collected?',
   removed_not_found: 'That collected cooler is not in this client\'s register.', note_required: 'This reason needs a note.',
   already_closed: 'This case is already closed.', not_approved: 'The case is still waiting for approval.', future_time: 'The time is in the future.',
-  needs_supervisor: 'Partly done needs a supervisor (manager / supervisor) to close.', bad_result: 'Choose an outcome.',
+  needs_supervisor: 'This outcome needs a supervisor (manager / supervisor) to close.', bad_result: 'Choose an outcome.',
+  on_desk: 'This case is waiting on the Action Required desk — choose reschedule or cancel there.',
   asset_not_found: 'No cooler with that number for this client.', other_warehouse: 'That cooler is in another warehouse.',
   not_ready: 'That cooler is not Ready to Work.', picked_elsewhere: 'That cooler is picked for another case.', refused: 'Not allowed for this case type.',
 }
@@ -28,8 +29,9 @@ export default function CaseOfficeClose({ opts, onDone, onCancel }) {
   const [err, setErr] = useState(null)
   const done = opts.outcomes.filter(o => o.kind === 'done'), notDone = opts.outcomes.filter(o => o.kind === 'not_done')
   const chosen = opts.outcomes.find(o => o.key === res)
-  const needDeliv = chosen?.kind === 'done' && opts.needs_delivered && !opts.asset_delivered
-  const needRem = res === 'completed' && opts.needs_removed
+  const showDeliv = chosen?.kind === 'done' && opts.needs_delivered && res !== 'collected_only'
+  const needDeliv = showDeliv && !opts.asset_delivered
+  const needRem = (res === 'completed' || res === 'collected_only') && opts.needs_removed
 
   async function save() {
     setBusy(true); setErr(null)
@@ -41,8 +43,8 @@ export default function CaseOfficeClose({ opts, onDone, onCancel }) {
     setBusy(false)
     if (error) return setErr(error.message)
     if (data?.error) return setErr(`${data.asset ? data.asset + ': ' : ''}${ERR[data.error] || data.error}${data.status ? ` (${data.status})` : ''}`)
-    const fu = data?.engine?.follow_up
-    onDone(`✅ ${opts.case} → ${data.status}${fu ? ` · follow-up case ${fu} made` : ''}${data?.engine?.movements ? ` · ${data.engine.movements} cooler move(s) saved` : ''}.`)
+    const fu = [data?.engine?.follow_up, data?.missing_half].filter(Boolean)
+    onDone(`✅ ${opts.case} → ${data.status}${fu.length ? ` · follow-up case ${fu.join(' + ')} made` : ''}${data?.engine?.movements ? ` · ${data.engine.movements} cooler move(s) saved` : ''}${data.status === 'Action Required' ? ' · now on the 🧭 Action Required desk' : ''}.`)
   }
 
   return (
@@ -55,11 +57,12 @@ export default function CaseOfficeClose({ opts, onDone, onCancel }) {
       </div>
       <div style={{ fontSize: 11, fontWeight: 600, margin: '6px 0 4px' }}>Not done</div>
       <div className="chip-row">
-        {notDone.map(o => <button type="button" key={o.key} className={`chip-opt${res === o.key ? ' on' : ''}`} onClick={() => setRes(o.key)} title={effect(o)}>{o.label} <span className="text3">{effect(o)}</span></button>)}
+        {notDone.map(o => <button type="button" key={o.key} className={`chip-opt${res === o.key ? ' on' : ''}`} onClick={() => setRes(o.key)} title={effect(o)}>{o.alert ? '🚨 ' : ''}{o.label} <span className="text3">{effect(o)}</span></button>)}
       </div>
+      {chosen?.alert && <div className="text3" style={{ fontSize: 10.5, marginTop: 4 }}>🚨 The region gets an alert to {chosen.alert === 'location' ? 'check and fix the store location' : 'check the customer contact details'} and to request the reschedule.</div>}
       {chosen?.needs_approval && <div className="text3" style={{ fontSize: 10.5 }}>🧑‍✈️ Needs a supervisor / manager.</div>}
       {chosen && <>
-        {opts.needs_delivered && chosen.kind === 'done' && (opts.asset_delivered
+        {showDeliv && (opts.asset_delivered
           ? <div style={{ fontSize: 11, marginTop: 6 }}>📦 Delivered cooler: <b className="mono">{opts.asset_delivered}</b> (picked)</div>
           : <input className="field-ctrl" style={{ width: '100%', marginTop: 6 }} value={deliv} onChange={e => setDeliv(e.target.value)} placeholder={`📦 Delivered cooler no. (asked: ${opts.requested_model || 'any model'})`} />)}
         {needRem && <input className="field-ctrl" style={{ width: '100%', marginTop: 6 }} value={rem} onChange={e => setRem(e.target.value.toUpperCase())} placeholder="↩️ Collected cooler no." />}

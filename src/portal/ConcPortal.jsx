@@ -48,7 +48,7 @@ export default function ConcPortal({ link }) {
   const [tab, setTab] = useState('approve')
 
   const call = useCallback(async (fn, args = {}) => {
-    const read = !/_(decide|link_com|add_comment)$/.test(fn)
+    const read = !/_(decide|link_com|add_comment|alert_fix|reschedule)$/.test(fn)
     const { data, error } = read ? await rpcRead(fn, { p_session: session, ...args }) : await supabase.rpc(fn, { p_session: session, ...args })
     if (error) throw new Error(isNetErr(error) || error.network ? NET_MSG : error.message)
     if (data?.error === 'expired') { try { sessionStorage.removeItem(key) } catch {} ; setSession(null); setCtx(null); setErr(ERR.expired); return null }
@@ -57,6 +57,12 @@ export default function ConcPortal({ link }) {
 
   const loadCtx = useCallback(async () => { if (session) { const d = await call('coolerco_conc_context').catch(e => setErr(e.message)); if (d) setCtx(d) } }, [session, call])
   useEffect(() => { loadCtx() }, [loadCtx])
+  // ⚠️ Needs action (script 059): store location / contact problems from the field — hidden where 059 is not installed
+  const [alerts, setAlerts] = useState(null)
+  const loadAlerts = useCallback(async () => { if (session) { const d = await call('coolerco_conc_alerts').catch(() => null); setAlerts(d?.alerts || null) } }, [session, call])
+  useEffect(() => { loadAlerts() }, [loadAlerts])
+  const openAlerts = (alerts || []).filter(a => a.status === 'open').length
+  useEffect(() => { if (openAlerts && tab === 'approve' && !ctx?.to_approve) setTab('action') }, [openAlerts, ctx])
 
   if (!session) return staff
     ? <Shell><div className="p-card p-center"><div className="p-big">⏱️</div><p>This staff view has ended. Open it again from <b>Responsible Ordering Parties</b> in CoolerCo-Ops.</p></div></Shell>
@@ -66,6 +72,7 @@ export default function ConcPortal({ link }) {
 
   const logout = () => { try { sessionStorage.removeItem(key) } catch {} ; setSession(null); setCtx(null) }
   const TABS = [
+    ...(alerts && alerts.length ? [['action', '⚠️', 'Needs action', openAlerts]] : []),
     ['approve', '✅', 'To approve', ctx.to_approve],
     ['log', '📝', 'Log in COM', ctx.to_log],
     ['cases', '📋', 'Cases', (ctx.open_com || 0) + (ctx.attention_com || 0)],
@@ -88,6 +95,7 @@ export default function ConcPortal({ link }) {
           </button>
         ))}
       </div>
+      {tab === 'action' && <NeedsAction call={call} alerts={alerts || []} onChange={() => { loadAlerts(); loadCtx() }} />}
       {tab === 'approve' && <Approve call={call} onChange={loadCtx} />}
       {tab === 'log' && <LogCom call={call} onChange={loadCtx} />}
       {tab === 'cases' && <Cases call={call} />}
@@ -433,6 +441,77 @@ function Stores({ call, ctx }) {
         ))}
         {list.length > shown && <button className="c-link-btn" style={{ margin: '10px 0' }} onClick={() => setShown(n => n + 100)}>Show more ({(list.length - shown).toLocaleString()} left)</button>}
       </div>
+    </>
+  )
+}
+
+
+// ⚠️ Needs action: the driver could not find the store or reach the customer. Check and fix the details, then ask for a new visit.
+function NeedsAction({ call, alerts, onChange }) {
+  const [open, setOpen] = useState(null)
+  const [f, setF] = useState({})
+  const [note, setNote] = useState('')
+  const [checked, setChecked] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState(null)
+  const start = a => { setOpen(a.id); setMsg(null); setChecked(false); setNote(''); const o = a.outlet || {}
+    setF({ contact_person: o.contact_person || '', mobile_number: o.mobile_number || '', street_address: o.street_address || '', suburb: o.suburb || '', town: o.town || '',
+           gps: o.latitude != null ? `${o.latitude}, ${o.longitude}` : '' }) }
+  const parseGps = t => { const m = String(t || '').match(/(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/); return m ? { lat: +m[1], lng: +m[2] } : null }
+  const myLocation = () => navigator.geolocation?.getCurrentPosition(p => setF(x => ({ ...x, gps: `${p.coords.latitude.toFixed(6)}, ${p.coords.longitude.toFixed(6)}` })),
+    () => setMsg({ bad: true, text: 'Could not read your location — paste the map pin instead.' }), { enableHighAccuracy: true, timeout: 10000 })
+
+  async function save(a) {
+    setBusy(true); setMsg(null)
+    const g = parseGps(f.gps)
+    if (f.gps && !g) { setBusy(false); return setMsg({ bad: true, text: 'Paste the map pin as "-26.12345, 28.12345" (or a Google Maps link).' }) }
+    const p = { contact_person: f.contact_person, mobile_number: f.mobile_number, street_address: f.street_address, suburb: f.suburb, town: f.town, ...(g ? { latitude: g.lat, longitude: g.lng } : {}) }
+    const d = await call('coolerco_conc_alert_fix', { p_alert: a.id, p }).catch(e => ({ error: e.message }))
+    if (!d || d.error) { setBusy(false); return setMsg({ bad: true, text: d?.error === 'bad_gps' ? 'That map pin is not in South Africa.' : d?.error === 'no_outlet' ? 'This store is not in the register — ask the warehouse to fix it.' : d?.error || 'Not saved' }) }
+    const r = await call('coolerco_conc_reschedule', { p_alert: a.id, p_note: note || null }).catch(e => ({ error: e.message }))
+    setBusy(false)
+    if (!r || r.error) return setMsg({ bad: true, text: r?.error === 'already_done' ? 'Already done.' : r?.error || 'Not saved' })
+    setMsg({ text: r.new_case ? `✅ Store details saved · new visit booked as ${r.new_case}.` : `✅ Store details saved (${r.note}).` })
+    setOpen(null); onChange()
+  }
+
+  return (
+    <>
+      {msg && <div className={`p-card c-msg ${msg.bad ? 'bad' : ''}`}>{msg.text}</div>}
+      {!alerts.length ? <Empty icon="🎉" text="Nothing needs your action." /> : alerts.map(a => {
+        const o = a.outlet || {}, isOpen = a.status === 'open'
+        return (
+          <div className="p-card" key={a.id} style={isOpen ? { borderLeft: '4px solid #e8590c' } : {}}>
+            <div style={{ fontWeight: 600 }}>{a.kind === 'location' ? '📍 The driver could not find this store' : '📞 The driver could not reach the customer'}</div>
+            <div style={{ fontSize: 13 }}>{o.name} <span className="c-mono" style={{ opacity: .7 }}>{o.code}</span></div>
+            <div style={{ fontSize: 12, opacity: .8 }}>{a.case_type} · <span className="c-mono">{a.case_number}</span></div>
+            {a.reason && <div style={{ fontSize: 12, marginTop: 4 }}>{a.reason}</div>}
+            {!isOpen ? <div style={{ fontSize: 12, marginTop: 6 }}>✅ Done by {a.done_by}{a.follow_up ? ` · new visit ${a.follow_up}` : ''}</div>
+              : open !== a.id ? <div className="c-actions"><button className="p-btn" onClick={() => start(a)}>🔎 Check the store & book a new visit</button></div> : (
+              <div className="c-decide">
+                <div className="p-label">Map pin {o.latitude != null && <a href={`https://www.google.com/maps?q=${o.latitude},${o.longitude}`} target="_blank" rel="noreferrer">(see current pin ↗)</a>}</div>
+                <input value={f.gps} onChange={e => setF({ ...f, gps: e.target.value })} placeholder="-26.12345, 28.12345 or a Google Maps link" />
+                <div className="c-actions" style={{ justifyContent: 'flex-start' }}>
+                  <button className="p-btn ghost" onClick={myLocation}>📱 I am at the store now</button>
+                  <a className="p-btn ghost" href={`https://www.google.com/maps/search/${encodeURIComponent([o.name, o.street_address, o.town].filter(Boolean).join(' '))}`} target="_blank" rel="noreferrer">🔎 Find on Google Maps</a>
+                </div>
+                <div className="p-label">Street address</div><input value={f.street_address} onChange={e => setF({ ...f, street_address: e.target.value })} />
+                <div className="p-label">Suburb · Town</div>
+                <div style={{ display: 'flex', gap: 6 }}><input value={f.suburb} onChange={e => setF({ ...f, suburb: e.target.value })} /><input value={f.town} onChange={e => setF({ ...f, town: e.target.value })} /></div>
+                <div className="p-label">Contact person · Mobile</div>
+                <div style={{ display: 'flex', gap: 6 }}><input value={f.contact_person} onChange={e => setF({ ...f, contact_person: e.target.value })} /><input value={f.mobile_number} onChange={e => setF({ ...f, mobile_number: e.target.value })} inputMode="tel" /></div>
+                <div className="p-label">Note for the warehouse (optional)</div>
+                <textarea rows={2} value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. entrance is at the back, ask for Thabo" />
+                <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, marginTop: 6 }}>
+                  <input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)} style={{ width: 'auto' }} /> I checked the {a.kind === 'location' ? 'location' : 'contact details'} — they are correct now
+                </label>
+                <div className="c-actions">
+                  <button className="p-btn ghost" onClick={() => setOpen(null)}>Cancel</button>
+                  <button className="p-btn" disabled={busy || !checked} onClick={() => save(a)}>{busy ? 'Saving…' : '✅ Save & book a new visit'}</button>
+                </div>
+              </div>)}
+          </div>)
+      })}
     </>
   )
 }

@@ -13,6 +13,7 @@ const NAV = [
     { to: '/cases',    icon: '🔧', label: 'Cases' },
     { to: '/cases/new', icon: '➕', label: 'New case' },
     { to: '/cases/calendar', icon: '📅', label: 'Case calendar' },
+    { to: '/cases/action-required', icon: '🧭', label: 'Action required' },
     { to: '/cases/asset-at-pos', icon: '⚠️', label: 'Open case · asset at POS' },
     { to: '/cases/closure-discrepancies', icon: '🔀', label: 'Closure discrepancies', magnum: true },
     { to: '/cases/flags', icon: '🚩', label: 'Case flags' },

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import CaseStore from './CaseStore'
 import CaseOfficeClose from './CaseOfficeClose'
+import CaseDesk from './CaseDesk'
 
 const COM_PORTAL_TICKETS = 'https://emeaportal.unilevercom.com/en/tickets?toApprove=true'
 
@@ -135,10 +136,11 @@ export default function CaseActions({ caseNumber, onChanged }) {
       {a.source === 'COM' && a.is_open && (
         <div className="text3" style={{ fontSize: 10.5 }}>COM cases are cancelled in COM (CoolerCo never changes COM). Open it, cancel there — the next COM upload shows it here.</div>
       )}
+      {opts?.status === 'Action Required' && <CaseDesk caseNumber={a.case_number} onDone={t => { setMsg({ t }); load(); loadOpts(); onChanged?.() }} />}
       {closeOpen && opts && <CaseOfficeClose opts={opts} onCancel={() => setCloseOpen(false)}
         onDone={t => { setCloseOpen(false); setMsg({ t }); load(); loadOpts(); onChanged?.() }} />}
-      {a.source === 'CoolerCo' && a.is_open && !canCancel && (
-        <div className="text3" style={{ fontSize: 10.5 }}>Only supplier, manager or administrator users can cancel CoolerCo cases.</div>
+      {a.source === 'CoolerCo' && a.is_open && !canCancel && opts?.status !== 'Action Required' && (
+        <div className="text3" style={{ fontSize: 10.5 }}>Your user may not cancel this case (warehouse, office or client role needed).</div>
       )}
       {cancelOpen && (
         <div className="req-box" style={{ marginTop: 6 }}>
