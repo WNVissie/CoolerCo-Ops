@@ -1,8 +1,13 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 
+const COM_PORTAL_TICKETS = 'https://emeaportal.unilevercom.com/en/tickets?toApprove=true'
+
 // What can be done with a case:
 //  • COM case  → "Open in COM ↗" (cancelling happens in COM — CoolerCo never writes to COM)
+//  • COM case  → "Open in COM portal ↗": copies the case number and opens the COMPORTAL tickets page.
+//    The portal keeps the same address when you filter, so there is no direct link to one ticket yet:
+//    the supervisor pastes (Ctrl+V / long-press) into the Case Number filter. Each user signs in with their own portal login.
 //  • CoolerCo case → "Cancel case" with a reason (staff roles only, logged in the case history)
 // Needs script 022 (coolerco_case_actions / coolerco_case_cancel). Without it this block shows nothing.
 const ERR = {
@@ -24,6 +29,7 @@ export default function CaseActions({ caseNumber, onChanged }) {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState(null)
   const [copied, setCopied] = useState(false)
+  const [portalTip, setPortalTip] = useState(false)
 
   const load = () => supabase.rpc('coolerco_case_actions', { p_case: caseNumber })
     .then(({ data, error }) => setA(error || !data || data.error ? null : data))
@@ -39,6 +45,12 @@ export default function CaseActions({ caseNumber, onChanged }) {
 
   const copy = () => {
     navigator.clipboard?.writeText(a.case_number).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })
+  }
+  // Copy first (the click still counts as the user's action), then open the portal in a new tab
+  const openPortal = () => {
+    try { navigator.clipboard?.writeText(a.case_number) } catch { /* copy not allowed: the tip still shows the number */ }
+    window.open(COM_PORTAL_TICKETS, '_blank', 'noopener,noreferrer')
+    setPortalTip(true); setTimeout(() => setPortalTip(false), 12000)
   }
   const cancel = async () => {
     setBusy(true); setMsg(null)
@@ -58,8 +70,14 @@ export default function CaseActions({ caseNumber, onChanged }) {
         {a.source === 'COM' && a.com_url && (
           <a className="btn btn-primary btn-sm" href={a.com_url} target="_blank" rel="noopener noreferrer" title="Opens this case in Dynamics (COM) — sign in with your COM user">Open in COM ↗</a>
         )}
+        {a.source === 'COM' && (
+          <button className="btn btn-ghost btn-sm" onClick={openPortal} title="Copies the case number and opens the COM portal tickets page — sign in with your own portal login">Open in COM portal ↗</button>
+        )}
         {a.can_cancel && !cancelOpen && <button className="btn btn-danger btn-sm" onClick={() => setCancelOpen(true)}>🚫 Cancel case</button>}
       </div>
+      {portalTip && (
+        <div className="text3" style={{ fontSize: 10.5 }}>📋 <b>{a.case_number}</b> is copied. In the COM portal, paste it in the <b>Case Number</b> filter box (Ctrl+V, or long-press on a phone) and press Enter.</div>
+      )}
       {a.source === 'COM' && a.is_open && (
         <div className="text3" style={{ fontSize: 10.5 }}>COM cases are cancelled in COM (CoolerCo never changes COM). Open it, cancel there — the next COM upload shows it here.</div>
       )}
