@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { Fragment, useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { statusColor, CASE_TYPE_ICON } from '../lib/helpers'
 import { cachedQuery, kvGet, kvSet } from '../lib/offline'
@@ -160,6 +160,72 @@ export default function FieldTrip() {
   const done = stops.filter(isDone).length
   const left = stops.filter(isOpenStop).length
 
+  // one stop card (used under its own route, so stops of two routes never mix)
+  const renderStop = s => {
+      const c = byCase[s.case_number], k = byPos[s.pos_local_code], p = byPrep[s.case_number]
+      const oc = OUTCOME[s.outcome_status] || [s.outcome_status, 'neutral']
+      const lat = s.use_alternative_address ? s.alternative_latitude : s.latitude, lng = s.use_alternative_address ? s.alternative_longitude : s.longitude
+      const addr = s.use_alternative_address ? s.alternative_address : s.address
+      const nav = lat && lng ? `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}` : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(addr || s.point_of_sale)}`
+      const phone = k?.mobile_phone || k?.business_phone
+      const isOpen = open === s.id
+      const f = fstate[s.id] || {}
+      return (
+        <div key={s.id} className="f-card">
+          <button className="f-row" style={{ width: '100%', background: 'none', border: 0, padding: 0, textAlign: 'left', color: 'inherit', font: 'inherit' }} onClick={() => setOpen(isOpen ? null : s.id)}>
+            <span className={`f-seq ${isDone(s) ? 'done' : f.outcome === 'not_completed' || s.outcome_status !== 'planned' ? 'bad' : ''}`}>{s.stop_sequence}</span>
+            <div className="f-grow">
+              <strong>{s.point_of_sale}</strong>
+              <small>{CASE_TYPE_ICON[s.case_type] || '📄'} {s.case_type} · {s.case_number}{s.planned_arrival_at ? ` · ⏰ ${fmtTime(s.planned_arrival_at)}` : ''}</small>
+            </div>
+            <span className="text3">{isOpen ? '▴' : '▾'}</span>
+          </button>
+          <div className="f-tags">
+            {f.outcome ? <span className={`tag tag-${f.outcome === 'completed' ? 'green' : 'orange'}`}>{TAP_LABEL[f.outcome]}</span>
+              : f.arrived_at ? <span className="tag tag-blue">📍 At store {fmtTime(f.arrived_at)}</span>
+              : <span className={`tag tag-${oc[1]}`}>{oc[0]}</span>}
+            {f.left_at && <span className="tag tag-neutral">🚪 Left {fmtTime(f.left_at)}</span>}
+            {f.pending && <span className="tag tag-orange" title="Saved on this phone, waiting for signal">⏳ waiting to send</span>}
+            {c && <span className={`tag tag-${statusColor(c.status_reason)}`} title="Live status in COM">COM: {c.status_reason}</span>}
+            {c?.sla_status && <span className="tag tag-neutral">{c.sla_status}</span>}
+            {s.asset_count > 0 && <span className="tag tag-neutral">❄️ {s.asset_count}</span>}
+          </div>
+          <StopAssets stop={s} prep={p} kase={c} />
+          {isOpen && (
+            <>
+              <div className="f-kv">
+                <span>Address</span><div>{addr || '—'}</div>
+                {k && <><span>Contact</span><div>{k.customer_contact_name || '—'}{phone ? ` · ${phone}` : ''}</div></>}
+                <span>Due</span><div>{c?.end_date ? new Date(c.end_date).toLocaleDateString('en-ZA') : s.end_date ? new Date(s.end_date).toLocaleDateString('en-ZA') : '—'}</div>
+                {c?.requested_product_base && <><span>Requested</span><div>{c.requested_product_base}</div></>}
+                {s.outcome_recorded_at && <><span>Recorded</span><div>{fmtTime(s.outcome_recorded_at)} · {s.actual_case_status || ''}{s.outcome_reason ? ` · ${s.outcome_reason}` : ''}</div></>}
+                {c?.service_closure_date && <><span>Closed (COM)</span><div>{new Date(c.service_closure_date).toLocaleString('en-ZA')}</div></>}
+              </div>
+              <div className="f-acts">
+                <a className="btn btn-primary btn-sm" href={nav} target="_blank" rel="noopener noreferrer">🧭 Navigate</a>
+                {phone && <a className="btn btn-ghost btn-sm" href={`tel:${phone}`}>📞 Call</a>}
+                {waNo(k?.customer_whatsapp || k?.mobile_phone) && <a className="btn btn-ghost btn-sm" href={`https://wa.me/${waNo(k?.customer_whatsapp || k?.mobile_phone)}`} target="_blank" rel="noopener noreferrer">💬 WhatsApp</a>}
+                {!ready && <a className="btn btn-ghost btn-sm" href={ROUTING_URL} target="_blank" rel="noopener noreferrer" title="Arrived, outcome, job card — recorded in the routing trip sheet">📝 Record outcome ↗</a>}
+              </div>
+              {ready && (
+                <div className="f-taps">
+                  {!f.arrived_at && <button className="btn btn-primary" disabled={!!tapBusy} onClick={() => arrive(s)}>{tapBusy === s.id + 'arrived' ? '📡 Checking location…' : '📍 Arrived at store'}</button>}
+                  {f.arrived_at && !f.outcome && <>
+                    <button className="btn btn-primary" onClick={() => setCard({ stop: s, mode: 'completed' })}>📝 Job card — completed</button>
+                    <button className="btn btn-ghost" onClick={() => setCard({ stop: s, mode: 'not_completed' })}>⚠️ Not completed — job card</button>
+                  </>}
+                  {f.outcome && !f.left_at && <button className="btn btn-primary" disabled={!!tapBusy} onClick={() => tap(s, 'left')}>{tapBusy === s.id + 'left' ? '…' : '🚪 Left store'}</button>}
+                  {f.outcome && <button className="btn btn-ghost btn-sm" onClick={() => setCard({ stop: s, mode: f.outcome })}>✏️ Redo job card</button>}
+                  {v033 && <StopExtras stop={s} driver={driver} contact={k} events={rEvents} reports={rReports} onSaved={refreshPending} />}
+                  {f.arrived_at && <small className="text3">📍 {fmtTime(f.arrived_at)}{f.outcome_at ? ` · ${TAP_LABEL[f.outcome]} ${fmtTime(f.outcome_at)}` : ''}{f.reason_code ? ` · ${reasons.find(r => r.code === f.reason_code)?.label || f.reason_code}` : ''}{f.left_at ? ` · 🚪 ${fmtTime(f.left_at)}` : ''}</small>}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )
+  }
+
   return (
     <div className="f-pad">
       <div className="f-card">
@@ -188,7 +254,8 @@ export default function FieldTrip() {
         const rs = stops.filter(s => s.route_id === r.id)
         const rDone = rs.filter(isDone).length
         return (
-          <div key={r.id} className="f-card">
+          <Fragment key={r.id}>
+          <div className="f-card">
             <div className="f-row">
               <div className="f-grow"><strong>{r.route_number}</strong><small>{r.vehicle_code || 'No vehicle'} · start {fmtTime(r.planned_start_at) || '—'} · back {fmtTime(r.planned_return_at) || '—'}{r.planned_distance_km ? ` · ${Math.round(r.planned_distance_km)} km` : ''}</small></div>
               <span className={`tag tag-${r.status === 'completed' ? 'green' : r.status === 'dispatched' || r.status === 'partially_completed' ? 'blue' : 'neutral'}`}>{String(r.status || '').replace(/_/g, ' ')}</span>
@@ -199,73 +266,11 @@ export default function FieldTrip() {
             {v033 && <RouteDelay route={r} driver={driver} events={rEvents.filter(e => e.route_id === r.id)} onSaved={refreshPending} />}
             <div className="f-stat"><div><b>{rs.length}</b><small>stops</small></div><div><b>{rDone}</b><small>done</small></div><div><b>{rs.filter(isOpenStop).length}</b><small>to go</small></div></div>
           </div>
+          {rs.map(renderStop)}
+          </Fragment>
         )
       })}
 
-      {stops.map(s => {
-        const c = byCase[s.case_number], k = byPos[s.pos_local_code], p = byPrep[s.case_number]
-        const oc = OUTCOME[s.outcome_status] || [s.outcome_status, 'neutral']
-        const lat = s.use_alternative_address ? s.alternative_latitude : s.latitude, lng = s.use_alternative_address ? s.alternative_longitude : s.longitude
-        const addr = s.use_alternative_address ? s.alternative_address : s.address
-        const nav = lat && lng ? `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}` : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(addr || s.point_of_sale)}`
-        const phone = k?.mobile_phone || k?.business_phone
-        const isOpen = open === s.id
-        const f = fstate[s.id] || {}
-        return (
-          <div key={s.id} className="f-card">
-            <button className="f-row" style={{ width: '100%', background: 'none', border: 0, padding: 0, textAlign: 'left', color: 'inherit', font: 'inherit' }} onClick={() => setOpen(isOpen ? null : s.id)}>
-              <span className={`f-seq ${isDone(s) ? 'done' : f.outcome === 'not_completed' || s.outcome_status !== 'planned' ? 'bad' : ''}`}>{s.stop_sequence}</span>
-              <div className="f-grow">
-                <strong>{s.point_of_sale}</strong>
-                <small>{CASE_TYPE_ICON[s.case_type] || '📄'} {s.case_type} · {s.case_number}{s.planned_arrival_at ? ` · ⏰ ${fmtTime(s.planned_arrival_at)}` : ''}</small>
-              </div>
-              <span className="text3">{isOpen ? '▴' : '▾'}</span>
-            </button>
-            <div className="f-tags">
-              {f.outcome ? <span className={`tag tag-${f.outcome === 'completed' ? 'green' : 'orange'}`}>{TAP_LABEL[f.outcome]}</span>
-                : f.arrived_at ? <span className="tag tag-blue">📍 At store {fmtTime(f.arrived_at)}</span>
-                : <span className={`tag tag-${oc[1]}`}>{oc[0]}</span>}
-              {f.left_at && <span className="tag tag-neutral">🚪 Left {fmtTime(f.left_at)}</span>}
-              {f.pending && <span className="tag tag-orange" title="Saved on this phone, waiting for signal">⏳ waiting to send</span>}
-              {c && <span className={`tag tag-${statusColor(c.status_reason)}`} title="Live status in COM">COM: {c.status_reason}</span>}
-              {c?.sla_status && <span className="tag tag-neutral">{c.sla_status}</span>}
-              {s.asset_count > 0 && <span className="tag tag-neutral">❄️ {s.asset_count}</span>}
-            </div>
-            <StopAssets stop={s} prep={p} kase={c} />
-            {isOpen && (
-              <>
-                <div className="f-kv">
-                  <span>Address</span><div>{addr || '—'}</div>
-                  {k && <><span>Contact</span><div>{k.customer_contact_name || '—'}{phone ? ` · ${phone}` : ''}</div></>}
-                  <span>Due</span><div>{c?.end_date ? new Date(c.end_date).toLocaleDateString('en-ZA') : s.end_date ? new Date(s.end_date).toLocaleDateString('en-ZA') : '—'}</div>
-                  {c?.requested_product_base && <><span>Requested</span><div>{c.requested_product_base}</div></>}
-                  {s.outcome_recorded_at && <><span>Recorded</span><div>{fmtTime(s.outcome_recorded_at)} · {s.actual_case_status || ''}{s.outcome_reason ? ` · ${s.outcome_reason}` : ''}</div></>}
-                  {c?.service_closure_date && <><span>Closed (COM)</span><div>{new Date(c.service_closure_date).toLocaleString('en-ZA')}</div></>}
-                </div>
-                <div className="f-acts">
-                  <a className="btn btn-primary btn-sm" href={nav} target="_blank" rel="noopener noreferrer">🧭 Navigate</a>
-                  {phone && <a className="btn btn-ghost btn-sm" href={`tel:${phone}`}>📞 Call</a>}
-                  {waNo(k?.customer_whatsapp || k?.mobile_phone) && <a className="btn btn-ghost btn-sm" href={`https://wa.me/${waNo(k?.customer_whatsapp || k?.mobile_phone)}`} target="_blank" rel="noopener noreferrer">💬 WhatsApp</a>}
-                  {!ready && <a className="btn btn-ghost btn-sm" href={ROUTING_URL} target="_blank" rel="noopener noreferrer" title="Arrived, outcome, job card — recorded in the routing trip sheet">📝 Record outcome ↗</a>}
-                </div>
-                {ready && (
-                  <div className="f-taps">
-                    {!f.arrived_at && <button className="btn btn-primary" disabled={!!tapBusy} onClick={() => arrive(s)}>{tapBusy === s.id + 'arrived' ? '📡 Checking location…' : '📍 Arrived at store'}</button>}
-                    {f.arrived_at && !f.outcome && <>
-                      <button className="btn btn-primary" onClick={() => setCard({ stop: s, mode: 'completed' })}>📝 Job card — completed</button>
-                      <button className="btn btn-ghost" onClick={() => setCard({ stop: s, mode: 'not_completed' })}>⚠️ Not completed — job card</button>
-                    </>}
-                    {f.outcome && !f.left_at && <button className="btn btn-primary" disabled={!!tapBusy} onClick={() => tap(s, 'left')}>{tapBusy === s.id + 'left' ? '…' : '🚪 Left store'}</button>}
-                    {f.outcome && <button className="btn btn-ghost btn-sm" onClick={() => setCard({ stop: s, mode: f.outcome })}>✏️ Redo job card</button>}
-                    {v033 && <StopExtras stop={s} driver={driver} contact={k} events={rEvents} reports={rReports} onSaved={refreshPending} />}
-                    {f.arrived_at && <small className="text3">📍 {fmtTime(f.arrived_at)}{f.outcome_at ? ` · ${TAP_LABEL[f.outcome]} ${fmtTime(f.outcome_at)}` : ''}{f.reason_code ? ` · ${reasons.find(r => r.code === f.reason_code)?.label || f.reason_code}` : ''}{f.left_at ? ` · 🚪 ${fmtTime(f.left_at)}` : ''}</small>}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        )
-      })}
       {v033 && trip?.routes.map(r => <RouteWarehouse key={'back' + r.id} where="bottom" route={r} driver={driver} events={rEvents.filter(e => e.route_id === r.id)} onSaved={refreshPending} />)}
       {driver.me && trip && navigator.onLine && <CrewRequests date={date} myRoutes={trip.routes} onChanged={load} />}
       {stops.length > 0 && <p className="text3" style={{ fontSize: 11, textAlign: 'center' }}>{done} done · {left} to go · {ready ? 'Taps and job cards are saved on the phone and sent when there is signal (test system — not sent to RouteIQ yet).' : 'Record arrivals and outcomes in the routing trip sheet'} — COM status updates after the next COM upload.</p>}

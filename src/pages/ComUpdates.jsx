@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import Topbar from '../components/Topbar'
 import { supabase } from '../lib/supabase'
 import { WH_NAMES, fmt } from '../lib/helpers'
+import { useAccess } from '../lib/access'
 
 // 📤 COM updates (script 038) — one rules table turns CoolerCo events into what COM needs, per client and case type.
 //   Magnum (COM is master): notifications queue here → ⬇ file for COM's Import from Excel → ✓ marked. CoolerCo never writes COM.
@@ -20,6 +21,13 @@ const CHECK_LABEL = { not_at_pos_in_com: '📍 Not at the POS in COM yet', still
 export default function ComUpdates() {
   const [tab, setTab] = useState('send')
   const [missing, setMissing] = useState(false)
+  const access = useAccess()
+  if (access.ready && (!access.magnum || !access.office)) return (
+    <>
+      <Topbar title="📤 COM updates" sub="Magnum (COM) case updates" />
+      <div className="page-content"><div className="form-msg warn">This page is for administrators and supervisors with Magnum (COM) access. It builds the file that updates Magnum's COM cases.</div></div>
+    </>
+  )
   return (
     <>
       <Topbar title="📤 COM updates" sub="Case steps and asset movements from the app — file for COM (Magnum) · applied directly (Tiger)" />
@@ -82,6 +90,7 @@ function Queue({ status, onMissing }) {
     rows.forEach(r => { if (first[r.case_number] === r.id && !blocked.has(r.case_number)) ready.add(r.id) })
   }
   const chosen = () => {
+    if (!rows) return []   // still loading (the page used to go blank here)
     const base = sel.length ? rows.filter(r => sel.includes(r.id)) : rows
     return status === 'to_send' ? base.filter(r => ready.has(r.id)) : base
   }

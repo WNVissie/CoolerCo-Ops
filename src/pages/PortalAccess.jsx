@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react'
 import Topbar from '../components/Topbar'
 import Drawer from '../components/Drawer'
 import { supabase } from '../lib/supabase'
+import { Link } from 'react-router-dom'
 import { fmt, num, WH_NAMES } from '../lib/helpers'
+import { useClientScope, ClientBadge } from '../components/ClientScope'
 
 // Create / share the customer portal link for a store (one link per POS).
 const portalUrl = token => `${window.location.origin}/p/${token}`
@@ -12,7 +14,15 @@ const waNumber = n => {
   return d.startsWith('0') ? '27' + d.slice(1) : d
 }
 
+// Customers & portal links (Wanda 2026-11-25: "I cannot create QR codes … I cannot see the customer list").
+//   Magnum (COM): search a store (min 3 characters) — as before.
+//   Tiger / Demo / any self-managed client: the client's outlet register is listed straight away (scoped by the user's
+//   access), filter by text, warehouse, region, rep / Responsible Ordering Party; per store: open cases, 📂 cases, link + QR.
 export default function PortalAccess() {
+  const scope = useClientScope()
+  const [mode, setMode] = useState(null)   // null = follow the client chips default
+  const clientOpts = (scope.options || []).filter(o => o.code !== 'MAGNUM')
+  const view = mode || (scope.ready && (scope.blocked || scope.client !== 'MAGNUM') && clientOpts.length ? (scope.client !== 'MAGNUM' ? scope.client : 'ALL') : 'MAGNUM')
   const [q, setQ] = useState('')
   const [deb, setDeb] = useState('')
   const [stores, setStores] = useState([])
@@ -71,8 +81,16 @@ export default function PortalAccess() {
 
   return (
     <>
-      <Topbar title="Portal Access" sub="One secure link per store · share by WhatsApp or QR" />
+      <Topbar title="Customers & portal links" sub="Every store per client · one secure link per store · share by WhatsApp or QR" />
       <div className="page-content">
+        {scope.ready && (clientOpts.length > 0) && (
+          <div className="chip-row" role="group" aria-label="Client" style={{ alignItems: 'center' }}>
+            <span className="text3" style={{ fontSize: 11 }}>Client</span>
+            {!scope.blocked && <button type="button" className={`chip-opt${view === 'MAGNUM' ? ' on' : ''}`} onClick={() => setMode('MAGNUM')}>🟦 Magnum (COM)</button>}
+            {clientOpts.map(o => <button type="button" key={o.code} className={`chip-opt${view === o.code ? ' on' : ''}`} onClick={() => setMode(o.code)}>{o.color ? <span className="cl-dot" style={{ background: o.color.dot }} /> : o.icon} {o.name}</button>)}
+          </div>
+        )}
+        {view !== 'MAGNUM' ? <ClientOutlets scope={scope} client={view} onOpen={setOpen} /> : <>
         <div className="filters">
           <div className="search-wrap" style={{ flex: 1 }}><span className="ico">🏪</span>
             <input placeholder="Search store name or POS code (min 3 characters)…" value={q} onChange={e => setQ(e.target.value)} /></div>
@@ -92,10 +110,85 @@ export default function PortalAccess() {
             ))}
           </div>
         </details>
+        </>}
       </div>
       <Drawer open={!!open} onClose={() => setOpen(null)} title={open?.point_of_sale || 'Portal link'} icon="🔗">
         {open && <LinkDetail link={open} onSaved={l => { setOpen(l); setLinks(x => ({ ...x, [l.pos_local_code]: l })); loadRecent() }} />}
       </Drawer>
+    </>
+  )
+}
+
+function ClientOutlets({ scope, client, onOpen }) {
+  const [rows, setRows] = useState(null)
+  const [links, setLinks] = useState({})
+  const [openBy, setOpenBy] = useState({})
+  const [q, setQ] = useState('')
+  const [wh, setWh] = useState('')
+  const [rep, setRep] = useState('')
+  const [region, setRegion] = useState('')
+  const [msg, setMsg] = useState(null)
+  const load = async () => {
+    setRows(null)
+    let r = supabase.from('coolerco_outlets').select('client_code,outlet_code,name,town,suburb,province,warehouse_code,region,rep_code,contact_person,mobile_number,latitude,longitude,active').eq('active', true).order('name').limit(2000)
+    if (client !== 'ALL') r = r.eq('client_code', client)
+    const [{ data, error }, l, c] = await Promise.all([
+      r,
+      supabase.from('coolerco_portal_links').select('*').neq('client_code', 'MAGNUM').limit(5000),
+      supabase.from('coolerco_all_cases').select('pos_local_code').neq('source', 'COM').eq('is_open', true).limit(5000),
+    ])
+    if (error) { setMsg({ bad: true, t: error.message }); setRows([]); return }
+    setRows(data || [])
+    setLinks(Object.fromEntries((l.data || []).map(x => [x.pos_local_code, x])))
+    const m = {}; (c.data || []).forEach(x => { m[x.pos_local_code] = (m[x.pos_local_code] || 0) + 1 }); setOpenBy(m)
+  }
+  useEffect(() => { load() }, [client]) // eslint-disable-line react-hooks/exhaustive-deps
+  const uniq = k => [...new Set((rows || []).map(r => r[k]).filter(Boolean))].sort()
+  const s = q.trim().toLowerCase()
+  const list = (rows || []).filter(r => (!wh || r.warehouse_code === wh) && (!rep || r.rep_code === rep) && (!region || r.region === region)
+    && (!s || [r.name, r.outlet_code, r.town, r.suburb, r.contact_person].some(v => String(v || '').toLowerCase().includes(s))))
+  async function makeLink(o) {
+    setMsg(null)
+    const { data, error } = await supabase.rpc('coolerco_portal_link_for_outlet', { p_client: o.client_code, p_outlet: o.outlet_code })
+    if (error) return setMsg({ bad: true, t: /does not exist|PGRST202/i.test(error.message) ? 'Making a new link needs database script 055 on this database.' : error.message })
+    setLinks(x => ({ ...x, [o.outlet_code]: data })); onOpen(data)
+  }
+  return (
+    <>
+      <div className="filters" style={{ flexWrap: 'wrap', gap: 8 }}>
+        <div className="search-wrap" style={{ flex: '1 1 240px' }}><span className="ico">🏪</span>
+          <input placeholder="Store, code, town or contact…" value={q} onChange={e => setQ(e.target.value)} /></div>
+        <select value={wh} onChange={e => setWh(e.target.value)}><option value="">🏢 All warehouses</option>{uniq('warehouse_code').map(w => <option key={w} value={w}>{WH_NAMES[w] || w}</option>)}</select>
+        {uniq('region').length > 0 && <select value={region} onChange={e => setRegion(e.target.value)}><option value="">🗺 All regions</option>{uniq('region').map(w => <option key={w}>{w}</option>)}</select>}
+        {uniq('rep_code').length > 0 && <select value={rep} onChange={e => setRep(e.target.value)}><option value="">🤝 All Responsible Ordering Parties</option>{uniq('rep_code').map(w => <option key={w}>{w}</option>)}</select>}
+        <button className="btn btn-ghost btn-sm" onClick={load}>↻ Refresh</button>
+      </div>
+      {msg && <div className={`form-msg ${msg.bad ? 'err' : 'ok'}`}>{msg.t}</div>}
+      <div className="card">
+        <div className="card-header"><span className="card-title">🏪 Stores</span><span className="card-count">{rows ? `${num(list.length)} of ${num(rows.length)}` : ''}</span></div>
+        {!rows ? <div className="load-state"><span className="spinner" /> Loading stores…</div> : !list.length ? <div className="text3" style={{ padding: 12 }}>No stores match.</div> : (
+          <div className="tbl-wrap"><table className="tbl">
+            <thead><tr>{client === 'ALL' && <th>Client</th>}<th>Store</th><th>Town</th><th>Warehouse</th><th>Region / ROP</th><th>Contact</th><th>Open cases</th><th>Portal link</th></tr></thead>
+            <tbody>{list.slice(0, 500).map(o => {
+              const l = links[o.outlet_code]
+              return (
+                <tr key={o.client_code + o.outlet_code}>
+                  {client === 'ALL' && <td><ClientBadge scope={scope} code={o.client_code} small /></td>}
+                  <td><strong style={{ fontSize: 12 }}>{o.name}</strong><div className="text3 mono" style={{ fontSize: 10 }}>{o.outlet_code}{o.latitude == null ? ' · ⚠ no GPS' : ''}</div></td>
+                  <td>{o.town || o.suburb || '—'}</td>
+                  <td>{WH_NAMES[o.warehouse_code] || o.warehouse_code || '—'}</td>
+                  <td>{[o.region, o.rep_code].filter(Boolean).join(' · ') || '—'}</td>
+                  <td>{o.contact_person || '—'}{o.mobile_number ? <div className="text3" style={{ fontSize: 10 }}>{o.mobile_number}</div> : null}</td>
+                  <td>{openBy[o.outlet_code] ? <Link to={`/cases?client=${o.client_code}&pos=${encodeURIComponent(o.outlet_code)}`}>📂 {openBy[o.outlet_code]} open</Link> : <span className="text3">—</span>}</td>
+                  <td>{l ? <button className="btn btn-ghost btn-sm" onClick={() => onOpen(l)}>{l.active ? '🔗 Share / QR' : '⏸ off · edit'}</button>
+                    : <button className="btn btn-primary btn-sm" onClick={() => makeLink(o)}>＋ Create link</button>}</td>
+                </tr>
+              )
+            })}</tbody>
+          </table></div>
+        )}
+        {list.length > 500 && <div className="text3" style={{ padding: 8, fontSize: 11 }}>Showing the first 500 — narrow the search.</div>}
+      </div>
     </>
   )
 }

@@ -104,7 +104,7 @@ function Alerts({ onChanged, openQuery }) {
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                   {n.event_type === 'case_query' && n.case_number && <button className="btn btn-primary btn-sm" onClick={() => openQuery(n.case_number)}>💬 Reply</button>}
                   {n.event_type === 'contact_update' && <Link className="btn btn-primary btn-sm" to="/inbox?tab=contacts">👤 Review</Link>}
-                  {n.event_type !== 'case_query' && n.event_type !== 'contact_update' && n.case_number && <Link className="btn btn-ghost btn-sm" to={com ? `/cases?case=${encodeURIComponent(n.case_number)}` : '/requests'}>Open</Link>}
+                  {n.event_type !== 'case_query' && n.event_type !== 'contact_update' && n.case_number && <Link className="btn btn-ghost btn-sm" to={com ? `/cases?client=MAGNUM&case=${encodeURIComponent(n.case_number)}` : `/cases?client=ALL&case=${encodeURIComponent(n.case_number)}`}>Open case</Link>}
                   {n.status === 'queued' && <button className="btn btn-ghost btn-sm" onClick={() => markRead([n.id])} aria-label="Mark as read">✓</button>}
                 </div>
               </div>
@@ -206,7 +206,7 @@ function Thread({ row, onSent }) {
       {info?.point_of_sale && <div className="text3" style={{ fontSize: 11.5, margin: '6px 0' }}>🏪 {info.point_of_sale} · {info.pos_local_code}</div>}
       {com && <div className="notice">ℹ️ This is a COM case. The customer&apos;s messages and your replies are kept in CoolerCo — COM is not changed. Update the case in COM if something there needs to change.</div>}
       <div style={{ margin: '8px 0' }}>
-        <Link className="btn btn-ghost btn-sm" to={com ? `/cases?case=${encodeURIComponent(row.case_number)}` : '/requests'}>Open {com ? 'in Cases' : 'Requests'} ›</Link>
+        <Link className="btn btn-ghost btn-sm" to={`/cases?client=${com ? 'MAGNUM' : 'ALL'}&case=${encodeURIComponent(row.case_number)}`}>📂 Open the case ›</Link>
       </div>
       {!msgs ? <div className="load-state"><span className="spinner" /></div> : (
         <div className="timeline">

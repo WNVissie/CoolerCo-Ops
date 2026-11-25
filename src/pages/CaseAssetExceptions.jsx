@@ -3,6 +3,32 @@ import { Link } from 'react-router-dom'
 import Topbar from '../components/Topbar'
 import { supabase } from '../lib/supabase'
 import { fmt, num, condColor, slaColor, WH_NAMES, whCaseName } from '../lib/helpers'
+import { useAccess } from '../lib/access'
+
+// Self-managed clients (Tiger, Demo …): CoolerCo keeps the asset register, so the check runs on THEIR cases and THEIR
+// assets (coolerco_all_cases + coolerco_all_assets) — never COM. Open Deliver / Replacement cases whose delivered asset
+// already stands at an outlet: at this outlet (= delivered, case still open) or at another one.
+async function clientExceptions(since) {
+  const { data: cs, error } = await supabase.from('coolerco_all_cases')
+    .select('case_number,client_code,case_type,status_reason,point_of_sale,pos_local_code,warehouse_workshop,responsible_ordering_party,asset_delivered,created_on,end_date,requested_product_base,requested_asset_condition')
+    .neq('source', 'COM').eq('is_open', true).in('case_type', ['Deliver an Asset', 'Replacement of Asset']).not('asset_delivered', 'is', null)
+    .gte('created_on', since).limit(2000)
+  if (error) return { error }
+  const names = [...new Set((cs || []).map(c => c.asset_delivered))]
+  const { data: as } = names.length ? await supabase.from('coolerco_all_assets').select('asset_number,bar_code,model,condition,location_type,location_code,location_name').in('asset_number', names) : { data: [] }
+  const byA = Object.fromEntries((as || []).map(a => [a.asset_number, a]))
+  const rows = []
+  for (const c of cs || []) {
+    const a = byA[c.asset_delivered]
+    if (!a || a.location_type !== 'Outlet') continue
+    rows.push({ kind: a.location_code === c.pos_local_code ? 'delivered_open' : 'other_pos', case_number: c.case_number, case_type: c.case_type,
+      status_reason: c.status_reason, point_of_sale: c.point_of_sale, pos_local_code: c.pos_local_code, warehouse: c.warehouse_workshop,
+      concessionaire: c.responsible_ordering_party, created_on: c.created_on, end_date: c.end_date, asset: a.asset_number, asset_bar_code: a.bar_code,
+      asset_product_base: a.model, asset_condition: a.condition, asset_source: 'Delivered on the case', asset_now: `${a.location_name || a.location_code} (${a.location_code})`,
+      requested_product_base: c.requested_product_base, requested_condition: c.requested_asset_condition, client_code: c.client_code })
+  }
+  return { data: rows }
+}
 
 // Open cases where COM already shows the asset at the store (or back in the warehouse) — the case was not closed.
 // Server-side: coolerco_open_case_asset_exceptions(since, warehouse) (014, read only) does the matching;
@@ -23,6 +49,9 @@ const loadSeen = () => { try { return new Set(JSON.parse(localStorage.getItem(SE
 const hhmm = d => d ? new Date(d).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' }) : ''
 
 export default function CaseAssetExceptions() {
+  const access = useAccess()
+  const [src, setSrc] = useState(null) // 'com' | 'clients' — demo / Tiger users only get 'clients'
+  const source = src || (access.ready && !access.magnum ? 'clients' : 'com')
   const [since, setSince] = useState('2026-07-01')
   const [wh, setWh] = useState('')
   const [rows, setRows] = useState(null)
@@ -40,7 +69,16 @@ export default function CaseAssetExceptions() {
   // Live: every load reads the latest COM upload. Re-checks every 5 min (only while visible) and when you come back to the tab.
   useEffect(() => {
     let live = true
+    if (!access.ready) return
     setErr(null); setBusy(true)
+    if (source === 'clients') {
+      clientExceptions(since).then(({ data, error }) => {
+        if (!live) return
+        if (error) setErr(error.message); else setRows((data || []).filter(r => !wh || (r.warehouse || '').includes(WH_NAMES[wh] || wh)))
+        setComAt(null); setCheckedAt(new Date()); setBusy(false)
+      })
+      return () => { live = false }
+    }
     Promise.all([
       supabase.rpc('coolerco_open_case_asset_exceptions', { p_since: since, p_warehouse: wh ? whCaseName(wh) : null }),
       supabase.from('assets_live').select('last_synced_at').order('last_synced_at', { ascending: false, nullsFirst: false }).limit(1),
@@ -51,8 +89,8 @@ export default function CaseAssetExceptions() {
       setComAt(a.data?.[0]?.last_synced_at || null); setCheckedAt(new Date()); setBusy(false)
     })
     return () => { live = false }
-  }, [since, wh, tick])
-  useEffect(() => { setRows(null); setShown(PAGE) }, [since, wh])
+  }, [since, wh, tick, source, access.ready])
+  useEffect(() => { setRows(null); setShown(PAGE) }, [since, wh, source])
   useEffect(() => {
     const t = setInterval(() => { if (document.visibilityState === 'visible') setTick(n => n + 1) }, REFRESH_MS)
     const back = () => { if (document.visibilityState === 'visible' && checkedAt && Date.now() - checkedAt > 60000) setTick(n => n + 1) }
@@ -100,6 +138,12 @@ export default function CaseAssetExceptions() {
       <Topbar title="Open case · asset at POS" sub="Open deliver & replacement cases where the asset picked / prepared is already at a POS"
         actions={<button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => setTick(n => n + 1)}>{busy ? '⏳ Checking…' : '↻ Refresh'}</button>} />
       <div className="page-content">
+        {access.ready && access.magnum && (
+          <div className="seg" style={{ marginBottom: 8 }}>
+            <button className={`seg-btn ${source === 'com' ? 'on' : ''}`} onClick={() => setSrc('com')}>🟦 Magnum (COM)</button>
+            <button className={`seg-btn ${source === 'clients' ? 'on' : ''}`} onClick={() => setSrc('clients')}>🟩 Other clients (CoolerCo register)</button>
+          </div>
+        )}
         <div className="filters" style={{ flexWrap: 'wrap', gap: 8 }}>
           <label className="text3" style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 6 }}>Cases created since
             <input type="date" className="field-ctrl" style={{ width: 'auto' }} value={since} onChange={e => e.target.value && setSince(e.target.value)} /></label>

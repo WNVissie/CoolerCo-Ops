@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import Topbar from '../components/Topbar'
 import { supabase } from '../lib/supabase'
 import { fmt, num, OPEN_REASONS, statusColor, CASE_TYPE_ICON } from '../lib/helpers'
+import { useAccess } from '../lib/access'
 
 function KPI({ label, value, sub, color = '' }) {
   return (
@@ -20,11 +21,30 @@ export default function Dashboard() {
   const [routes, setRoutes] = useState([])
   const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
+  const access = useAccess()
+  // users who may not see Magnum (Demo / Tiger clients, their warehouse staff) get their own clients' numbers
+  const clientMode = access.ready && !access.magnum
   // a table row that opens something: click or Enter
   const rowLink = to => ({ onClick: () => navigate(to), onKeyDown: e => { if (e.key === 'Enter') navigate(to) }, tabIndex: 0, role: 'link', className: 'row-link' })
 
   useEffect(() => {
+    if (!access.ready) return
+    async function loadClients() {
+      const now = new Date().toISOString()
+      const open = () => supabase.from('coolerco_all_cases').select('case_number', { count: 'exact', head: true }).eq('is_open', true)
+      const [all, late, wh, rtw, rc] = await Promise.all([
+        open(),
+        open().lt('end_date', now),
+        supabase.from('coolerco_all_assets').select('asset_number', { count: 'exact', head: true }).eq('location_type', 'Warehouse'),
+        supabase.from('coolerco_all_assets').select('asset_number', { count: 'exact', head: true }).eq('location_type', 'Warehouse').ilike('status', '%ready%'),
+        supabase.from('coolerco_all_cases').select('case_number,case_type,point_of_sale,warehouse_workshop,status_reason,created_on,client_code')
+          .eq('is_open', true).order('created_on', { ascending: false }).limit(8),
+      ])
+      setKpi({ stock: wh.count, available: rtw.count, openCases: all.count, overdue: late.count, scans: null, pickPending: null, client: true })
+      setRoutes([]); setRecentCases(rc.data || []); setLoading(false)
+    }
     async function load() {
+      if (clientMode) return loadClients()
       // All loads fire together (parallel) — the page waits for the slowest one only
       const [stock, openCases, overdue, routes, scans, pickQueue, rc, caseAsset] = await Promise.all([
         supabase.from('coolerco_wh_asset_stock').select('bay,assets'),
@@ -53,7 +73,7 @@ export default function Dashboard() {
       setLoading(false)
     }
     load()
-  }, [])
+  }, [access.ready, clientMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
 
   return (
@@ -65,12 +85,12 @@ export default function Dashboard() {
         ) : (
           <>
             <div className="stats-row">
-              <KPI label="🧊 CoolerCo stock" value={num(kpi.stock)} sub="RTMA WH + workshop" color="accent" />
+              <KPI label="🧊 CoolerCo stock" value={num(kpi.stock)} sub={kpi.client ? 'in your clients\' warehouses' : 'RTMA WH + workshop'} color="accent" />
               <KPI label="🟢 Ready to Work" value={num(kpi.available)} sub="available" color="green" />
-              <KPI label="📂 Open Cases" value={num(kpi.openCases)} sub="incl. On Hold" color="orange" />
-              <KPI label="⏰ Overdue" value={num(kpi.overdue)} sub="open, past end date" color="red" />
-              <KPI label="Scans Today" value={num(kpi.scans)} sub="asset touches" color="teal" />
-              <KPI label="📦 To load" value={num(kpi.pickPending)} sub="today onwards, not packed" color={kpi.pickPending > 20 ? 'orange' : 'green'} />
+              <KPI label="📂 Open Cases" value={num(kpi.openCases)} sub={kpi.client ? 'your clients, incl. waiting for approval' : 'incl. On Hold'} color="orange" />
+              <KPI label="⏰ Overdue" value={num(kpi.overdue)} sub="open, past due date" color="red" />
+              {!kpi.client && <KPI label="Scans Today" value={num(kpi.scans)} sub="asset touches" color="teal" />}
+              {!kpi.client && <KPI label="📦 To load" value={num(kpi.pickPending)} sub="today onwards, not packed" color={kpi.pickPending > 20 ? 'orange' : 'green'} />}
               {kpi.caseAsset != null && <Link to="/cases/asset-at-pos" style={{ textDecoration: 'none', color: 'inherit' }}>
                 <KPI label="⚠️ Open case · asset at POS" value={num(kpi.caseAsset)} sub={`picked asset already at a POS${kpi.caseAssetOther ? ` · ${num(kpi.caseAssetOther)} at another store` : ''} ›`} color={kpi.caseAsset ? 'red' : 'green'} />
               </Link>}
@@ -95,7 +115,7 @@ export default function Dashboard() {
                     </thead>
                     <tbody>
                       {recentCases.map(c => (
-                        <tr key={c.case_number} {...rowLink(`/cases?case=${encodeURIComponent(c.case_number)}`)} title="Open this case">
+                        <tr key={c.case_number} {...rowLink(`/cases?${c.client_code ? `client=${c.client_code}&` : ''}case=${encodeURIComponent(c.case_number)}`)} title="Open this case">
                           <td className="mono" style={{ fontSize: 11 }}>{c.case_number}</td>
                           <td className="trunc" style={{ maxWidth: 150 }} title={c.point_of_sale}>{CASE_TYPE_ICON[c.case_type] || '•'} {c.case_type}</td>
                           <td><span className={`tag tag-${statusColor(c.status_reason)}`}>{c.status_reason}</span></td>
@@ -153,7 +173,7 @@ export default function Dashboard() {
                 { to: '/picking', icon: '📦', label: 'Picking', sub: `${num(kpi.pickPending)} pending` },
                 { to: '/scan', icon: '📷', label: 'Scan', sub: 'Log a touch' },
                 { to: '/wms/receiving', icon: '📥', label: 'Receiving', sub: 'WMS' },
-                { to: '/portal', icon: '👤', label: 'Customers', sub: 'Portal' },
+                { to: '/portal-access', icon: '👤', label: 'Customers', sub: 'Stores & portal links' },
               ].map(l => (
                 <Link key={l.to} to={l.to} style={{ textDecoration: 'none' }}>
                   <div className="card" style={{ padding: '14px', cursor: 'pointer', transition: 'border-color .15s' }}
