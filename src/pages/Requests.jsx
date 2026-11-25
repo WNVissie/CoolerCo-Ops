@@ -3,6 +3,7 @@ import Topbar from '../components/Topbar'
 import DataTable from '../components/DataTable'
 import Drawer from '../components/Drawer'
 import { supabase } from '../lib/supabase'
+import { useClientScope, ClientBadge } from '../components/ClientScope'
 import { fmt, num, PS, statusColor, condColor, CASE_TYPE_ICON, WAREHOUSES, WH_NAMES } from '../lib/helpers'
 
 // CoolerCo's own cases (portal requests first). Approve → Open, Reject with a reason.
@@ -17,8 +18,11 @@ const VIEWS = [
 ]
 
 export default function Requests() {
+  const scope = useClientScope()
   const [view, setView] = useState('Waiting for Approval')
   const [wh, setWh] = useState('')
+  const [client, setClient] = useState('')      // '' = every client this user may see
+  const [waitBy, setWaitBy] = useState({})      // waiting-for-approval count per client
   const [rows, setRows] = useState([])
   const [count, setCount] = useState(0)
   const [counts, setCounts] = useState({})
@@ -31,21 +35,30 @@ export default function Requests() {
     let q = supabase.from('coolerco_cases').select('*, family:coolerco_product_families(name,display_name)', { count: 'exact' })
     if (view !== 'all') q = q.eq('status_reason', view)
     if (wh) q = q.eq('warehouse_code', wh)
+    if (client) q = q.eq('client_code', client)
     const { data, count } = await q.order('created_on', { ascending: false }).range(page * PS, page * PS + PS - 1)
     setRows(data || []); setCount(count || 0); setLoading(false)
-  }, [view, wh, page])
+  }, [view, wh, client, page])
 
   const loadCounts = useCallback(async () => {
-    const res = await Promise.all(VIEWS.filter(v => v.key !== 'all').map(v =>
-      supabase.from('coolerco_cases').select('case_number', { count: 'exact', head: true }).eq('status_reason', v.key)))
+    const res = await Promise.all(VIEWS.filter(v => v.key !== 'all').map(v => {
+      let q = supabase.from('coolerco_cases').select('case_number', { count: 'exact', head: true }).eq('status_reason', v.key)
+      if (client) q = q.eq('client_code', client)
+      return q
+    }))
     setCounts(Object.fromEntries(VIEWS.filter(v => v.key !== 'all').map((v, i) => [v.key, res[i].count || 0])))
-  }, [])
+    // What is still waiting, per client (RLS already limits this to the clients the user may see)
+    const { data } = await supabase.from('coolerco_cases').select('client_code').eq('status_reason', 'Waiting for Approval').limit(2000)
+    const by = {}; (data || []).forEach(r => { by[r.client_code || '?'] = (by[r.client_code || '?'] || 0) + 1 }); setWaitBy(by)
+  }, [client])
 
   useEffect(() => { load() }, [load])
   useEffect(() => { loadCounts() }, [loadCounts])
-  useEffect(() => { setPage(0) }, [view, wh])
+  useEffect(() => { setPage(0) }, [view, wh, client])
 
+  const clientCodes = Object.keys(waitBy).concat((scope.options || []).map(o => o.code)).filter((c, i, a) => c !== 'ALL' && a.indexOf(c) === i)
   const COLS = [
+    { key: 'client_code', label: 'Client', render: v => <ClientBadge scope={scope} code={v} small /> },
     { key: 'case_number', label: 'Case #', cls: 'mono', render: v => <strong style={{ fontSize: 11 }}>{v}</strong> },
     { key: 'case_type', label: 'Request', render: v => <span>{CASE_TYPE_ICON[v] || '•'} {v}</span> },
     { key: 'status_reason', label: 'Status', render: v => <span className={`tag tag-${statusColor(v === 'Waiting for Approval' ? 'waiting' : v)}`}>{v}</span> },
@@ -68,6 +81,17 @@ export default function Requests() {
             </button>
           ))}
         </div>
+        {clientCodes.length > 1 && (
+          <div className="chip-row" role="group" aria-label="Client" style={{ alignItems: 'center' }}>
+            <span className="text3" style={{ fontSize: 11 }}>Client</span>
+            <button type="button" className={`chip-opt${!client ? ' on' : ''}`} aria-pressed={!client} onClick={() => setClient('')}>🗂️ All clients · {num(Object.values(waitBy).reduce((a, b) => a + b, 0))} waiting</button>
+            {clientCodes.map(code => (
+              <button type="button" key={code} className={`chip-opt${client === code ? ' on' : ''}`} aria-pressed={client === code} onClick={() => setClient(code)}>
+                <ClientBadge scope={scope} code={code} small /> {num(waitBy[code] || 0)} waiting
+              </button>
+            ))}
+          </div>
+        )}
         <div className="filters">
           <select value={wh} onChange={e => setWh(e.target.value)}>
             <option value="">🏢 All warehouses</option>
@@ -85,6 +109,12 @@ export default function Requests() {
       </Drawer>
     </>
   )
+}
+
+// Badge in the drawer (reads the colours already loaded for the page)
+function ClientBadgeLite({ code }) {
+  const scope = useClientScope()
+  return <ClientBadge scope={scope} code={code} />
 }
 
 function Field({ label, children }) {
@@ -141,6 +171,7 @@ function RequestDetail({ c, onChanged }) {
   return (
     <div>
       <div className="chip-row">
+        <ClientBadgeLite code={c.client_code} />
         <span className="tag tag-neutral">{c.case_type}</span>
         <PriorityTag p={c.priority} />
         {c.repeat_of_case && <span className="tag tag-purple">🔁 Repeat of {c.repeat_of_case}{c.repeat_days != null ? ` · ${c.repeat_days} d` : ''}</span>}
