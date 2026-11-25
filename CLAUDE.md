@@ -432,4 +432,5 @@ Decisions (24 Nov):
 coolerco_audits / _auditors / _stores / _items; office page /audits (src/pages/Audits.jsx: list, ➕ New audit wizard, plan per auditor/day with ETA + Google Maps link,
 re-plan with n auditors, 👷 auditors from field slots, 📊 progress & exceptions, 📡 Not scanned 1/2/3 months); Field app tile 🔍 Asset audit (src/field/FieldAudit.jsx:
 my days → stores → n/n count-up, manager questions below n/n, ✏️ fix store). 060b = TEST-only seed sightings for DEMO. Online-only for the demo.
+Demo: Monday 30 Nov or Tuesday 1 Dec 2026 (to be confirmed). Pilot data from 15 Dec, fully operational 15 Jan.
 Next script number: 061.**
