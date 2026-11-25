@@ -376,6 +376,15 @@ export function RegisterStock({ scope }) {
   const sorted = o => Object.entries(o).sort((a, b) => b[1] - a[1])
 
   const [sel, setSel] = useState(null) // warehouse opened for the model / condition / branding drill-down (062)
+  const [free, setFree] = useState(null) // warehouse → Ready to Work and not promised to a case (062; one client only)
+  useEffect(() => {
+    setFree(null)
+    if (scope.client === 'ALL') return
+    supabase.rpc('coolerco_stock_detail', { p_client: scope.client, p_warehouse: null }).then(({ data, error }) => {
+      if (error) return
+      const m = {}; (data || []).forEach(r => { m[r.warehouse_code] = (m[r.warehouse_code] || 0) + r.available }); setFree(m)
+    })
+  }, [scope.client])
   return (
     <>
       <Topbar title="Asset Stock" sub={`${scope.client === 'ALL' ? 'All clients' : clientName(scope, scope.client)} · assets in the warehouses`} />
@@ -392,6 +401,8 @@ export function RegisterStock({ scope }) {
             <summary className="wh-card-hd" title="Open the stock by model, condition and branding"
               onClick={e => { e.preventDefault(); setSel(sel === w.code ? null : w.code); setTimeout(() => document.getElementById('stock-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50) }}>
               <strong>🏭 {w.code}</strong><span className="card-count">{num(w.total)} assets</span>
+              {free && (() => { const rtw = w.statuses['In warehouse, ready to work'] || 0, f = free[w.code] || 0
+                return <span className="tag tag-green">✅ {num(f)} available · RTW {num(rtw)} (pending {num(Math.max(0, rtw - f))})</span> })()}
               <span style={{ marginLeft: 'auto', display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                 {sorted(w.clients).map(([c, n]) => <span key={c} style={{ display: 'inline-flex', gap: 3, alignItems: 'center' }}><ClientTag scope={scope} code={c} /><b style={{ fontSize: 11 }}>{n}</b></span>)}
               </span>

@@ -15,11 +15,19 @@ function AssetStockCom({ clientBar }) {
   const [loc, setLoc] = useState('all') // all | Warehouse | Workshop
   const [sel, setSel] = useState(null)  // warehouse opened for the model / condition / branding drill-down (062)
 
+  const [avail, setAvail] = useState(null) // { wh: { all, Warehouse, Workshop } } Ready to Work and NOT promised to a case (062)
   useEffect(() => {
     supabase.from('coolerco_wh_asset_stock').select('*').then(({ data, error }) => {
       if (error) setErr(error); else setRows(data || [])
     })
+    supabase.rpc('coolerco_stock_detail', { p_client: 'MAGNUM', p_warehouse: null }).then(({ data, error }) => {
+      if (error) return // without 062 the cards keep showing Ready to Work only
+      const m = {}
+      ;(data || []).forEach(r => { const w = (m[r.warehouse_code] ||= { all: 0, Warehouse: 0, Workshop: 0 }); w.all += r.available; w[r.location_type] += r.available })
+      setAvail(m)
+    })
   }, [])
+  const freeOf = code => avail ? (code ? avail[code]?.[loc] || 0 : Object.values(avail).reduce((t, w) => t + (w[loc] || 0), 0)) : null
 
   const filtered = useMemo(() => (rows || []).filter(r => loc === 'all' || r.location_type === loc), [rows, loc])
 
@@ -71,13 +79,16 @@ function AssetStockCom({ clientBar }) {
 
             <div className="stats-row">
               <div className="stat-card c-accent"><div className="stat-label">📦 In CoolerCo stock</div><div className="stat-value">{num(total)}</div><div className="stat-sub">unique assets</div></div>
-              {BAYS.filter(b => ['GREEN', 'YELLOW', 'ORANGE', 'RED'].includes(b.key)).map(b => (
-                <Link key={b.key} to={`/assets?bay=${b.key}`} className={`stat-card bay-${b.key.toLowerCase()}`} style={{ textDecoration: 'none' }}>
-                  <div className="stat-label">{b.icon} {b.label}</div>
-                  <div className="stat-value">{num(national[b.key])}</div>
-                  <div className="stat-sub">{total ? Math.round((national[b.key] / total) * 100) : 0}% · {b.desc}</div>
-                </Link>
-              ))}
+              {BAYS.filter(b => ['GREEN', 'YELLOW', 'ORANGE', 'RED'].includes(b.key)).map(b => {
+                // Wanda 25 Nov: available = Ready to Work minus the ones already on a case → "RTW n (pending n)"
+                const free = b.key === 'GREEN' ? freeOf(null) : null
+                return (
+                  <Link key={b.key} to={`/assets?bay=${b.key}`} className={`stat-card bay-${b.key.toLowerCase()}`} style={{ textDecoration: 'none' }}>
+                    <div className="stat-label">{b.icon} {free != null ? 'Available' : b.label}</div>
+                    <div className="stat-value">{num(free != null ? free : national[b.key])}</div>
+                    <div className="stat-sub">{free != null ? <>RTW {num(national.GREEN)} (pending {num(national.GREEN - free)})</> : <>{total ? Math.round((national[b.key] / total) * 100) : 0}% · {b.desc}</>}</div>
+                  </Link>)
+              })}
             </div>
 
             {sel && <StockDetail client="MAGNUM" wh={sel} whName={WH_NAMES[sel]} loc={loc} onClose={() => setSel(null)} />}
@@ -90,7 +101,9 @@ function AssetStockCom({ clientBar }) {
                       <div className="card-title">🏢 {w.name} <span className="text3" style={{ fontWeight: 400 }}>· {w.code}</span></div>
                       <div className="text3" style={{ fontSize: 10.5 }}>{num(w.total)} assets{w.workshop ? ` · ${num(w.workshop)} in workshop` : ''}</div>
                     </div>
-                    <span className="wh-total">{num(w.bays.GREEN)}<small>available</small></span>
+                    {freeOf(w.code) != null
+                      ? <span className="wh-total">{num(freeOf(w.code))}<small>available</small><small className="wh-rtw">RTW {num(w.bays.GREEN)} (pending {num(Math.max(0, w.bays.GREEN - freeOf(w.code)))})</small></span>
+                      : <span className="wh-total">{num(w.bays.GREEN)}<small>available</small></span>}
                   </summary>
                   <div className="bay-bar" title="Share by bay">
                     {BAYS.map(b => w.bays[b.key] ? <span key={b.key} className={`bay-seg bay-${b.key.toLowerCase()}`} style={{ flex: w.bays[b.key] }} title={`${b.label}: ${w.bays[b.key]}`} /> : null)}

@@ -775,3 +775,4 @@ input.field-ctrl:focus, textarea.field-ctrl:focus { border-color: var(--accent);
 .wh-card.on { outline: 2px solid var(--accent); }
 .stock-detail { margin-bottom: 12px; scroll-margin-top: 70px; }
 .stock-detail .stock-model:hover { filter: brightness(.97); }
+.wh-total small.wh-rtw { white-space: nowrap; margin-top: 2px; }
