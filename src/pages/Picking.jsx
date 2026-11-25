@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import Topbar from '../components/Topbar'
+import { useClientScope } from '../components/ClientScope'
 import Drawer from '../components/Drawer'
 import CameraScan from '../components/CameraScan'
 import LabelPrompt from '../components/LabelPrompt'
@@ -49,23 +50,28 @@ const PROBLEM_FLAGS = ['not_rtw', 'at_pos', 'other_wh', 'family', 'condition', '
 const REASONS = ['No used stock of this model', 'Customer / Magnum asked for it', 'Approved by supervisor', 'Other cooler damaged']
 const Flag = ({ f }) => { const [i, l, c] = FLAG[f] || ['•', f, 'neutral']; return <span className={`tag tag-${c}`} title={l}>{i} {l}</span> }
 
-// 🟦 Magnum (COM stock, RouteIQ preparation) or 🟩 Other clients (CoolerCo register, script 057).
+// 🟦 Magnum (COM stock, RouteIQ preparation) or 🟩 one button per self-managed client (CoolerCo register, script 057).
 // Users blocked from Magnum (Demo / Tiger) only get the 🟩 board.
 export default function Picking() {
   const access = useAccess()
+  const scope = useClientScope()
+  // one button per client, each picking from that client's own stock (Wanda 25 Nov: name each client, not "Other clients")
+  const others = (scope.clients || []).filter(c => c.code !== 'MAGNUM')
   const [mode, setMode] = useState(() => keep('cc_pick_mode', 'magnum'))
-  const client = !access.magnum || mode === 'client'
+  const picked = mode !== 'magnum' && others.some(c => c.code === mode) ? mode : null
+  const client = !access.magnum ? (picked || others[0]?.code || '') : picked
   useEffect(() => { put('cc_pick_mode', mode) }, [mode])
-  const switcher = access.magnum && (
-    <div className="seg" role="group" aria-label="Which stock" style={{ marginBottom: 10 }}>
-      <button className={`seg-btn${!client ? ' on' : ''}`} onClick={() => setMode('magnum')}>🟦 Magnum (COM)</button>
-      <button className={`seg-btn${client ? ' on' : ''}`} onClick={() => setMode('client')}>🟩 Other clients</button>
+  const switcher = (access.magnum || others.length > 1) && (
+    <div className="seg" role="group" aria-label="Whose stock" style={{ marginBottom: 10 }}>
+      {access.magnum && <button className={`seg-btn${!client ? ' on' : ''}`} onClick={() => setMode('magnum')}>🟦 Magnum (COM)</button>}
+      {others.map(c => <button key={c.code} className={`seg-btn${client === c.code ? ' on' : ''}`} onClick={() => setMode(c.code)}>🟩 {c.name}</button>)}
     </div>)
-  if (client) return <ClientPickingPage switcher={switcher} />
-  return <MagnumPicking switcher={switcher} onOther={() => setMode('client')} />
+  if (client) return <ClientPickingPage switcher={switcher} client={client} clientName={others.find(c => c.code === client)?.name} />
+  if (!access.magnum) return null
+  return <MagnumPicking switcher={switcher} onOther={code => setMode(code || others[0]?.code || 'magnum')} />
 }
 
-function ClientPickingPage({ switcher }) {
+function ClientPickingPage({ switcher, client, clientName }) {
   const [wh, setWh] = useState(() => keep('cc_pick_wh', keep('cc_scan_wh', 'JHB')))
   const [day, setDay] = useState(today)
   useEffect(() => { put('cc_pick_wh', wh) }, [wh])
@@ -80,8 +86,8 @@ function ClientPickingPage({ switcher }) {
   </>
   return (
     <>
-      <Topbar title="Picking" sub="Other clients · coolers from CoolerCo's own stock register" />
-      <div className="page-content">{switcher}<ClientPicking wh={wh} setWh={setWh} day={day} dayNav={dayNav} /></div>
+      <Topbar title="Picking" sub={`${clientName || 'Client'} · coolers from CoolerCo's own stock register`} />
+      <div className="page-content">{switcher}<ClientPicking wh={wh} setWh={setWh} day={day} dayNav={dayNav} client={client} /></div>
     </>
   )
 }
@@ -122,6 +128,7 @@ function MagnumPicking({ switcher, onOther }) {
     supabase.from('coolerco_cases').select('case_number,client_code').in('case_number', nums)
       .then(({ data: d }) => setClientOf(Object.fromEntries((d || []).map(x => [x.case_number, x.client_code]))))
   }, [data])
+  const nameOf = useClientScope().clients?.reduce((m, c) => ({ ...m, [c.code]: c.name }), {}) || {}
   const isClientCase = n => looksCoolerCo(n) && !!clientOf[n] && clientOf[n] !== 'MAGNUM'
 
   // The routing app's routes can carry Demo / Tiger stops too (one driver, one truck). Their coolers come from CoolerCo's own
@@ -201,8 +208,8 @@ function MagnumPicking({ switcher, onOther }) {
           {card('upgrade_new', '🆕 New for used', count('upgrade_new'), 'A - New given where used was asked', count('upgrade_new') ? 'purple' : 'green')}
         </div>
 
-        {clientStops.length > 0 && <div className="notice" style={{ marginBottom: 8 }}>🟩 {clientStops.length} Demo / Tiger stop{clientStops.length > 1 ? 's' : ''} on {[...new Set(clientStops.map(l => l.route_number))].join(', ')} — their coolers come from CoolerCo's own stock.
-          <button className="btn btn-primary btn-sm" style={{ marginLeft: 8 }} onClick={onOther}>🟩 Pick them on Other clients</button></div>}
+        {clientStops.length > 0 && <div className="notice" style={{ marginBottom: 8 }}>🟩 {clientStops.length} stop{clientStops.length > 1 ? 's' : ''} on {[...new Set(clientStops.map(l => l.route_number))].join(', ')} — their coolers come from CoolerCo's own stock.
+          {[...new Set(clientStops.map(l => clientOf[l.case_number]))].map(code => <button key={code} className="btn btn-primary btn-sm" style={{ marginLeft: 8 }} onClick={() => onOther(code)}>🟩 Pick on {nameOf[code] || code}</button>)}</div>}
         {!data && !err && <div className="load-state"><span className="spinner" /> Loading routes…</div>}
         {data && !lines.length && <div className="empty-state"><div className="empty-ico">📦</div><div>No delivery or replacement stops on {dayLabel(day)} for {WH_NAMES[wh]}.</div><div className="text3" style={{ fontSize: 11 }}>Routes are made in the routing app.</div></div>}
         {data && lines.length > 0 && !shown.length && <div className="empty-state"><div className="empty-ico">✅</div><div>Nothing in this filter.</div></div>}
@@ -258,7 +265,7 @@ function MagnumPicking({ switcher, onOther }) {
                       </td>
                       {writes && <td style={{ whiteSpace: 'nowrap' }}>
                         {isClientCase(l.case_number)
-                          ? <button className="btn btn-sm btn-primary" title="Demo / Tiger coolers come from CoolerCo's own stock — pick on the 🟩 Other clients board" onClick={onOther}>🟩 Pick on Other clients</button>
+                          ? <button className="btn btn-sm btn-primary" title="Demo / Tiger coolers come from CoolerCo's own stock — pick on that client's 🟩 board" onClick={() => onOther(clientOf[l.case_number])}>🟩 Pick on {nameOf[clientOf[l.case_number]] || clientOf[l.case_number]}</button>
                           : <button className={`btn btn-sm ${l.selected_asset ? 'btn-ghost' : 'btn-primary'}`} onClick={() => setChoose(l)}>✨ {l.selected_asset ? 'Change' : 'Choose'}</button>}
                         {l.selected_asset && <button className="btn btn-ghost btn-sm" title={l.picked ? 'Undo pick' : 'Remove cooler'} onClick={() => undo(l, l.picked ? 'pick' : 'select')}>↩</button>}
                       </td>}

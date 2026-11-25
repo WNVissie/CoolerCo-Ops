@@ -100,6 +100,8 @@ export default function CaseAssetExceptions() {
   }, [since, wh, tick, source, access.ready, client])
   useEffect(() => { setRows(null); setShown(PAGE) }, [since, wh, source, client])
   useEffect(() => { setWh(''); setChecked(null) }, [source])
+  // a Demo / Tiger user (no Magnum) starts on their own client
+  useEffect(() => { if (source === 'clients' && !client && !access.magnum && scope.clients?.length === 1) setClient(scope.clients[0].code) }, [source, scope.clients]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const t = setInterval(() => { if (document.visibilityState === 'visible') setTick(n => n + 1) }, REFRESH_MS)
     const back = () => { if (document.visibilityState === 'visible' && checkedAt && Date.now() - checkedAt > 60000) setTick(n => n + 1) }
@@ -150,7 +152,8 @@ export default function CaseAssetExceptions() {
         {access.ready && access.magnum && (
           <div className="seg" style={{ marginBottom: 8 }}>
             <button className={`seg-btn ${source === 'com' ? 'on' : ''}`} onClick={() => setSrc('com')}>🟦 Magnum (COM)</button>
-            <button className={`seg-btn ${source === 'clients' ? 'on' : ''}`} onClick={() => setSrc('clients')}>🟩 Other clients (CoolerCo register)</button>
+            {(scope.clients || []).filter(c => c.code !== 'MAGNUM').map(c => (
+              <button key={c.code} className={`seg-btn ${source === 'clients' && client === c.code ? 'on' : ''}`} onClick={() => { setSrc('clients'); setClient(c.code); setWh('') }}>🟩 {c.name}</button>))}
           </div>
         )}
         <div className="filters" style={{ flexWrap: 'wrap', gap: 8 }}>

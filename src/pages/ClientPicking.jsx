@@ -19,7 +19,7 @@ const ERR = {
 const REASONS = ['Requested model out of stock', 'Customer asked for this model', 'Approved by supervisor', 'Bigger / better fit for the store']
 const buzz = bad => { try { navigator.vibrate?.(bad ? [120, 80, 200] : 60) } catch { /* none */ } }
 
-export default function ClientPicking({ wh, setWh, day, dayNav }) {
+export default function ClientPicking({ wh, setWh, day, dayNav, client }) {
   const scope = useClientScope()
   const [lines, setLines] = useState(null)
   const [err, setErr] = useState(null)
@@ -35,10 +35,10 @@ export default function ClientPicking({ wh, setWh, day, dayNav }) {
     supabase.rpc('coolerco_client_pick_board', { p_date: day, p_warehouse: wh }).then(({ data, error }) => {
       if (!live) return
       if (error) { if (/does not exist|Could not find/i.test(error.message)) setMissing(true); else setErr(error.message); setLines([]); return }
-      setLines(data || [])
+      setLines((data || []).filter(l => !client || l.client_code === client)) // one client's stops (the board returns every self-managed client)
     })
     return () => { live = false }
-  }, [day, wh, tick])
+  }, [day, wh, tick, client])
 
   async function undo(l) {
     if (!window.confirm(`Release ${l.picked_asset} from ${l.case_number}? It goes back to Ready to Work.`)) return
