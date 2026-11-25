@@ -48,6 +48,7 @@ export function RegisterCases({ scope, initialCase = '' }) {
   const [err, setErr] = useState(null)
   const [sel, setSel] = useState(null)
   const [facets, setFacets] = useState({ types: [], whs: [] })
+  const [whCounts, setWhCounts] = useState(null) // open cases per warehouse (cards at the top, same as Magnum)
   const [fromLink, setFromLink] = useState(initialCase) // opened from Inbox / Dashboard / a store link
   const [params, setParams] = useSearchParams()
   // back to the normal list: empty search, open cases, link removed from the address
@@ -73,6 +74,14 @@ export function RegisterCases({ scope, initialCase = '' }) {
       setFacets({ types: u('case_type'), whs: u('warehouse_workshop') })
     })
   }, [base])
+
+  // open cases per warehouse for the cards (refreshes when a case is closed and the drawer shuts)
+  useEffect(() => {
+    if (sel) return
+    base('warehouse_workshop').eq('is_open', true).limit(20000).then(({ data }) => {
+      const m = {}; (data || []).forEach(r => { const k = r.warehouse_workshop || '—'; m[k] = (m[k] || 0) + 1 }); setWhCounts(m)
+    })
+  }, [base, sel])
 
   const query = useCallback(() => {
     let r = base('*', { count: 'exact' })
@@ -119,6 +128,19 @@ export function RegisterCases({ scope, initialCase = '' }) {
         actions={<Link to={`/cases/new${scope.client !== 'ALL' ? `?client=${scope.client}` : ''}`} className="btn btn-primary btn-sm">➕ New case</Link>} />
       <div className="page-content">
         <ClientBar scope={scope} />
+        {/* ── Open cases per warehouse: tap to show only that warehouse (tap again for all) ── */}
+        <div className="wh-cards" role="group" aria-label="Open cases per warehouse">
+          <button type="button" className={`wh-card${!wh ? ' on' : ''}`} onClick={() => setWh('')}>
+            <span className="wh-card-n">{whCounts ? Object.values(whCounts).reduce((t, n) => t + n, 0).toLocaleString() : '…'}</span>
+            <span className="wh-card-l">All warehouses</span>
+          </button>
+          {whCounts && Object.entries(whCounts).sort((a, b) => b[1] - a[1]).map(([w, n]) => (
+            <button type="button" key={w} className={`wh-card${wh === w ? ' on' : ''}`} aria-pressed={wh === w}
+              onClick={() => { setWh(wh === w ? '' : w); setStatus('open') }}>
+              <span className="wh-card-n">{n.toLocaleString()}</span>
+              <span className="wh-card-l">{w.replace('RTMA ', '')}</span>
+            </button>))}
+        </div>
         <div className="card search-panel">
           <div className="sp-row">
             <div className="seg">
