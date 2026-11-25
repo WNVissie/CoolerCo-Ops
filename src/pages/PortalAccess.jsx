@@ -292,6 +292,7 @@ function ClientOutlets({ scope, client, onOpen }) {
 }
 
 function LinkDetail({ link, onSaved }) {
+  const scope = useClientScope()
   const [form, setForm] = useState({ contact_name: link.contact_name || '', contact_number: link.contact_number || '', mobile_number: link.mobile_number || '', ...('client_code' in link ? { client_code: link.client_code || 'MAGNUM' } : {}) })
   const [qr, setQr] = useState(null)
   const [msg, setMsg] = useState(null)
@@ -343,6 +344,7 @@ function LinkDetail({ link, onSaved }) {
           <div className="chip-row" style={{ marginTop: 8 }}>
             <button className="btn btn-ghost btn-sm" onClick={() => { navigator.clipboard?.writeText(url); setMsg({ type: 'ok', text: '✓ Link copied' }) }}>📋 Copy</button>
             <a className="btn btn-ghost btn-sm" href={url} target="_blank" rel="noreferrer">👁 Open</a>
+            <button className="btn btn-ghost btn-sm" onClick={() => printQr(link, url)}>🖨 Print QR</button>
           </div>
         </div>
       </div>
@@ -367,13 +369,14 @@ function LinkDetail({ link, onSaved }) {
       </details>
 
       <details className="sec" open>
-        <summary>👤 Store contact (from latest COM case — update here)</summary>
+        <summary>👤 Store contact{form.client_code === 'MAGNUM' ? ' (from latest COM case — update here)' : ''}</summary>
         <div className="sec-body">
           {'client_code' in form && <>
             <div className="field-lbl">Client (whose store / requests)</div>
+            {/* every client the user may see (Demo, Demo Foods, Tiger …) — the store's own client is always in the list (was Magnum / Tiger only) */}
             <select className="field-ctrl" value={form.client_code} onChange={e => setForm({ ...form, client_code: e.target.value })}>
-              <option value="MAGNUM">🟦 Magnum (COM)</option>
-              <option value="TIGER">🐯 Tiger Brands (CoolerCo is the master)</option>
+              {[...(scope.clients || []), ...((scope.clients || []).some(c => c.code === form.client_code) ? [] : [{ code: form.client_code, name: form.client_code }])].map(c => (
+                <option key={c.code} value={c.code}>{c.code === 'MAGNUM' ? '🟦 Magnum (COM)' : `${c.name} (CoolerCo is the master)`}</option>))}
             </select>
             <div className="text3" style={{ fontSize: 11, margin: '2px 0 8px' }}>New requests from this link are logged for this client.</div>
           </>}
@@ -402,4 +405,27 @@ function LinkDetail({ link, onSaved }) {
       </details>
     </div>
   )
+}
+
+// 🖨 Print QR — an A5-style sheet for the store: store name, big QR, what it is for. Opens the browser's print dialog (print or save as PDF).
+async function printQr(link, url) {
+  const w = window.open('', '_blank', 'width=720,height=900')
+  if (!w) return alert('Allow pop-ups for CoolerCo-Ops to print the QR code.')
+  const QR = await import('qrcode')
+  const img = await QR.toDataURL(url, { width: 700, margin: 2, errorCorrectionLevel: 'M' })
+  const esc = t => String(t || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>QR · ${esc(link.point_of_sale)}</title>
+<style>@page{size:A5 portrait;margin:12mm}body{font-family:system-ui,Segoe UI,Arial,sans-serif;text-align:center;color:#0f172a;margin:0}
+h1{font-size:22px;margin:4px 0}.brand{font-weight:800;font-size:18px;color:#0369a1;letter-spacing:.5px}
+.qr{width:80mm;height:80mm;margin:8px auto;display:block}.big{font-size:17px;font-weight:700;margin:6px 0}
+.small{font-size:11px;color:#475569;word-break:break-all}.code{font-family:monospace;font-size:12px;color:#475569}
+ul{list-style:none;padding:0;margin:8px 0;font-size:14px}li{margin:3px 0}</style></head><body>
+<div class="brand">❄️ CoolerCo</div>
+<h1>${esc(link.point_of_sale)}</h1><div class="code">${esc(link.pos_local_code)}</div>
+<img class="qr" src="${img}" alt="QR code">
+<div class="big">Scan with your phone camera</div>
+<ul><li>🛠 Report a broken cooler</li><li>🚚 Ask for a cooler collection</li><li>➕ Request a new cooler</li></ul>
+<div class="small">${esc(url)}</div>
+<script>window.onload=()=>{setTimeout(()=>window.print(),300)}<\/script></body></html>`)
+  w.document.close()
 }

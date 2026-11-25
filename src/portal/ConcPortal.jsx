@@ -74,7 +74,8 @@ export default function ConcPortal({ link }) {
   const TABS = [
     ...(alerts && alerts.length ? [['action', '⚠️', 'Needs action', openAlerts]] : []),
     ['approve', '✅', 'To approve', ctx.to_approve],
-    ['log', '📝', 'Log in COM', ctx.to_log],
+    // self-managed clients (Demo, Tiger): CoolerCo is the system of record — no COM step (061)
+    ...(ctx.self_managed && !ctx.to_log ? [] : [['log', '📝', 'Log in COM', ctx.to_log]]),
     ['cases', '📋', 'Cases', (ctx.open_com || 0) + (ctx.attention_com || 0)],
     ['stores', '🏪', 'Stores', ctx.stores],
   ]
@@ -84,7 +85,7 @@ export default function ConcPortal({ link }) {
       <div className="c-kpis">
         <div><span>❄️</span><b>{(ctx.assets_at_pos || 0).toLocaleString()}</b><small>assets at your stores</small></div>
         <div><span>🏪</span><b>{(ctx.stores || 0).toLocaleString()}</b><small>stores</small></div>
-        <div><span>📋</span><b>{(ctx.open_com || 0).toLocaleString()}</b><small>open cases (store + logistics)</small></div>
+        <div><span>📋</span><b>{(ctx.open_com || 0).toLocaleString()}</b><small>open cases{ctx.self_managed ? '' : ' (store + logistics)'}</small></div>
         {ctx.attention_com > 0 && <div><span>⚠️</span><b>{ctx.attention_com.toLocaleString()}</b><small>need action</small></div>}
         {ctx.assets_in_workshop > 0 && <div><span>🛠️</span><b>{ctx.assets_in_workshop.toLocaleString()}</b><small>in workshop</small></div>}
       </div>
@@ -96,9 +97,9 @@ export default function ConcPortal({ link }) {
         ))}
       </div>
       {tab === 'action' && <NeedsAction call={call} alerts={alerts || []} onChange={() => { loadAlerts(); loadCtx() }} />}
-      {tab === 'approve' && <Approve call={call} onChange={loadCtx} />}
+      {tab === 'approve' && <Approve call={call} onChange={loadCtx} self={!!ctx.self_managed} />}
       {tab === 'log' && <LogCom call={call} onChange={loadCtx} />}
-      {tab === 'cases' && <Cases call={call} />}
+      {tab === 'cases' && <Cases call={call} self={!!ctx.self_managed} />}
       {tab === 'stores' && <Stores call={call} ctx={ctx} />}
     </Shell>
   )
@@ -192,7 +193,7 @@ function RequestHead({ r }) {
   )
 }
 
-function Approve({ call, onChange }) {
+function Approve({ call, onChange, self }) {
   const [view, setView] = useState('waiting')
   const [rows, load, err] = useList(call, 'coolerco_conc_requests', { p_view: view }, [view, call])
   const [act, setAct] = useState(null) // { case, mode }
@@ -207,7 +208,7 @@ function Approve({ call, onChange }) {
     setBusy(false)
     if (!d) return
     if (d.error) return setMsg({ bad: true, text: d.error === 'already_decided' ? `${ERR.already_decided} (${d.status}${d.by ? ' by ' + d.by : ''})` : ERR[d.error] || d.error })
-    setMsg({ text: decision === 'accept' ? `✅ ${r.case_number} accepted — next: log it in COM (tab "Log in COM").` : `🚫 ${r.case_number} rejected.` })
+    setMsg({ text: decision === 'accept' ? (self || r.self_managed ? `✅ ${r.case_number} accepted — the case is open and goes to the warehouse for planning.` : `✅ ${r.case_number} accepted — next: log it in COM (tab "Log in COM").`) : `🚫 ${r.case_number} rejected.` })
     setAct(null); setComment(''); load(); onChange()
   }
 
@@ -234,7 +235,7 @@ function Approve({ call, onChange }) {
                   <select className="c-select" value={reason} onChange={e => setReason(e.target.value)}>{REJECT.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
                 </>}
                 <div className="p-label">Comment {act.mode === 'reject' ? '(the store will see why)' : '(optional)'}</div>
-                <textarea rows={2} value={comment} onChange={e => setComment(e.target.value)} placeholder={act.mode === 'accept' ? 'e.g. Approved — will log in COM today' : 'e.g. Asset was swapped last week'} />
+                <textarea rows={2} value={comment} onChange={e => setComment(e.target.value)} placeholder={act.mode === 'accept' ? (self ? 'e.g. Approved — store expects it this week' : 'e.g. Approved — will log in COM today') : 'e.g. Asset was swapped last week'} />
                 <div className="c-actions">
                   <button className="p-btn ghost" onClick={() => setAct(null)}>Cancel</button>
                   <button className={`p-btn ${act.mode === 'reject' ? 'c-bad' : ''}`} disabled={busy || (act.mode === 'reject' && !comment.trim())} onClick={() => decide(r, act.mode)}>
@@ -301,7 +302,7 @@ function LogCom({ call, onChange }) {
   )
 }
 
-function Cases({ call }) {
+function Cases({ call, self }) {
   const [q, setQ] = useState('')
   const [deb, setDeb] = useState('')
   const [status, setStatus] = useState('open')
@@ -339,7 +340,7 @@ function Cases({ call }) {
       )}
       {!data ? <Loading err={err} /> : !data.rows.length ? <Empty icon="🔍" text={deb ? 'No cases found for your stores.' : 'No cases.'} /> : (
         <>
-          <p className="p-muted">{total.toLocaleString()} case{total === 1 ? '' : 's'}{GROUPS.includes(status) ? '' : ` · ${status}`}{data.by_type ? ' · ' + Object.entries(data.by_type).map(([t, n]) => `${icon(t)} ${n}`).join('  ') : ''} · status updated by COM</p>
+          <p className="p-muted">{total.toLocaleString()} case{total === 1 ? '' : 's'}{GROUPS.includes(status) ? '' : ` · ${status}`}{data.by_type ? ' · ' + Object.entries(data.by_type).map(([t, n]) => `${icon(t)} ${n}`).join('  ') : ''}{self ? '' : ' · status updated by COM'}</p>
           {data.rows.map(c => (
             <div className="p-card c-case" key={c.case_number}>
               <button className="c-row-top c-btnrow" onClick={() => setOpen(open === c.case_number ? null : c.case_number)}>
@@ -354,7 +355,7 @@ function Cases({ call }) {
               {open === c.case_number && (
                 <>
                   <div className="p-sum c-sum">
-                    <div><span>COM case</span><b className="c-mono">{c.case_number}</b></div>
+                    <div><span>{c.source === 'CoolerCo' || self ? 'Case' : 'COM case'}</span><b className="c-mono">{c.case_number}</b></div>
                     <div><span>Store</span>{c.point_of_sale} · {c.pos_local_code}</div>
                     <div><span>Status</span><span className={`p-tag ${statusTag(c.status)}`}>{c.status || '—'}</span></div>
                     <div><span>{c.case_type === 'Replacement of Asset' ? 'New asset' : 'Asset'}</span><span className="c-mono">{c.asset || '—'}</span></div>
