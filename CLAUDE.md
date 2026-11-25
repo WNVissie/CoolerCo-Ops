@@ -433,6 +433,6 @@ coolerco_audits / _auditors / _stores / _items; office page /audits (src/pages/A
 re-plan with n auditors, 👷 auditors from field slots, 📊 progress & exceptions, 📡 Not scanned 1/2/3 months); Field app tile 🔍 Asset audit (src/field/FieldAudit.jsx:
 my days → stores → n/n count-up, manager questions below n/n, ✏️ fix store). 060b = TEST-only seed sightings for DEMO. Online-only for the demo.
 Demo: Monday 30 Nov or Tuesday 1 Dec 2026 (to be confirmed). Pilot data from 15 Dec, fully operational 15 Jan.
-061 portal for self-managed clients (branch claude/portal-self-managed): no "Log in COM" for Demo/Tiger, counts from coolerco_assets/coolerco_cases; link drawer: 🖨 Print QR, client list from scope.
+061 portal for self-managed clients (061 + 062 run on TEST, merged to main 25 Nov 20:05): no "Log in COM" for Demo/Tiger, counts from coolerco_assets/coolerco_cases; link drawer: 🖨 Print QR, client list from scope.
 062 stock drill-down (same branch): coolerco_stock_detail(client, wh) → model × condition × branding: total / available / pending (open case or picked, same rule as picking) / not ready; src/components/StockDetail.jsx opens when a warehouse card is clicked (Magnum + client stock).
 Next script number: 063.**
