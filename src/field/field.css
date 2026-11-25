@@ -184,3 +184,13 @@
 @keyframes fb-grow { from { width: 0 } }
 @keyframes fb-fall { to { transform: translateY(110vh) rotate(260deg); opacity: .2 } }
 @media (prefers-reduced-motion: reduce) { .fb-emoji, .fb-truck, .fb-kpi, .fb-mini > span, .fb-confetti { animation: none !important; } }
+
+/* 🔍 Audit (060) */
+.f-actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; margin-top: 8px; }
+.f-lbl { display: flex; flex-direction: column; gap: 3px; font-size: 12px; margin-top: 6px; }
+.f-tile.f-today { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.audit-counter { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 10px 0; padding: 12px 14px; border-radius: 12px; background: var(--accent-l); border: 1px solid var(--accent); }
+.audit-counter span { flex: 1; font-size: 13px; }
+.audit-counter b { font-size: 34px; line-height: 1; color: var(--accent); }
+.audit-counter b.ok { color: var(--green); }
+.audit-counter small { color: var(--text2); }

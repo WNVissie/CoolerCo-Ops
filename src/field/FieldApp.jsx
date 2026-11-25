@@ -14,10 +14,11 @@ const Scan = lazy(() => import('../pages/Scan'))
 const FieldTrip = lazy(() => import('./FieldTrip'))
 const FieldCases = lazy(() => import('./FieldCases'))
 const FieldBoard = lazy(() => import('./FieldBoard'))
+const FieldAudit = lazy(() => import('./FieldAudit'))
 const TABS = [['home', '🏠', 'Home'], ['board', '⭐', 'My board'], ['trip', '🚚', 'My trip'], ['scan', '📷', 'Scan'], ['cases', '📋', 'Cases']]
-const TITLES = { board: '⭐ My board', trip: '🚚 My trip', scan: '📷 Scan', cases: '📋 Case status' }
+const TITLES = { audit: '🔍 Audit', board: '⭐ My board', trip: '🚚 My trip', scan: '📷 Scan', cases: '📋 Case status' }
 
-const tabFromPath = () => (window.location.pathname.match(/^\/field\/(home|board|trip|scan|cases)/) || [])[1]
+const tabFromPath = () => (window.location.pathname.match(/^\/field\/(home|board|trip|scan|cases|audit)/) || [])[1]
 
 export default function FieldApp() {
   const [session, setSession] = useState(undefined)
@@ -101,6 +102,7 @@ export default function FieldApp() {
             {tab === 'board' && <FieldBoard />}
             {tab === 'trip' && <FieldTrip />}
             {tab === 'cases' && <FieldCases />}
+            {tab === 'audit' && <FieldAudit />}
           </Suspense>
         </main>
         <nav className="f-tabs">
@@ -118,6 +120,9 @@ function FieldHome({ go, waiting, user, newVersion }) {
   const driver = (() => { try { return JSON.parse(localStorage.getItem('cc_field_driver')) } catch { return null } })()
   const [profile, setProfile] = useState(() => { try { return JSON.parse(localStorage.getItem('cc_field_profile')) } catch { return null } })
   useEffect(() => { loadProfile().then(p => p && setProfile(p)) }, [])
+  // 🔍 audit days for this person (060) — the tile shows only when they have some
+  const [auditDays, setAuditDays] = useState(0)
+  useEffect(() => { supabase.rpc('coolerco_audit_my_days').then(({ data }) => setAuditDays((data || []).reduce((t, a) => t + (a.days || []).length, 0))) }, [])
   // name from the field slot (the real person), else the account
   const name = (profile?.name || user?.user_metadata?.first_name || (user?.email || '').split('@')[0] || '').split(' ')[0]
   const tiles = [
@@ -125,6 +130,7 @@ function FieldHome({ go, waiting, user, newVersion }) {
     ['trip', '🚚', 'My trip', profile?.slot ? "Your routes for today" : driver ? `${driver.display} · today's stops` : "Today's route, stops and case status"],
     ['scan', '📷', 'Scan assets', waiting ? `⏳ ${waiting} waiting to send` : 'QR or barcode · works without signal'],
     ['cases', '📋', 'Case status', 'Look up a case, store or asset'],
+    ...(auditDays ? [['audit', '🔍', 'Asset audit', `${auditDays} audit day${auditDays > 1 ? 's' : ''} planned for you · scan every cooler at the store`]] : []),
   ]
   return (
     <div className="f-pad">

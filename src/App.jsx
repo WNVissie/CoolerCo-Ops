@@ -19,6 +19,7 @@ const ClosureDiscrepancies = lazyPage(() => import('./pages/ClosureDiscrepancies
 const CaseFlags = lazyPage(() => import('./pages/CaseFlags'))
 const CaseCalendar = lazyPage(() => import('./pages/CaseCalendar'))
 const ActionDesk = lazyPage(() => import('./pages/ActionDesk'))
+const Audits = lazyPage(() => import('./pages/Audits'))
 const FieldCrew = lazyPage(() => import('./pages/FieldCrew'))
 const TestRoutes = lazyPage(() => import('./pages/TestRoutes'))
 const ComUpdates = lazyPage(() => import('./pages/ComUpdates'))
@@ -96,6 +97,7 @@ export default function App() {
               <Route path="/cases/flags" element={<CaseFlags />} />
               <Route path="/cases/calendar" element={<CaseCalendar />} />
               <Route path="/cases/action-required" element={<ActionDesk />} />
+              <Route path="/audits" element={<Audits />} />
               <Route path="/crew" element={<FieldCrew />} />
               <Route path="/test-routes" element={<TestRoutes />} />
               <Route path="/com-updates" element={<ComUpdates />} />
