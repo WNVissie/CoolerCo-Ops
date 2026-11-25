@@ -13,7 +13,7 @@ async function clientExceptions(since, client) {
   const { data: cs, error } = await supabase.from('coolerco_all_cases')
     .select('case_number,client_code,case_type,status_reason,point_of_sale,pos_local_code,warehouse_workshop,responsible_ordering_party,asset_delivered,created_on,end_date,requested_product_base,requested_asset_condition')
     .neq('source', 'COM').eq('is_open', true).in('case_type', ['Deliver an Asset', 'Replacement of Asset'])
-    .gte('created_on', since).match(client ? { client_code: client } : {}).limit(5000)
+    .gte('created_on', since).match(client ? { client_code: client } : {}).neq('client_code', 'MAGNUM').limit(5000)
   if (error) return { error }
   // what was checked: every open Deliver / Replacement case of these clients (shown as counts, also when there are no exceptions)
   const checked = (cs || []).map(c => ({ client_code: c.client_code, warehouse: c.warehouse_workshop, picked: !!c.asset_delivered }))
