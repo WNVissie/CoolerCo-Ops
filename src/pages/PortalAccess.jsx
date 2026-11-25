@@ -175,7 +175,7 @@ function ClientOutlets({ scope, client, onOpen }) {
     setRows(null)
     let r = supabase.from('coolerco_outlets').select('client_code,outlet_code,name,town,suburb,province,warehouse_code,region,rep_code,contact_person,mobile_number,latitude,longitude,active').eq('active', true).order('name').limit(2000)
     if (client !== 'ALL') r = r.eq('client_code', client)
-    let rq = supabase.from('coolerco_concessionaires').select('id,display_name,kind,client_code,active').eq('active', true).neq('client_code', 'MAGNUM').order('display_name')
+    let rq = supabase.from('coolerco_concessionaires').select('id,display_name,kind,client_code,active,parent_id,rep_code').eq('active', true).neq('client_code', 'MAGNUM').order('display_name')
     if (client !== 'ALL') rq = rq.eq('client_code', client)
     const [{ data, error }, l, c, rp] = await Promise.all([
       r,
@@ -197,7 +197,8 @@ function ClientOutlets({ scope, client, onOpen }) {
   useEffect(() => { load() }, [client]) // eslint-disable-line react-hooks/exhaustive-deps
   const uniq = k => [...new Set((rows || []).map(r => r[k]).filter(Boolean))].sort()
   const s = q.trim().toLowerCase()
-  const ropOf = o => ropBy[o.outlet_code] || o.rep_code || ''
+  const ropOf = o => ropBy[o.outlet_code] || ''
+  const repName = o => (o.rep_code && rops.find(r => r.rep_code === o.rep_code && r.client_code === o.client_code)?.display_name) || ''
   const list = (rows || []).filter(r => (!wh || r.warehouse_code === wh) && (!rep || ropOf(r) === rep) && (!region || r.region === region)
     && (!s || [r.name, r.outlet_code, r.town, r.suburb, r.contact_person].some(v => String(v || '').toLowerCase().includes(s))))
   const ropNames = [...new Set((rows || []).map(ropOf).filter(Boolean))].sort()
@@ -213,9 +214,10 @@ function ClientOutlets({ scope, client, onOpen }) {
   }
   async function addRop() {
     if (!newRop?.name?.trim() || !oneClient) return
-    const { data, error } = await supabase.rpc('coolerco_rop_add', { p_client: oneClient, p_name: newRop.name.trim(), p_kind: newRop.kind })
+    if (newRop.kind === 'representative' && !newRop.parent) return setMsg({ bad: true, t: 'Pick the region (or concessionaire) this rep works under.' })
+    const { data, error } = await supabase.rpc('coolerco_rop_add', { p_client: oneClient, p_name: newRop.name.trim(), p_kind: newRop.kind, ...(newRop.kind === 'representative' ? { p_parent: newRop.parent } : {}) })
     if (error) return setMsg({ bad: true, t: /does not exist|PGRST202/i.test(error.message) ? 'Adding needs database script 056 on this database.' : error.message })
-    if (data?.error) return setMsg({ bad: true, t: { exists: 'That name already exists.', not_allowed: 'Your user may not add regions.', name_required: 'Type a name.' }[data.error] || data.error })
+    if (data?.error) return setMsg({ bad: true, t: { exists: 'That name already exists.', not_allowed: 'Your user may not add regions.', name_required: 'Type a name.', parent_required: 'Pick the region this rep works under.' }[data.error] || data.error })
     setMsg({ t: `✅ ${newRop.name.trim()} added. Tick stores and link them; add its users under Responsible Ordering Parties.` }); setNewRop(null); setLinkTo(data.id); load()
   }
   const allTicked = list.length > 0 && list.slice(0, 500).every(o => sel.includes(o.outlet_code))
@@ -241,16 +243,18 @@ function ClientOutlets({ scope, client, onOpen }) {
         <span className="text3" style={{ fontSize: 11 }}>{sel.length ? `${sel.length} store(s) ticked` : 'Tick stores below, then link them'}</span>
         <select value={linkTo} onChange={e => setLinkTo(e.target.value)} style={{ minWidth: 200 }}>
           <option value="">Link to…</option>
-          {['region', 'representative', 'concessionaire'].map(k => rops.some(r => r.kind === k) && (
-            <optgroup key={k} label={k === 'region' ? 'Regions' : k === 'representative' ? 'Reps' : 'Concessionaires'}>
-              {rops.filter(r => r.kind === k).map(r => <option key={r.id} value={r.id}>{r.display_name}{client === 'ALL' ? ` (${r.client_code})` : ''}</option>)}
+          {rops.filter(r => !r.parent_id).map(top => (
+            <optgroup key={top.id} label={`${top.kind === 'region' ? '🗺 Region' : top.kind === 'concessionaire' ? '🤝 Concessionaire' : '👤 Rep'}: ${top.display_name}${client === 'ALL' ? ` (${top.client_code})` : ''}`}>
+              <option value={top.id}>{top.display_name} — whole {top.kind === 'region' ? 'region' : 'party'}</option>
+              {rops.filter(r => r.parent_id === top.id).map(r => <option key={r.id} value={r.id}>　↳ rep {r.display_name}</option>)}
             </optgroup>))}
         </select>
         <button className="btn btn-primary btn-sm" disabled={!linkTo || !sel.length} onClick={linkSelected}>🔗 Link {sel.length || ''}</button>
         {oneClient && !newRop && <button className="btn btn-ghost btn-sm" onClick={() => setNewRop({ name: '', kind: 'region' })}>➕ New region / rep</button>}
         {newRop && <>
           <input className="field-ctrl" style={{ width: 180 }} placeholder="e.g. Tiger Inland" value={newRop.name} onChange={e => setNewRop({ ...newRop, name: e.target.value })} />
-          <select value={newRop.kind} onChange={e => setNewRop({ ...newRop, kind: e.target.value })}><option value="region">Region</option><option value="representative">Rep</option><option value="concessionaire">Concessionaire</option></select>
+          <select value={newRop.kind} onChange={e => setNewRop({ ...newRop, kind: e.target.value })}><option value="region">Region</option><option value="representative">Rep (under a region)</option><option value="concessionaire">Concessionaire</option></select>
+          {newRop.kind === 'representative' && <select value={newRop.parent || ''} onChange={e => setNewRop({ ...newRop, parent: e.target.value })}><option value="">Under region…</option>{rops.filter(r => !r.parent_id && r.client_code === oneClient).map(r => <option key={r.id} value={r.id}>{r.display_name}</option>)}</select>}
           <button className="btn btn-primary btn-sm" onClick={addRop}>Add</button>
           <button className="btn btn-ghost btn-sm" onClick={() => setNewRop(null)}>Cancel</button>
         </>}
@@ -261,7 +265,7 @@ function ClientOutlets({ scope, client, onOpen }) {
         <div className="card-header"><span className="card-title">🏪 Stores</span><span className="card-count">{rows ? `${num(list.length)} of ${num(rows.length)}` : ''}</span></div>
         {!rows ? <div className="load-state"><span className="spinner" /> Loading stores…</div> : !list.length ? <div className="text3" style={{ padding: 12 }}>No stores match.</div> : (
           <div className="tbl-wrap"><table className="tbl">
-            <thead><tr><th><input type="checkbox" aria-label="Tick all" checked={allTicked} onChange={e => setSel(e.target.checked ? list.slice(0, 500).map(o => o.outlet_code) : [])} /></th>{client === 'ALL' && <th>Client</th>}<th>Store</th><th>Town</th><th>Warehouse</th><th>Region / ROP</th><th>Contact</th><th>Open cases</th><th>Portal link</th></tr></thead>
+            <thead><tr><th><input type="checkbox" aria-label="Tick all" checked={allTicked} onChange={e => setSel(e.target.checked ? list.slice(0, 500).map(o => o.outlet_code) : [])} /></th>{client === 'ALL' && <th>Client</th>}<th>Store</th><th>Town</th><th>Warehouse</th><th>Region · rep</th><th>Contact</th><th>Open cases</th><th>Portal link</th></tr></thead>
             <tbody>{list.slice(0, 500).map(o => {
               const l = links[o.outlet_code]
               return (
@@ -271,7 +275,7 @@ function ClientOutlets({ scope, client, onOpen }) {
                   <td><strong style={{ fontSize: 12 }}>{o.name}</strong><div className="text3 mono" style={{ fontSize: 10 }}>{o.outlet_code}{o.latitude == null ? ' · ⚠ no GPS' : ''}</div></td>
                   <td>{o.town || o.suburb || '—'}</td>
                   <td>{WH_NAMES[o.warehouse_code] || o.warehouse_code || '—'}</td>
-                  <td>{o.region ? <span className="tag tag-blue" style={{ fontSize: 10 }}>🗺 {o.region}</span> : null} {ropOf(o) && ropOf(o).toLowerCase() !== (o.region || '').toLowerCase() ? <span className="text3" style={{ fontSize: 10.5 }}>{ropOf(o)}</span> : null}{!o.region && !ropOf(o) ? '—' : ''}</td>
+                  <td>{o.region ? <span className="tag tag-blue" style={{ fontSize: 10 }}>🗺 {o.region}</span> : ropOf(o) ? <span style={{ fontSize: 11 }}>{ropOf(o)}</span> : '—'}{repName(o) ? <div className="text3" style={{ fontSize: 10.5 }}>👤 {repName(o)}</div> : null}</td>
                   <td>{o.contact_person || '—'}{o.mobile_number ? <div className="text3" style={{ fontSize: 10 }}>{o.mobile_number}</div> : null}</td>
                   <td>{openBy[o.outlet_code] ? <Link to={`/cases?client=${o.client_code}&pos=${encodeURIComponent(o.outlet_code)}`}>📂 {openBy[o.outlet_code]} open</Link> : <span className="text3">—</span>}</td>
                   <td>{l ? <button className="btn btn-ghost btn-sm" onClick={() => onOpen(l)}>{l.active ? '🔗 Share / QR' : '⏸ off · edit'}</button>

@@ -4,8 +4,14 @@ drop trigger if exists coolerco_contact_update_to_routeiq on public.coolerco_con
 drop function if exists public.coolerco_contact_update_to_routeiq();
 drop function if exists public.coolerco_magnum_store_update(text, jsonb, text);
 drop function if exists public.coolerco_outlets_set_rop(text, text[], uuid);
-drop function if exists public.coolerco_rop_add(text, text, text);
+drop function if exists public.coolerco_rop_add(text, text, text, uuid);
 drop function if exists public.coolerco_outlet_change_com_fixed(bigint[]);
 alter table public.coolerco_outlet_changes drop column if exists com_fixed_at, drop column if exists com_fixed_by;
 -- delete from public.coolerco_concessionaire_names where rop_name in ('TIGER INLAND', 'TIGER COASTAL');
 -- delete from public.coolerco_concessionaires where display_name in ('Tiger Inland', 'Tiger Coastal') and kind = 'region';
+
+-- put back the ROP portal functions exactly as they were before 056
+do $rb$ declare f record; begin
+  for f in select def from public.coolerco_fn_backup where script = '056' loop execute f.def; end loop;
+end $rb$;
+-- (TEST demo: reps keep parent_id / rep_code and stores stay linked to the demo regions; the portal ignores parent_id again)

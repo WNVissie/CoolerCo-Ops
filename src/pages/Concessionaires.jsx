@@ -41,7 +41,10 @@ export default function Concessionaires() {
   useEffect(() => { load() }, [])
 
   const s = q.trim().toLowerCase()
-  const list = (rows || []).slice().sort((a, b) => (b.base.assets_at_pos || 0) - (a.base.assets_at_pos || 0)).filter(r => (showOff || r.active) && (!s || r.display_name.toLowerCase().includes(s) || r.names.some(n => n.toLowerCase().includes(s))))
+  const top = r => (r.parent_id ? (rows || []).find(x => x.id === r.parent_id) : r) || r
+  const list = (rows || []).slice().sort((a, b) => ((b.client_code === 'MAGNUM' || !b.client_code) - (a.client_code === 'MAGNUM' || !a.client_code))
+      || (a.client_code === 'MAGNUM' || !a.client_code ? (b.base.assets_at_pos || 0) - (a.base.assets_at_pos || 0) : 0)
+      || top(a).display_name.localeCompare(top(b).display_name) || (!!a.parent_id - !!b.parent_id) || a.display_name.localeCompare(b.display_name)).filter(r => (showOff || r.active) && (!s || r.display_name.toLowerCase().includes(s) || r.names.some(n => n.toLowerCase().includes(s))))
   const withUsers = (rows || []).filter(r => r.users.some(u => u.active)).length
 
   return (
@@ -63,7 +66,9 @@ export default function Concessionaires() {
           {!rows ? <div className="load-state"><span className="spinner" /> Loading…</div> : list.map(r => (
             <div key={r.id} className="loc-row" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <div style={{ flex: 1, minWidth: 200 }}>
-                <strong>{r.display_name}</strong>
+                <strong>{r.parent_id ? '　↳ ' : ''}{r.display_name}</strong>
+                {r.kind && r.kind !== 'concessionaire' && <span className={`tag tag-${r.kind === 'region' ? 'blue' : 'neutral'}`} style={{ marginLeft: 6, fontSize: 10 }}>{r.kind === 'region' ? '🗺 Region' : '👤 Rep'}{r.parent_id ? ` · ${(rows || []).find(x => x.id === r.parent_id)?.display_name || ''}` : ''}</span>}
+                {r.client_code && r.client_code !== 'MAGNUM' && <span className="text3" style={{ marginLeft: 6, fontSize: 10 }}>{r.client_code}</span>}
                 <div className="text3" style={{ fontSize: 10.5 }}>
                   {r.names.length > 1 ? `${r.names.length} COM spellings · ` : ''}{r.users.length ? `${r.users.filter(u => u.active).length} user(s)` : 'no users yet'}
                   {!r.active && ' · switched off'}
