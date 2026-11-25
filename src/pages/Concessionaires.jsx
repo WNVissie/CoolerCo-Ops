@@ -46,10 +46,10 @@ export default function Concessionaires() {
 
   return (
     <>
-      <Topbar title="Concessionaires" sub="Their own portal: personal link + PIN · approve customer requests · comment on COM cases" />
+      <Topbar title="Responsible Ordering Parties" sub="Concessionaires (Magnum) · reps / regions (Tiger) — own portal: personal link + PIN · approve customer requests · comment on COM cases" />
       <div className="page-content">
         <div className="stats-row">
-          <div className="stat-card c-accent"><div className="stat-label">🤝 Concessionaires</div><div className="stat-value">{rows ? num(rows.filter(r => r.active).length) : '…'}</div></div>
+          <div className="stat-card c-accent"><div className="stat-label">🤝 Responsible Ordering Parties</div><div className="stat-value">{rows ? num(rows.filter(r => r.active).length) : '…'}</div></div>
           <div className="stat-card c-teal"><div className="stat-label">❄️ Assets at POS</div><div className="stat-value">{rows ? num(rows.reduce((a, r) => a + (r.base.assets_at_pos || 0), 0)) : '…'}</div><div className="stat-sub">asset base of all concessionaires</div></div>
           <div className="stat-card c-green"><div className="stat-label">🔐 With portal users</div><div className="stat-value">{rows ? num(withUsers) : '…'}</div></div>
         </div>

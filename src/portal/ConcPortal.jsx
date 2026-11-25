@@ -59,7 +59,7 @@ export default function ConcPortal({ link }) {
   useEffect(() => { loadCtx() }, [loadCtx])
 
   if (!session) return staff
-    ? <Shell><div className="p-card p-center"><div className="p-big">⏱️</div><p>This staff view has ended. Open it again from <b>Concessionaires</b> in CoolerCo-Ops.</p></div></Shell>
+    ? <Shell><div className="p-card p-center"><div className="p-big">⏱️</div><p>This staff view has ended. Open it again from <b>Responsible Ordering Parties</b> in CoolerCo-Ops.</p></div></Shell>
     : <PinScreen link={link} msg={err} onLogin={s => { try { sessionStorage.setItem(key, s) } catch {} ; setErr(null); setSession(s) }} />
 
   if (!ctx) return <Shell><div className="p-card p-center">{err ? <><p className="p-err">{err}</p><button className="p-btn" onClick={() => { setErr(null); loadCtx() }}>↻ Try again</button></> : <><span className="p-spin" /> Loading…</>}</div></Shell>

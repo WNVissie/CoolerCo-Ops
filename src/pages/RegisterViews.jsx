@@ -8,6 +8,7 @@ import Topbar from '../components/Topbar'
 import DataTable from '../components/DataTable'
 import Drawer from '../components/Drawer'
 import CaseActions from '../components/CaseActions'
+import ModelPhoto from '../components/ModelPhoto'
 import { ClientBar, ClientBadge, clientName } from '../components/ClientScope'
 import { supabase } from '../lib/supabase'
 import { fmt, num, PS, CASE_TYPE_ICON, condColor } from '../lib/helpers'
@@ -171,7 +172,7 @@ function RegisterCaseDetail({ c, scope }) {
           <div key={role} className="asset-card"><div className="asset-card-hd">
             <span className="tag tag-blue">{role}</span>
             <button className="linkish mono" onClick={() => navigate(`/assets?client=${scope.client}&q=${encodeURIComponent(a)}`)}>{a} ↗</button>
-          </div></div>
+          </div><ModelPhoto asset={a} /></div>
         ))}
         {c.requested_product_base && assets.length > 0 && <div className="text3" style={{ fontSize: 10.5 }}>Requested: {c.requested_product_base}</div>}
       </Section>
@@ -183,8 +184,8 @@ function RegisterCaseDetail({ c, scope }) {
       </Section>
       <Section title="🏪 Outlet & contact">
         <div className="dl-grid">
-          <Field label="Outlet">{c.point_of_sale}</Field><Field label="Outlet code">{c.pos_local_code}</Field>
-          <Field label="Rep / concessionaire">{c.responsible_ordering_party}</Field><Field label="Address">{c.address}</Field>
+          <Field label="Outlet">{c.pos_local_code ? <button className="linkish" onClick={() => navigate(`/cases?client=${c.client_code}&pos=${encodeURIComponent(c.pos_local_code)}`)} title="All cases of this store">{c.point_of_sale} ↗</button> : c.point_of_sale}</Field><Field label="Outlet code">{c.pos_local_code}</Field>
+          <Field label="Responsible Ordering Party">{c.responsible_ordering_party}</Field><Field label="Address">{c.address}</Field>
           <Field label="Contact">{c.case_contact_name}</Field><Field label="Mobile">{c.case_mobile_number}</Field>
         </div>
       </Section>
@@ -294,6 +295,7 @@ function RegisterAssetDetail({ a, scope }) {
           <Field label="Model">{a.model}</Field><Field label="Type">{a.asset_type}</Field>
           <Field label="Branding">{a.branding}</Field><Field label="Condition">{a.condition && <span className={`tag tag-${condColor(a.condition)}`}>{a.condition}</span>}</Field>
         </div>
+        <ModelPhoto asset={a.asset_number} />
       </Section>
       <Section title="📍 Where is it?" open>
         <div className="dl-grid">

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import CaseStore from './CaseStore'
 
 const COM_PORTAL_TICKETS = 'https://emeaportal.unilevercom.com/en/tickets?toApprove=true'
 
@@ -30,11 +31,20 @@ export default function CaseActions({ caseNumber, onChanged }) {
   const [msg, setMsg] = useState(null)
   const [copied, setCopied] = useState(false)
   const [portalTip, setPortalTip] = useState(false)
+  const [decide, setDecide] = useState(null)      // null · 'approve' · 'reject'
+  const [rejReasons, setRejReasons] = useState([])
+  const [rej, setRej] = useState('')
+  const [decNote, setDecNote] = useState('')
 
   const load = () => supabase.rpc('coolerco_case_actions', { p_case: caseNumber })
     .then(({ data, error }) => setA(error || !data || data.error ? null : data))
 
   useEffect(() => { setA(null); setCancelOpen(false); setMsg(null); if (caseNumber) load() }, [caseNumber])
+  useEffect(() => {
+    if (decide !== 'reject' || rejReasons.length) return
+    supabase.from('coolerco_reason_codes').select('code,label').eq('status', 'Rejected').eq('active', true).order('sort_order')
+      .then(({ data }) => setRejReasons(data || []))
+  }, [decide])
   useEffect(() => {
     if (!cancelOpen || reasons.length) return
     supabase.from('coolerco_reason_codes').select('code,label').eq('status', 'Cancelled').eq('active', true).order('sort_order')
@@ -51,6 +61,15 @@ export default function CaseActions({ caseNumber, onChanged }) {
     try { navigator.clipboard?.writeText(a.case_number) } catch { /* copy not allowed: the tip still shows the number */ }
     window.open(COM_PORTAL_TICKETS, '_blank', 'noopener,noreferrer')
     setPortalTip(true); setTimeout(() => setPortalTip(false), 12000)
+  }
+  // ✅ Approve / 🚫 Reject a request straight from the case (same rules as the Requests page)
+  const setStatus = async (status, reason) => {
+    setBusy(true); setMsg(null)
+    const { error } = await supabase.rpc('coolerco_case_set_status', { p_case_number: a.case_number, p_status: status, p_reason_code: reason, p_notes: decNote || null })
+    setBusy(false)
+    if (error) return setMsg({ bad: true, t: /permission|not allowed|role/i.test(error.message) ? 'Your user may not approve this request.' : error.message })
+    setMsg({ t: status === 'Open' ? '✅ Approved — the case is now Open and its SLA clock runs.' : '🚫 Request rejected — logged in the case history.' })
+    setDecide(null); setRej(''); setDecNote(''); load(); onChanged?.()
   }
   const cancel = async () => {
     setBusy(true); setMsg(null)
@@ -75,6 +94,34 @@ export default function CaseActions({ caseNumber, onChanged }) {
         )}
         {a.can_cancel && !cancelOpen && <button className="btn btn-danger btn-sm" onClick={() => setCancelOpen(true)}>🚫 Cancel case</button>}
       </div>
+      {a.source === 'CoolerCo' && a.status === 'Waiting for Approval' && (
+        <div className="req-box" style={{ marginTop: 6 }}>
+          <div className="lbl">⏳ Waiting for approval</div>
+          {decide === null && (
+            <div className="modal-btns" style={{ justifyContent: 'flex-start' }}>
+              <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => setDecide('approve')}>✅ Approve</button>
+              <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => setDecide('reject')}>🚫 Reject…</button>
+            </div>
+          )}
+          {decide && (
+            <>
+              {decide === 'reject' && (
+                <select className="field-ctrl" value={rej} onChange={e => setRej(e.target.value)} style={{ width: '100%', marginBottom: 6 }}>
+                  <option value="">Choose a reason…</option>
+                  {rejReasons.map(r => <option key={r.code} value={r.code}>{r.label}</option>)}
+                </select>
+              )}
+              <input className="field-ctrl" placeholder="Note (optional)" value={decNote} onChange={e => setDecNote(e.target.value)} style={{ width: '100%' }} />
+              <div className="modal-btns" style={{ justifyContent: 'flex-start', marginTop: 6 }}>
+                {decide === 'approve'
+                  ? <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => setStatus('Open', 'APPROVED')}>{busy ? 'Saving…' : '✅ Approve request'}</button>
+                  : <button className="btn btn-danger btn-sm" disabled={busy || !rej} onClick={() => setStatus('Rejected', rej)}>{busy ? 'Saving…' : '🚫 Reject request'}</button>}
+                <button className="btn btn-ghost btn-sm" onClick={() => { setDecide(null); setRej('') }}>Back</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
       {portalTip && (
         <div className="text3" style={{ fontSize: 10.5 }}>📋 <b>{a.case_number}</b> is copied. In the COM portal, paste it in the <b>Case Number</b> filter box (Ctrl+V, or long-press on a phone) and press Enter.</div>
       )}
@@ -99,6 +146,7 @@ export default function CaseActions({ caseNumber, onChanged }) {
         </div>
       )}
       {msg && <div className={`form-msg ${msg.bad ? 'error' : 'success'}`} style={{ marginTop: 4 }}>{msg.t}</div>}
+      <CaseStore caseNumber={a.case_number} />
     </div>
   )
 }

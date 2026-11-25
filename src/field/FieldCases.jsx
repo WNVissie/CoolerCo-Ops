@@ -70,7 +70,7 @@ export default function FieldCases() {
             {isOpen && (
               <div className="f-kv">
                 <span>Store</span><div>{c.point_of_sale} · {c.pos_local_code}</div>
-                <span>Concessionaire</span><div>{c.responsible_ordering_party || '—'}</div>
+                <span>Responsible party</span><div>{c.responsible_ordering_party || '—'}</div>
                 <span>Warehouse</span><div>{c.warehouse_workshop || '—'}</div>
                 {caseAssets(c).map((a, i) => <Fragment key={i}><span>{a.icon} {a.role}</span><div className="mono" style={{ fontSize: 11.5 }}>{a.asset}{a.condition ? ` · ${a.condition}` : ''}</div></Fragment>)}
                 {c.requested_product_base && <><span>Requested</span><div>{c.requested_product_base}{c.requested_asset_condition ? ` · ${c.requested_asset_condition}` : ''}</div></>}

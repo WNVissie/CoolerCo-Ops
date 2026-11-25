@@ -161,7 +161,7 @@ export function AssetDetail({ a }) {
           <Field label="Brand">{a.brand_hierarchy}</Field>
           <Field label="Location type">{a.asset_location}</Field>
           <Field label="Assigned account">{a.assign_account}</Field>
-          <Field label="Concessionaire">{a.responsible_ordering_party}</Field>
+          <Field label="Responsible Ordering Party">{a.responsible_ordering_party}</Field>
           <Field label="POS code">{a.pos_local_code}</Field>
           <Field label="Days in WH">{a.elapsed_in_wh_days}</Field>
           <Field label="Last touch">{fmt(a.last_touch_date)}</Field>

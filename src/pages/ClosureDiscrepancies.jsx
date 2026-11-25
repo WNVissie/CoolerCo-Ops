@@ -56,7 +56,7 @@ export default function ClosureDiscrepancies() {
     const data = list.map(r => ({
       Discrepancy: KIND[r.kind]?.[1].replace(/^\S+ /, ''), 'Explained by later case': r.explained ? 'Yes' : 'No',
       'Case no.': r.case_number, 'Case type': r.case_type, Status: r.status_reason, Closed: fmt(r.closed_on), Created: fmt(r.created_on),
-      Warehouse: r.warehouse, 'Case store': r.point_of_sale, 'Case POS code': r.pos_local_code, Concessionaire: r.concessionaire,
+      Warehouse: r.warehouse, 'Case store': r.point_of_sale, 'Case POS code': r.pos_local_code, 'Responsible Ordering Party': r.concessionaire,
       'Asset delivered': r.asset, Barcode: r.asset_bar_code, 'Local code': r.asset_local_code, Model: r.asset_product_base, Condition: r.asset_condition,
       'Asset status (COM)': r.asset_status, 'COM has it at': r.asset_now, 'COM location type': r.asset_now_location, 'COM POS code': r.asset_now_pos_code,
       'Later case': r.later_case || '', 'Later case type': r.later_case_type || '', 'Later case status': r.later_case_status || '', 'Later case created': r.later_case_created ? fmt(r.later_case_created) : '',

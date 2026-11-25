@@ -5,6 +5,7 @@ import Topbar from '../components/Topbar'
 import DataTable from '../components/DataTable'
 import Drawer from '../components/Drawer'
 import CaseActions from '../components/CaseActions'
+import ModelPhoto from '../components/ModelPhoto'
 import { searchCases, countCases, exportCases } from '../lib/caseSearch'
 import {
   fmt, num, PS, slaColor, slaLabel, statusColor, isOpenCase,
@@ -49,8 +50,9 @@ function buildQuery(form) {
 function CasesCom({ clientBar }) {
   const [params] = useSearchParams()
   const [form, setForm] = useState(() => {
-    const a = params.get('asset'), c = params.get('case')
-    return c ? { ...EMPTY, by: 'caseNumber', text: c, status: 'all' } : a ? { ...EMPTY, by: 'asset', text: a, status: 'all' } : EMPTY
+    const a = params.get('asset'), c = params.get('case'), pos = params.get('pos')
+    return c ? { ...EMPTY, by: 'caseNumber', text: c, status: 'all' } : a ? { ...EMPTY, by: 'asset', text: a, status: 'all' }
+      : pos ? { ...EMPTY, by: 'pos', text: pos, status: 'all' } : EMPTY
   })
   const [query, setQuery] = useState(() => buildQuery(form).q)
   const [rows, setRows] = useState([])
@@ -340,6 +342,7 @@ function CaseDetail({ c, onAsset }) {
               </div>
             )}
             {a.fallback && <div className="text3" style={{ fontSize: 10.5 }}>Only the Mapped Asset is filled on this case.</div>}
+            <ModelPhoto asset={a.asset} />
           </div>
         ))}
         {c.mapped_asset && !assets.some(a => a.asset === c.mapped_asset) && (
@@ -362,9 +365,9 @@ function CaseDetail({ c, onAsset }) {
 
       <Section title="🏪 POS & contact">
         <div className="dl-grid">
-          <Field label="Point of Sale">{c.point_of_sale}</Field>
+          <Field label="Point of Sale">{c.pos_local_code ? <button className="linkish" onClick={() => navigate(`/portal?q=${encodeURIComponent(c.pos_local_code)}`)} title="Open the store in POS Lookup (cases + assets at the store)">{c.point_of_sale} ↗</button> : c.point_of_sale}</Field>
           <Field label="POS Local Code">{c.pos_local_code}</Field>
-          <Field label="Concessionaire">{c.responsible_ordering_party}</Field>
+          <Field label="Responsible Ordering Party">{c.responsible_ordering_party}</Field>
           <Field label="Address">{c.address}</Field>
           <Field label="Contact">{c.case_contact_name}</Field>
           <Field label="Phone">{c.case_contact_number && <a href={`tel:${c.case_contact_number}`}>{c.case_contact_number}</a>}</Field>
@@ -401,5 +404,5 @@ export default function Cases() {
 
   if (!scope.ready) return <div className="load-state"><span className="spinner" /> Loading…</div>
   if (scope.client === 'MAGNUM') return <CasesCom clientBar={<ClientBar scope={scope} />} />
-  return <RegisterCases scope={scope} key={scope.client} initialCase={params.get('case') || ''} />
+  return <RegisterCases scope={scope} key={scope.client} initialCase={params.get('case') || params.get('pos') || ''} />
 }

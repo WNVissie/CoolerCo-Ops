@@ -134,7 +134,7 @@ export default function CaseCalendar() {
       'Follow-up': BUCKET_TAG[r.bucket]?.[1], 'Case no.': r.case_number, Source: r.source, Client: r.client_code, 'Case type': r.case_type,
       Status: r.status_reason, 'Needs action': r.needs_action ? 'Yes' : '', Priority: r.priority, 'Due date': r.due_date,
       'Due date from': r.due_from === 'rule' ? 'SLA rule' : 'Case', 'Days late': r.days_late || '', Warehouse: (r.warehouse_workshop || '').replace(/^RTMA /, ''),
-      Store: r.point_of_sale, 'L-code': r.pos_local_code, Concessionaire: r.responsible_ordering_party, Asset: r.asset,
+      Store: r.point_of_sale, 'L-code': r.pos_local_code, 'Responsible Ordering Party': r.responsible_ordering_party, Asset: r.asset,
       Logged: fmt(r.created_on), Closed: r.service_closure_date ? fmt(r.service_closure_date) : '', 'SLA (COM)': r.sla_status,
       Route: r.route_number, 'Route date': r.route_date, 'Route outcome': r.route_outcome, 'Done on app, open in COM': r.app_done_com_open ? 'Yes' : '',
     }))

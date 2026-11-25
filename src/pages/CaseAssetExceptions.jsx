@@ -84,7 +84,7 @@ export default function CaseAssetExceptions() {
       const base = {
         Exception: KIND[r.kind]?.[1].replace(/^\S+ /, ''), 'Case no.': r.case_number, 'Case type': r.case_type, Status: r.status_reason,
         Created: fmt(r.created_on), 'End date': fmt(r.end_date), SLA: r.sla_status, Warehouse: r.warehouse, Store: r.point_of_sale, 'POS code': r.pos_local_code,
-        Concessionaire: r.concessionaire, 'Requested model': r.requested_product_base, 'Requested condition': r.requested_condition, 'Product family': r.requested_family,
+        'Responsible Ordering Party': r.concessionaire, 'Requested model': r.requested_product_base, 'Requested condition': r.requested_condition, 'Product family': r.requested_family,
       }
       if (r.kind !== 'possible') return [{ ...base, Asset: r.asset, Barcode: r.asset_bar_code, 'Local code': r.asset_local_code, Model: r.asset_product_base,
         Condition: r.asset_condition, 'Asset from': r.asset_source, 'Picked at': r.picked_at ? fmt(r.picked_at) : '', 'Asset is now at': r.asset_now }]

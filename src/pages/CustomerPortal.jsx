@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import Topbar from '../components/Topbar'
 import Drawer from '../components/Drawer'
 import { supabase } from '../lib/supabase'
@@ -8,7 +8,8 @@ import { fmt, num, statusColor, slaColor, slaLabel, condColor, CASE_TYPE_ICON, c
 
 // POS lookup: find a store, then see its cases and the assets COM says are there.
 export default function CustomerPortal() {
-  const [search, setSearch] = useState('')
+  const [params] = useSearchParams()
+  const [search, setSearch] = useState(params.get('q') || '')
   const [debounced, setDebounced] = useState('')
   const [list, setList] = useState([])
   const [loading, setLoading] = useState(false)
@@ -48,7 +49,7 @@ export default function CustomerPortal() {
             : !list.length ? <div className="empty-state"><div className="empty-ico">🏪</div><div>{debounced.length < 3 ? 'Type a POS name or code' : 'No stores found'}</div></div>
               : (
                 <div className="tbl-wrap"><table className="tbl">
-                  <thead><tr><th>Point of Sale</th><th>POS code</th><th>Concessionaire</th><th>Warehouse</th><th>Recent cases</th></tr></thead>
+                  <thead><tr><th>Point of Sale</th><th>POS code</th><th>Responsible Ordering Party</th><th>Warehouse</th><th>Recent cases</th></tr></thead>
                   <tbody>{list.map(p => (
                     <tr key={p.pos_local_code || p.point_of_sale} onClick={() => setPos(p)} style={{ cursor: 'pointer' }}>
                       <td>{p.point_of_sale}</td><td className="mono">{p.pos_local_code || '—'}</td>
@@ -86,7 +87,7 @@ function PosDetail({ p }) {
     <div>
       <div className="dl-grid" style={{ marginBottom: 12 }}>
         <div className="dl-field"><div className="lbl">POS code</div><div className="val mono">{p.pos_local_code || '—'}</div></div>
-        <div className="dl-field"><div className="lbl">Concessionaire</div><div className="val">{p.responsible_ordering_party || '—'}</div></div>
+        <div className="dl-field"><div className="lbl">Responsible Ordering Party</div><div className="val">{p.responsible_ordering_party || '—'}</div></div>
       </div>
       <details className="sec" open>
         <summary>🧊 Assets at this POS (per COM) {assets ? `(${assets.length})` : ''}</summary>

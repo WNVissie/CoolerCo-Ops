@@ -4,6 +4,8 @@ import DataTable from '../components/DataTable'
 import Drawer from '../components/Drawer'
 import { supabase } from '../lib/supabase'
 import { useClientScope, ClientBadge } from '../components/ClientScope'
+import CaseStore from '../components/CaseStore'
+import ModelPhoto from '../components/ModelPhoto'
 import { fmt, num, PS, statusColor, condColor, CASE_TYPE_ICON, WAREHOUSES, WH_NAMES } from '../lib/helpers'
 
 // CoolerCo's own cases (portal requests first). Approve → Open, Reject with a reason.
@@ -260,15 +262,17 @@ function RequestDetail({ c, onChanged }) {
               <Field label="Condition">{c.asset_condition && <span className={`tag tag-${condColor(c.asset_condition)}`}>{c.asset_condition}</span>}</Field>
               <Field label="COM status">{asset?.asset_status}</Field>
             </>}
+          {c.mapped_asset && <ModelPhoto asset={c.mapped_asset} />}
         </div>
       </details>
 
-      <details className="sec" open>
-        <summary>🏪 Store & contact</summary>
+      <CaseStore caseNumber={c.case_number} />
+      <details className="sec">
+        <summary>🏪 Store & contact (as logged)</summary>
         <div className="sec-body dl-grid">
           <Field label="Store">{c.point_of_sale}</Field>
           <Field label="POS code"><span className="mono">{c.pos_local_code}</span></Field>
-          <Field label="Concessionaire">{c.responsible_ordering_party}</Field>
+          <Field label="Responsible Ordering Party">{c.responsible_ordering_party}</Field>
           <Field label="Warehouse">{c.warehouse_workshop}</Field>
           <Field label="Contact">{c.case_contact_name}</Field>
           <Field label="Phone">{c.case_contact_number && <a href={`tel:${c.case_contact_number}`}>{c.case_contact_number}</a>}</Field>
