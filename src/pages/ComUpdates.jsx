@@ -3,12 +3,14 @@ import Topbar from '../components/Topbar'
 import { supabase } from '../lib/supabase'
 import { WH_NAMES, fmt } from '../lib/helpers'
 import { useAccess } from '../lib/access'
+import ComUploads from './ComUploads'
+import ComUsers from './ComUsers'
 
 // 📤 COM updates (script 038) — one rules table turns CoolerCo events into what COM needs, per client and case type.
 //   Magnum (COM is master): notifications queue here → ⬇ file for COM's Import from Excel → ✓ marked. CoolerCo never writes COM.
 //   Tiger (CoolerCo is master): the same rules are applied directly (status, follow-up cases, asset movements).
 //   Tabs: To send · Exported · App vs COM (movements COM hasn't caught up with) · Asset history · Rules · Engine log.
-const TABS = [['send', '📤 To send'], ['exported', '📦 Exported'], ['check', '⚠️ App vs COM'], ['history', '🔁 Asset history'], ['rules', '📏 Rules'], ['log', '🧾 Engine log']]
+const TABS = [['uploads', '⬆ COM uploads'], ['send', '📤 To send'], ['exported', '📦 Exported'], ['check', '⚠️ App vs COM'], ['history', '🔁 Asset history'], ['rules', '📏 Rules'], ['log', '🧾 Engine log'], ['users', '👤 COM users']]
 const need038 = e => /does not exist|Could not find|PGRST20[25]/i.test(e?.message || '')
 const saTime = d => (d ? new Date(d).toLocaleString('sv-SE', { timeZone: 'Africa/Johannesburg' }).slice(0, 16) : '')
 const csvCell = v => { const s = String(v ?? ''); return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s }
@@ -19,8 +21,9 @@ const RANK = n => (n === 'WITHIN PROPOSED TIME' ? 10 : n === 'ROUTE TO INFORMATI
 const CHECK_LABEL = { not_at_pos_in_com: '📍 Not at the POS in COM yet', still_at_pos_in_com: '🏪 COM still shows it at the POS', status_differs: '🔤 Status differs', ok: '✅ Matches' }
 
 export default function ComUpdates() {
-  const [tab, setTab] = useState('send')
+  const [tab, setTab] = useState('uploads')
   const [missing, setMissing] = useState(false)
+  const [missing063, setMissing063] = useState(false)
   const access = useAccess()
   if (access.ready && (!access.magnum || !access.office)) return (
     <>
@@ -36,6 +39,9 @@ export default function ComUpdates() {
           {TABS.map(([k, l]) => <button key={k} className={`seg-btn ${tab === k ? 'on' : ''}`} onClick={() => setTab(k)}>{l}</button>)}
         </div>
         {missing && <div className="form-msg warn">This screen needs database script 038 — not applied on this database yet.</div>}
+        {missing063 && (tab === 'uploads' || tab === 'users') && <div className="form-msg warn">This tab needs database script 063 (COM uploads) — not applied on this database yet. The other tabs still work.</div>}
+        {!missing && !missing063 && tab === 'uploads' && <ComUploads onMissing={() => setMissing063(true)} />}
+        {!missing && !missing063 && tab === 'users' && <ComUsers onMissing={() => setMissing063(true)} />}
         {!missing && tab === 'send' && <Queue status="to_send" onMissing={() => setMissing(true)} />}
         {!missing && tab === 'exported' && <Queue status="exported" onMissing={() => setMissing(true)} />}
         {!missing && tab === 'check' && <AppVsCom onMissing={() => setMissing(true)} />}
@@ -134,7 +140,7 @@ function Queue({ status, onMissing }) {
           <input type="date" className="field-ctrl" style={{ width: 'auto' }} value={routeDate} onChange={e => setRouteDate(e.target.value)} />
           <button className="btn btn-ghost btn-sm" disabled={busy} onClick={routeInCom} title="Every stop of that day's finalised routes → ROUTE TO INFORMATION to the route's RouteIQ name">🗺 Route in COM</button>
         </span>}
-        <button className="btn btn-primary btn-sm" disabled={!rows?.length || (status === 'to_send' && !ready.size)} onClick={download}>⬇ File for COM ({status === 'to_send' ? chosen().length : (sel.length || rows?.length || 0)}{status === 'to_send' ? ' — one step per case' : ''})</button>
+        <button className="btn btn-primary btn-sm" disabled={!rows?.length || (status === 'to_send' && !ready.size)} onClick={download}>⬇ CSV (old) ({status === 'to_send' ? chosen().length : (sel.length || rows?.length || 0)}{status === 'to_send' ? ' — one step per case' : ''})</button>
         {status === 'exported' && <>
           <button className="btn btn-ghost btn-sm" disabled={!sel.length} onClick={() => mark(sel, 'done')}>✓ Done in COM</button>
           <button className="btn btn-ghost btn-sm" disabled={!sel.length} onClick={() => mark(sel, 'to_send')}>↩ Back to send</button>
@@ -149,7 +155,7 @@ function Queue({ status, onMissing }) {
       {rows?.length === 0 && <div className="text3" style={{ fontSize: 12, padding: 8 }}>{status === 'to_send' ? 'Nothing waiting for COM. Steps arrive from routes, warehouse picking and Field app job cards.' : 'Nothing exported and waiting.'}</div>}
       {rows?.length > 0 && <div className="table-wrap"><table className="tbl"><thead><tr>
         <th><input type="checkbox" checked={sel.length === rows.length} onChange={e => setSel(e.target.checked ? rows.map(r => r.id) : [])} /></th>
-        <th>Case</th><th>Type</th><th>COM notification</th><th>When (SA)</th><th>From</th><th>Notes</th>{status === 'exported' && <th>Batch</th>}
+        <th>Case</th><th>Type</th><th>COM notification</th><th>When (SA)</th><th>From</th><th>By (COM)</th><th>Notes</th>{status === 'exported' && <th>Batch</th>}
       </tr></thead><tbody>
         {rows.map(r => <tr key={r.id}>
           <td><input type="checkbox" checked={sel.includes(r.id)} onChange={() => toggle(r.id)} /></td>
@@ -165,6 +171,7 @@ function Queue({ status, onMissing }) {
           <td>{saTime(r.service_at)}</td>
           {status === 'to_send' && null}
           <td>{({ route: '🗺 Route', picking: '📦 Picking', job_card: '📸 Job card', stop_event: '⚠️ Not done' })[r.source] || r.source}</td>
+          <td className="mono" style={{ fontSize: 11 }}>{r.notified_by_portal_user || ''}</td>
           <td style={{ fontSize: 11, maxWidth: 260 }}>{r.notes}</td>
           {status === 'exported' && <td className="mono" style={{ fontSize: 11 }}>{r.export_batch}</td>}
         </tr>)}
