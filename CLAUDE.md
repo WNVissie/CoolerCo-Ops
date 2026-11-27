@@ -1,6 +1,6 @@
 # CoolerCo-Ops — Project Overview & Hand-over
 
-**Last updated:** 2026-11-24 · **Repo:** https://github.com/WNVissie/CoolerCo-Ops (branch `main`)
+**Last updated:** 2026-11-27 · **Repo:** https://github.com/WNVissie/CoolerCo-Ops (branch `main`)
 **Stack:** React 18 + Vite 5 · React Router v6 · Supabase JS v2 · Netlify · SheetJS (lazy, export only)
 **Owner:** Wanda (SMART Project Partners). Explain in plain language, simple modern UI, icons, collapsible sections, small fonts, responsive, parallel + lazy loading, say whether server or browser is better.
 
@@ -384,7 +384,7 @@ Decisions (24 Nov):
 **Same branch, 2026-11-24 night (needs 053 on TEST for photos; works without it):** New case "Model wanted" = **catalogue** like the customer portal (photo, name, type, size, "n ready in <warehouse>", search, type chips, "only ready"); once picked only that model shows + **Change model** (warning when none ready). **053 `coolerco_053_model_catalogue.sql`** (+ rollback = 050 portal function; **APPLIED on TEST 2026-11-24** (demo outlet portal returns the 6 demo models); tested locally twice + rollback): `coolerco_asset_models.photo_path / display_name / portal_description / show_in_portal / sort_order`; `coolerco_portal_context` gives self-managed outlets the model photo, name, description and only ticked models. Setup -> Portal catalogue: client switch Magnum (families) / each self-managed client (models: photo upload to `catalogue/<client>/`, name, description, order, portal tick).
 **Client badges:** every case / asset row on the client views has a coloured client badge (one colour per client, Magnum blue; `ClientBadge` / `clientColor` in `ClientScope.jsx`), Client column always shown, chips carry the same colour dot. Warehouse staff (`coolerco_my_warehouses` set, not `coolerco_scope_all`) open Cases / Assets / Stock on **All clients** by default; admins still open on Magnum (COM).
 
-## 16. ▶ RESUME HERE — 2026-11-25 (Wanda testing on UAT)
+## 16. 2026-11-25 (Wanda testing on UAT)
 
 - **Everything up to 2026-11-24 21:40 is merged to main / UAT.** Nothing waiting on a branch.
 - **TEST check 2026-11-24 night:** 033–037, 041–053, 028 grant lines and SMART Track 002 are in. **032 (job card service result) APPLIED on TEST 2026-11-24 21:51 and verified** (5 columns, reasons INCORRECT_LOCATION / LOCATION_CLOSED / REPAIR_FAILED). Every script up to 053 is now on TEST.
@@ -445,4 +445,33 @@ Proven in COM UAT on 26 Nov (Wanda's files TEST4–TEST9): **Case Notification**
 - **064 `coolerco_064_expected_returns.sql`** (+ `coolerco_064_rollback.sql`; Wanda 27 Nov): a not-done Delivery / Replacement happens at the store, so the driver loaded the cooler; COM puts the case in Further Action Required (Magnum reschedules / cancels). In CoolerCo the loaded cooler goes on **📥 Expected back** and only returns to stock when **the same cooler is scanned at receiving** (overdue after `return_scan_hours` = 8 working hours; a different cooler = ⛔ wrong cooler back). `coolerco_expected_returns`, `coolerco_expect_return(case)`, `coolerco_return_loaded_now(case, asset)` (the old CC-RETURN booking, now done on the scan; releases a 057 client pick), `coolerco_expected_return_receive(code, wh, id)`, `_close(id, status, note)`, `coolerco_expected_returns_list(wh, open|today|all)`, trigger on `coolerco_asset_touch` (a Magnum scan ticks it off), new `coolerco_reverse_case_movements` (return_loaded → expected back; cancel → full reverse + closes the expected return; old def in `coolerco_fn_backup` '064'); '*' Deliver + Replacement not-done rules all `return_loaded` (old rows in `coolerco_rule_backup` '064'). UI `src/components/ExpectedBack.jsx` at the top of 🧭 Action required (scan / type / 📷 receive, overdue red, close with reason). Also in 063: on Deliver / Replacement every step after WPT except ASSET PICKED waits for ASSET PICKED Done (the cooler was loaded). Repair at Workshop SERVICE COMPLETE → movement CC-RTW (Ready to Work, as COM did).
 - **063 also:** view `coolerco_com_cases` (COM `cases` + on TEST the COM UAT test copies `UAT-CAS-…` in `coolerco_cases`, `com_case` = real UAT number, `local_case` = route/job-card number) used by every 063 function; queue lines without a warehouse take the route's warehouse. **OUT OF STOCK** (COM code 590205, "3 - Issue"; COM's full notification list = Wanda's `Active_Notification_2026-11-27` export) = the only logistics step without an asset: rule `no_stock` for Deliver + Replacement → Action Required, nothing loaded / expected back; waits only for WPT; `coolerco_case_out_of_stock(case, note)` + **🚫 Out of stock** in the Picking "Choose a cooler" drawer; event code NO_STOCK → no_stock.
 - **All of this is UAT only** (Wanda 27 Nov): closures go to COM UAT; after testing, a pilot with one warehouse (plan: a per-warehouse switch on the COM files).
+- Next script number: **065**.
+
+## 18. ▶ RESUME HERE — Saturday 28 Nov 2026 (status at 27 Nov 17:20)
+
+**Where we are**
+- **063 + 064 APPLIED on TEST by Wanda (27 Nov ~14:30) and verified** (all functions present; COM users seeded per warehouse — workshop user only PE, others fall back to the logistics/office user; 2 OUT OF STOCK rules; roll-back test: all four upload lists + Expected back open without errors; queues empty because nothing queued yet).
+- **Branch `claude/back-buttons` (2f2d03c, pushed) = `claude/com-uploads` (25a081e) + ‹ Back button on every page, all screen sizes** (`Topbar.jsx` + `.topbar-back` in `index.css`; laptop "‹ Back", phone arrow only; goes to previous page, else Dashboard). Checked at 1280 / 390 px. **NOT merged** — on "merge": fast-forward `main` to `claude/back-buttons` (one Netlify build brings COM uploads + Back button to UAT).
+- Production: unchanged (still waiting for 043 after hours; none of 016+ except 020a/020c/030a).
+- Monday's demo data on TEST: untouched — keep it that way unless Wanda says so.
+- Side note: the blank PowerShell windows on Wanda's PC came from a Windows scheduled task created by **OpenAI Codex's data-analytics plugin** (hidden powershell → node preview worker); Wanda disabled the task 27 Nov. Not Claude.
+
+**Goal tomorrow (Wanda):** finish testing the app and **close one or two cases in COM UAT**. The rest of the notifications next week.
+
+**Steps for tomorrow, in order**
+1. Wanda says "merge" → UAT has the COM uploads + Back button.
+2. Wanda exports fresh COM UAT cases (2–3: one Delivery, one Removal or Replacement; optional one Repair at Workshop) → Claude loads them on TEST as `UAT-CAS-…` rows in `coolerco_cases` (com_case = real UAT number) — test cases only, demo data untouched.
+3. COM updates → 👤 COM users: check warehouse defaults, fill Wanda's own COM portal user.
+4. 🧪 Test routes: put the UAT cases on a test route and finalise → WITHIN PROPOSED TIME queued (+ routing line while `com_send_routing` on).
+5. ⬆ COM uploads → **Routing**: ⬇ Build → import in COM UAT → cases In Service → ✓ Done.
+6. Picking: pick a cooler for the Delivery → **Routing + picking**: drop the fresh "CoolerCo - Picking update" export from COM → file with Asset Delivered + Router To / Routed On → import → ✓ Done → then the ASSET PICKED notification file → import → ✓ Done.
+7. Field app (or office ✅ Close case): Delivery completed → **Daily**: SERVICE COMPLETE; Removal/Replacement → TO REPAIR (COM creates the Repair at Workshop). Import → check in COM: Executed, asset at outlet, SA time → ✓ Done → ⚠️ App vs COM.
+8. Optional: one case not done → Action Required + cooler on 📥 Expected back until scanned at receiving; one Delivery 🚫 Out of stock (goes without an asset).
+9. Workshop (optional): WPT → ＋ Add repair → Workshop upload (repairs, then SERVICE COMPLETE) → COM moves the cooler to Ready to Work.
+10. Then: section 9 tests, section 11 checks, section 10 demo prep for **Monday 30 Nov** (incl. Scenario 10: one app, Magnum + Tiger).
+
+**Open / to confirm with Wanda**
+- OUT OF STOCK is on the Picking drawer only — also wanted in the case drawer?
+- Per-warehouse pilot switch on the COM files (after UAT testing).
+- Production COM templates: compare headings with UAT before the first production import.
 - Next script number: **065**.
