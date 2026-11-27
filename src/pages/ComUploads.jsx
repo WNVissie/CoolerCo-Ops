@@ -152,7 +152,7 @@ export default function ComUploads({ onMissing }) {
         {kind === 'routing' && <button className="btn btn-ghost btn-sm" disabled={busy} onClick={wpt} title="Finalised routes are picked up automatically; this catches anything missed">✅ Find WPT steps</button>}
         {kind === 'routing_picking' && <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
           <input type="date" className="field-ctrl" style={{ width: 'auto' }} value={routeDate} onChange={e => setRouteDate(e.target.value)} />
-          <button className="btn btn-ghost btn-sm" disabled={busy} onClick={routeInCom} title="Every stop of that day's finalised routes → Portal User Router To = the route's driver / technician">🚚 Add routing for the day</button>
+          <button className="btn btn-ghost btn-sm" disabled={busy} onClick={routeInCom} title="Finalised routes add Router To automatically; this catches routes finalised before script 063">🚚 Add missing routing for the day</button>
         </span>}
         <button className="btn btn-ghost btn-sm" onClick={load}>↻</button>
       </div>

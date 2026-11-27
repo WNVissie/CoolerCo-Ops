@@ -300,6 +300,7 @@ select 'com_auto_wpt', 'true'::jsonb where not exists (select 1 from public.cool
 create or replace function public.coolerco_com_wpt_for_route(p_route uuid)
 returns int language plpgsql security definer set search_path = public, pg_temp as $$
 declare s record; v jsonb; v_n int := 0; r public.routing_routes;
+        v_send boolean := coalesce((select com_send_routing from public.coolerco_clients where code = 'MAGNUM'), true);
 begin
   select * into r from public.routing_routes where id = p_route;
   if r.id is null or r.status not in ('finalised', 'dispatched', 'partially_completed', 'completed') then return 0; end if;
@@ -315,6 +316,12 @@ begin
     v := public.coolerco_case_apply_event(s.case_number, 'route_final', 'route', null, jsonb_build_object('route_id', p_route),
            coalesce(r.finalised_at, now()), 'Route ' || r.route_number || ' finalised');
     if v ? 'com_update' then v_n := v_n + 1; end if;
+    -- routing for the case update file (Portal User Router To / Routed On), as in the 26 Nov tests (TEST6b), while the switch is on
+    if v_send and r.resource_username is not null then
+      perform public.coolerco_case_apply_event(s.case_number, 'routed', 'route', null,
+        jsonb_build_object('route_id', p_route, 'routed_to', r.resource_username, 'route_number', left(r.route_number, 25)),
+        coalesce(r.finalised_at, now()), 'Routed on ' || r.route_number);
+    end if;
   end loop;
   return v_n;
 end $$;
