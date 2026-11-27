@@ -265,8 +265,9 @@ begin
         when b.f = 'case_update' and b.notification = 'ROUTE TO INFORMATION' and not b.pick_waiting then 'waits for the picking - Router To goes to COM together with the picked asset'
         when b.f = 'notification' and b.notification ~ '^ASSET PICKED' and coalesce(b.case_update_status, '') <> 'done'
              then 'waits for the case update (Router To + Asset Delivered) to be Done in COM - COM refuses ASSET PICKED before the asset is on the case'
-        when b.f = 'notification' and b.case_type in ('Deliver an Asset', 'Replacement of Asset') and b.notification in ('SERVICE COMPLETE', 'TO REPAIR') and not b.pick_done
-             then 'waits for ASSET PICKED to be Done in COM'
+        when b.f = 'notification' and b.case_type in ('Deliver an Asset', 'Replacement of Asset') and not b.pick_done
+             and b.notification !~ '^ASSET PICKED' and b.notification <> 'WITHIN PROPOSED TIME'
+             then 'waits for ASSET PICKED to be Done in COM (the driver loaded the cooler before reaching the store)'
         when b.com_status in ('Error', 'Further Action Required', 'Action Required', 'Waiting') then 'COM case is ' || b.com_status || ' - only Magnum can action it'
         when b.notification = 'SERVICE COMPLETE' and b.case_type in ('Repair at Workshop', 'Repair at Shopper POS') and b.rep_open then 'the repairs go first (Case Repair file)'
         when b.notification = 'SERVICE COMPLETE' and b.case_type in ('Repair at Workshop', 'Repair at Shopper POS') and not b.rep_done then 'add the repair first - COM needs repairs before SERVICE COMPLETE'

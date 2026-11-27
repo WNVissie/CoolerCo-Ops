@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import Topbar from '../components/Topbar'
 import Drawer from '../components/Drawer'
 import CaseActions from '../components/CaseActions'
+import ExpectedBack from '../components/ExpectedBack'
 import { supabase } from '../lib/supabase'
 import { CASE_TYPE_ICON } from '../lib/helpers'
 import { useClientScope, ClientBadge } from '../components/ClientScope'
@@ -37,8 +38,9 @@ export default function ActionDesk() {
 
   return (
     <>
-      <Topbar title="Action required" sub="Cases not done in the field — reschedule or cancel (Demo / Tiger and other CoolerCo-run clients)" />
+      <Topbar title="Action required" sub="Cases not done in the field — coolers expected back (all clients) · reschedule or cancel (Demo / Tiger and other CoolerCo-run clients)" />
       <div className="page-content">
+        <ExpectedBack />
         {missing && <div className="notice warn">🧭 The Action Required desk needs database script 059.</div>}
         {err && <div className="form-msg error">{err}</div>}
         {msg && <div className="form-msg success">{msg}</div>}
