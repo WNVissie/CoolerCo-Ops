@@ -87,7 +87,7 @@ export default function ComUploads({ onMissing }) {
     try {
       const X = await import('../lib/comXlsx.js')
       const batch = `COM-${kind}-${stamp()}`
-      const notes = []; const markIds = new Set(); const repairIds = []
+      const notes = []; const markIds = new Set(); const repairIds = []; let cuCases = []
       for (const f of files) {
         if (f === 'case_update') {
           if (!exportFile) throw new Error('Drop the fresh COM export of the "CoolerCo - Picking update" view first (step 1).')
@@ -96,7 +96,7 @@ export default function ComUploads({ onMissing }) {
           const res = await X.fillUpdate(t, 'Case Number', upd)
           if (res.missingCols.length) notes.push(`⚠ The export has no ${res.missingCols.join(' / ')} column — add it to the COM view, or those values are not sent.`)
           if (res.missing.length) notes.push(`⚠ Not in the COM export (left for the next file): ${res.missing.join(', ')}`)
-          res.found.forEach(k => caseUpdates[k].ids.forEach(id => markIds.add(id)))
+          cuCases = res.found
           if (res.found.length) save(await X.toBlob(t), `CoolerCo_COM_${batch}_1_CaseUpdate_${res.found.length}.xlsx`)
           continue
         }
@@ -118,8 +118,9 @@ export default function ComUploads({ onMissing }) {
         save(await X.toBlob(t), `CoolerCo_COM_${batch}_${n}_${f === 'repair' ? 'CaseRepair' : 'Notifications'}_${out.length}.xlsx`)
       }
       setMsg({ t: notes.some(x => x.startsWith('⚠')) ? 'warn' : 'ok', s: [`⬇ ${files.length} file(s) for batch ${batch}.`, ...notes].join('\n') })
-      if ((markIds.size || repairIds.length) && confirm(`Mark ${markIds.size + repairIds.length} line(s) as exported (batch ${batch})?\n\nImport the files in COM UAT in the order of their number, then come back and tick ✓ Done in COM on the Exported tab.`)) {
+      if ((markIds.size || repairIds.length || cuCases.length) && confirm(`Mark ${markIds.size + repairIds.length + cuCases.length} line(s) as exported (batch ${batch})?\n\nImport the files in COM UAT in the order of their number, then come back and tick ✓ Done in COM on the Exported tab.`)) {
         if (markIds.size) { const { error } = await supabase.rpc('coolerco_com_updates_mark', { p_ids: [...markIds], p_status: 'exported', p_batch: batch }); if (error) throw error }
+        if (cuCases.length) { const { error } = await supabase.rpc('coolerco_com_case_update_mark', { p_cases: cuCases, p_status: 'exported', p_batch: batch }); if (error) throw error }
         if (repairIds.length) { const { error } = await supabase.rpc('coolerco_com_repairs_mark', { p_ids: repairIds, p_status: 'exported', p_batch: batch }); if (error) throw error }
         load()
       }
@@ -198,7 +199,8 @@ export default function ComUploads({ onMissing }) {
         </div>)}
 
         {files.length > 0 && <button className="btn btn-primary" disabled={busy} onClick={build}>{busy ? 'Building…' : `⬇ Build ${files.length} file(s) for COM`}</button>}
-        {kind === 'routing_picking' && files.length > 1 && <div className="text3" style={{ fontSize: 11, marginTop: 6 }}>Import in COM in file order: 1 the case update, then 2 the ASSET PICKED notifications.</div>}
+        {kind === 'routing_picking' && <CaseUpdatesSent setMsg={setMsg} onChange={load} />}
+        {kind === 'routing_picking' && <div className="text3" style={{ fontSize: 11, marginTop: 6 }}>Order proven in COM UAT: WITHIN PROPOSED TIME (→ In Service) · case update with Router To + the picked asset · ASSET PICKED (COM refuses it before the asset is on the case) · then TO REPAIR / SERVICE COMPLETE. Each waits until the one before is ✓ Done in COM.</div>}
         {(kind === 'workshop' || kind === 'daily') && <div className="text3" style={{ fontSize: 11, marginTop: 6 }}>COM needs the repairs on the case before SERVICE COMPLETE: the repair file goes first; SERVICE COMPLETE follows in the next file once the repairs are ✓ Done in COM.</div>}
 
         {showHeld && held.length > 0 && <div className="table-wrap" style={{ marginTop: 10 }}><table className="tbl"><thead><tr><th>Case</th><th>Step</th><th>COM status</th><th>Why it waits</th></tr></thead><tbody>
@@ -274,5 +276,28 @@ function Workshop({ wh, onChange, setMsg }) {
         <button className="btn btn-primary btn-sm" disabled={!sel.length} onClick={queue}>✅ Queue WPT for {sel.length}</button>
       </>}
     </div>}
+  </div>
+}
+
+// case updates sent to COM, waiting for ✓ Done in COM (then their ASSET PICKED becomes ready)
+function CaseUpdatesSent({ setMsg, onChange }) {
+  const [list, setList] = useState([])
+  const [sel, setSel] = useState([])
+  const load = useCallback(() => { supabase.rpc('coolerco_com_case_updates_open').then(({ data }) => { setList(data || []); setSel([]) }) }, [])
+  useEffect(() => { load() }, [load])
+  if (!list.length) return null
+  const mark = async to => {
+    const { data, error } = await supabase.rpc('coolerco_com_case_update_mark', { p_cases: sel, p_status: to })
+    setMsg(error ? { t: 'err', s: error.message } : { t: 'ok', s: to === 'done' ? `✓ ${data} case update(s) Done in COM — their ASSET PICKED is ready now.` : `↩ ${data} case update(s) back to send.` })
+    load(); onChange()
+  }
+  return <div style={{ border: '1px dashed var(--border)', borderRadius: 8, padding: 8, margin: '8px 0' }}>
+    <b style={{ fontSize: 12.5 }}>🧾 Case updates sent — tick when COM shows the asset and Router To on the case</b>
+    <div className="table-wrap" style={{ marginTop: 6 }}><table className="tbl"><thead><tr><th><input type="checkbox" checked={sel.length === list.length} onChange={e => setSel(e.target.checked ? list.map(x => x.case_number) : [])} /></th><th>Case</th><th>Type</th><th>Asset Delivered</th><th>Router To</th><th>Batch</th></tr></thead><tbody>
+      {list.map(x => <tr key={x.case_number}><td><input type="checkbox" checked={sel.includes(x.case_number)} onChange={() => setSel(s => (s.includes(x.case_number) ? s.filter(c => c !== x.case_number) : [...s, x.case_number]))} /></td>
+        <td className="mono">{x.case_number}</td><td>{x.case_type}</td><td className="mono" style={{ fontSize: 11 }}>{x.asset_ref}</td><td className="mono">{x.routed_to || '—'}</td><td className="mono" style={{ fontSize: 11 }}>{x.batch}</td></tr>)}
+    </tbody></table></div>
+    <button className="btn btn-primary btn-sm" disabled={!sel.length} onClick={() => mark('done')}>✓ Done in COM</button>{' '}
+    <button className="btn btn-ghost btn-sm" disabled={!sel.length} onClick={() => mark('to_send')}>↩ Back to send</button>
   </div>
 }

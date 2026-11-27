@@ -42,6 +42,11 @@ comment on column public.coolerco_clients.com_send_routing is 'Send Portal User 
 alter table public.coolerco_com_updates add column if not exists notified_by_portal_user text;
 alter table public.coolerco_com_updates add column if not exists created_by uuid;
 alter table public.coolerco_com_updates alter column created_by set default auth.uid();
+-- the case update (Router To + Routed On + Asset Delivered) travels with the ASSET PICKED line but has its own state:
+-- COM refuses ASSET PICKED until the asset is on the case (26 Nov), so ASSET PICKED waits until the case update is Done
+alter table public.coolerco_com_updates add column if not exists case_update_status text check (case_update_status in ('exported', 'done'));
+alter table public.coolerco_com_updates add column if not exists case_update_batch text;
+alter table public.coolerco_com_updates add column if not exists case_update_at timestamptz;
 
 create or replace function public.coolerco_is_workshop_case(p_type text)
 returns boolean language sql immutable as $$
@@ -234,13 +239,15 @@ begin
      where p_kind = 'routing_picking' and u.status = 'to_send'
        and coalesce(u.client_code, 'MAGNUM') = 'MAGNUM' and (v_wh is null or u.warehouse = v_wh)
        and not public.coolerco_is_workshop_case(u.case_type)
-       and (u.notification ~ '^ASSET PICKED'
+       and ((u.notification ~ '^ASSET PICKED' and u.case_update_status is null)
             or (u.notification = 'ROUTE TO INFORMATION'
                 and coalesce((select c.com_send_routing from public.coolerco_clients c where c.code = 'MAGNUM'), true)))
   ),
   base as (
     select q.*, cs.status_reason com_status,
-           exists (select 1 from public.coolerco_com_updates x where x.case_number = q.case_number and x.status = 'exported') case_waiting,
+           exists (select 1 from public.coolerco_com_updates x where x.case_number = q.case_number and (x.status = 'exported' or x.case_update_status = 'exported')) case_waiting,
+           exists (select 1 from public.coolerco_com_updates x where x.case_number = q.case_number and x.notification ~ '^ASSET PICKED' and x.status = 'to_send' and x.case_update_status is null) pick_waiting,
+           exists (select 1 from public.coolerco_com_updates x where x.case_number = q.case_number and x.notification ~ '^ASSET PICKED' and x.status = 'done') pick_done,
            exists (select 1 from public.coolerco_com_case_repairs x where x.case_number = q.case_number and x.status = 'exported') rep_waiting,
            exists (select 1 from public.coolerco_com_updates x where x.case_number = q.case_number and x.notification = 'WITHIN PROPOSED TIME' and x.status = 'done') wpt_done,
            exists (select 1 from public.coolerco_com_updates x where x.case_number = q.case_number and x.notification = 'WITHIN PROPOSED TIME' and x.status in ('to_send', 'exported')) wpt_open,
@@ -255,6 +262,11 @@ begin
         when b.notification <> 'WITHIN PROPOSED TIME' and not b.wpt_done and (b.wpt_open or coalesce(b.com_status, '') not in ('In Service'))
              then 'waits for WITHIN PROPOSED TIME to be Done in COM'
         when b.com_status in ('Solved', 'Not Solved', 'Canceled', 'Cancelled') then 'case already ' || b.com_status || ' in COM'
+        when b.f = 'case_update' and b.notification = 'ROUTE TO INFORMATION' and not b.pick_waiting then 'waits for the picking - Router To goes to COM together with the picked asset'
+        when b.f = 'notification' and b.notification ~ '^ASSET PICKED' and coalesce(b.case_update_status, '') <> 'done'
+             then 'waits for the case update (Router To + Asset Delivered) to be Done in COM - COM refuses ASSET PICKED before the asset is on the case'
+        when b.f = 'notification' and b.case_type in ('Deliver an Asset', 'Replacement of Asset') and b.notification in ('SERVICE COMPLETE', 'TO REPAIR') and not b.pick_done
+             then 'waits for ASSET PICKED to be Done in COM'
         when b.com_status in ('Error', 'Further Action Required', 'Action Required', 'Waiting') then 'COM case is ' || b.com_status || ' - only Magnum can action it'
         when b.notification = 'SERVICE COMPLETE' and b.case_type in ('Repair at Workshop', 'Repair at Shopper POS') and b.rep_open then 'the repairs go first (Case Repair file)'
         when b.notification = 'SERVICE COMPLETE' and b.case_type in ('Repair at Workshop', 'Repair at Shopper POS') and not b.rep_done then 'add the repair first - COM needs repairs before SERVICE COMPLETE'
@@ -292,6 +304,45 @@ begin
 end $$;
 revoke all on function public.coolerco_com_export_rows(text, text) from public, anon;
 grant execute on function public.coolerco_com_export_rows(text, text) to authenticated;
+
+-- case update file exported / done in COM (per case): the picked line's case update state + the routing line's status
+create or replace function public.coolerco_com_case_update_mark(p_cases text[], p_status text, p_batch text default null)
+returns int language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_n int;
+begin
+  if not public.coolerco_has_role(array['system_admin', 'administrator', 'manager', 'supervisor', 'supplier']) then raise exception 'Not allowed'; end if;
+  if p_status not in ('exported', 'done', 'to_send') then raise exception 'Unknown status %', p_status; end if;
+  update public.coolerco_com_updates
+     set case_update_status = case when p_status = 'to_send' then null else p_status end,
+         case_update_batch = case when p_status = 'exported' then coalesce(p_batch, case_update_batch) else case_update_batch end,
+         case_update_at = now()
+   where case_number = any (p_cases) and notification ~ '^ASSET PICKED' and status = 'to_send'
+     and (p_status <> 'done' or case_update_status = 'exported');
+  get diagnostics v_n = row_count;
+  update public.coolerco_com_updates
+     set status = p_status,
+         exported_at = case when p_status = 'exported' then now() else exported_at end,
+         export_batch = case when p_status = 'exported' then coalesce(p_batch, export_batch) else export_batch end,
+         done_at = case when p_status = 'done' then now() else done_at end
+   where case_number = any (p_cases) and notification = 'ROUTE TO INFORMATION' and status in ('to_send', 'exported');
+  return v_n;
+end $$;
+revoke all on function public.coolerco_com_case_update_mark(text[], text, text) from public, anon;
+grant execute on function public.coolerco_com_case_update_mark(text[], text, text) to authenticated;
+
+create or replace function public.coolerco_com_case_updates_open()
+returns table (case_number text, case_type text, asset_ref text, routed_to text, batch text, at timestamptz)
+language sql stable security definer set search_path = public, pg_temp as $$
+  select u.case_number, u.case_type, u.asset_ref,
+         (select r.routed_to from public.coolerco_com_updates r where r.case_number = u.case_number and r.notification = 'ROUTE TO INFORMATION' and r.status <> 'skipped' order by r.created_at desc limit 1),
+         u.case_update_batch, u.case_update_at
+    from public.coolerco_com_updates u
+   where public.coolerco_has_role(array['system_admin', 'administrator', 'manager', 'supervisor', 'supplier'])
+     and u.notification ~ '^ASSET PICKED' and u.case_update_status = 'exported' and u.status = 'to_send'
+   order by u.case_update_at
+$$;
+revoke all on function public.coolerco_com_case_updates_open() from public, anon;
+grant execute on function public.coolerco_com_case_updates_open() to authenticated;
 
 -- 4. Route finalised -> WITHIN PROPOSED TIME (Magnum only) -----------------------------------------------------------
 insert into public.coolerco_settings (key, value)

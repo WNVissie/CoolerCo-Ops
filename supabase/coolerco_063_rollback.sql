@@ -19,6 +19,8 @@ drop function if exists public.coolerco_com_user_set(text, text, text);
 drop function if exists public.coolerco_com_workshop_candidates(text);
 drop function if exists public.coolerco_com_workshop_wpt(text[], text);
 drop function if exists public.coolerco_com_repair_names();
+drop function if exists public.coolerco_com_case_update_mark(text[], text, text);
+drop function if exists public.coolerco_com_case_updates_open();
 drop function if exists public.coolerco_com_user_for(uuid, text, text, text);
 drop function if exists public.coolerco_is_workshop_case(text);
 drop table if exists public.coolerco_com_case_repairs;
@@ -27,6 +29,9 @@ delete from public.coolerco_settings where key = 'com_auto_wpt';
 
 alter table public.coolerco_com_updates drop column if exists notified_by_portal_user;
 alter table public.coolerco_com_updates drop column if exists created_by;
+alter table public.coolerco_com_updates drop column if exists case_update_status;
+alter table public.coolerco_com_updates drop column if exists case_update_batch;
+alter table public.coolerco_com_updates drop column if exists case_update_at;
 alter table public.coolerco_clients drop column if exists com_send_routing;
 alter table public.coolerco_warehouse_settings drop column if exists com_logistics_user;
 alter table public.coolerco_warehouse_settings drop column if exists com_workshop_user;

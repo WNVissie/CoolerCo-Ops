@@ -121,6 +121,8 @@ function Queue({ status, onMissing }) {
     }
   }
   const mark = async (ids, to, batch) => {
+    const routedCases = (rows || []).filter(r => ids.includes(r.id) && r.notification === 'ROUTE TO INFORMATION').map(r => r.case_number)
+    if (routedCases.length && to !== 'exported') await supabase.rpc('coolerco_com_case_update_mark', { p_cases: routedCases, p_status: to })   // 063; ignored without it
     const { data, error } = await supabase.rpc('coolerco_com_updates_mark', { p_ids: ids, p_status: to, p_batch: batch || null })
     setMsg(error ? { t: 'err', s: error.message } : { t: 'ok', s: `${data} line(s) → ${to}.` })
     load()
