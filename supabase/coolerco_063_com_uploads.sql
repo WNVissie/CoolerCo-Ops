@@ -470,6 +470,15 @@ $$;
 revoke all on function public.coolerco_com_repair_names() from public, anon;
 grant execute on function public.coolerco_com_repair_names() to authenticated;
 
+-- Repair at Workshop SERVICE COMPLETE moves the cooler to Ready to Work in COM (tested 26 Nov, CAS-161264 / CAS-161265),
+-- not to COM type 010's "Waiting for Action". Same in CoolerCo: expected for Magnum (App vs COM), real for Tiger / Demo.
+insert into public.coolerco_movement_types (code, name, active, source, from_kind, to_kind, physical, status_after)
+select 'CC-RTW', 'Repaired at the workshop - Ready to Work', true, 'CoolerCo', 'Workshop', 'Warehouse', true, 'Ready to Work'
+ where not exists (select 1 from public.coolerco_movement_types where code = 'CC-RTW');
+update public.coolerco_case_rules set movements = '[{"role": "repaired", "code": "CC-RTW"}]'::jsonb,
+       note = coalesce(note || ' · ', '') || '063: cooler to Ready to Work (as COM does)', updated_at = now()
+ where client_code = '*' and case_type = 'Repair at Workshop' and event = 'completed' and coalesce(movements, '[]'::jsonb) = '[]'::jsonb;
+
 -- 5. Settings screen: COM users ------------------------------------------------------------------------------------
 create or replace function public.coolerco_com_users()
 returns jsonb language plpgsql stable security definer set search_path = public, pg_temp as $$
