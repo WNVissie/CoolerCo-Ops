@@ -456,9 +456,13 @@ Proven in COM UAT on 26 Nov (Wanda's files TEST4–TEST9): **Case Notification**
 - Monday's demo data on TEST: untouched — keep it that way unless Wanda says so.
 - Side note: the blank PowerShell windows on Wanda's PC came from a Windows scheduled task created by **OpenAI Codex's data-analytics plugin** (hidden powershell → node preview worker); Wanda disabled the task 27 Nov. Not Claude.
 
-**Goal tomorrow (Wanda):** finish testing the app and **close one or two cases in COM UAT**. The rest of the notifications next week.
+**Plan (Wanda 27 Nov 17:24):** **Saturday 28 Nov = test the app** (no COM UAT). **Monday 30 Nov = COM UAT** (close one or two cases), **decide the pilot** (which warehouse) and **compare the production and UAT COM templates**. The rest of the notifications next week.
 
-**Steps for tomorrow, in order**
+**OUT OF STOCK — how it is really used (Wanda 27 Nov 17:24):** straight after a case is logged, when the warehouse cannot find a cooler to pick (physical stock does not match COM, or the only one left has a problem). So it comes BEFORE any route / WITHIN PROPOSED TIME. To build Saturday (small): (a) **065** — OUT OF STOCK no longer waits for WPT in `coolerco_com_export_rows` (today: "waits for WITHIN PROPOSED TIME to be Done"), goes in the Daily upload; (b) **🚫 Out of stock button in the case drawer** for open Deliver / Replacement cases with no picked cooler (today only in the Picking drawer, which needs the case on a route); (c) check on Monday in COM UAT that COM accepts OUT OF STOCK on a freshly logged case (not In Service).
+
+**Saturday: test the app on UAT (after merge), build the OUT OF STOCK change above, then section 9 tests, section 11 checks and demo prep. Monday: the COM UAT steps below.**
+
+**COM UAT steps (Monday), in order**
 1. Wanda says "merge" → UAT has the COM uploads + Back button.
 2. Wanda exports fresh COM UAT cases (2–3: one Delivery, one Removal or Replacement; optional one Repair at Workshop) → Claude loads them on TEST as `UAT-CAS-…` rows in `coolerco_cases` (com_case = real UAT number) — test cases only, demo data untouched.
 3. COM updates → 👤 COM users: check warehouse defaults, fill Wanda's own COM portal user.
@@ -471,7 +475,6 @@ Proven in COM UAT on 26 Nov (Wanda's files TEST4–TEST9): **Case Notification**
 10. Then: section 9 tests, section 11 checks, section 10 demo prep for **Monday 30 Nov** (incl. Scenario 10: one app, Magnum + Tiger).
 
 **Open / to confirm with Wanda**
-- OUT OF STOCK is on the Picking drawer only — also wanted in the case drawer?
-- Per-warehouse pilot switch on the COM files (after UAT testing).
-- Production COM templates: compare headings with UAT before the first production import.
+- Pilot warehouse: Wanda decides Monday → then the per-warehouse switch on the COM files.
+- Production COM templates: compare headings with UAT on Monday, before the first production import.
 - Next script number: **065**.
