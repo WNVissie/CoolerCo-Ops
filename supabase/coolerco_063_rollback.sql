@@ -23,10 +23,14 @@ drop function if exists public.coolerco_com_case_update_mark(text[], text, text)
 drop function if exists public.coolerco_com_case_updates_open();
 drop function if exists public.coolerco_com_user_for(uuid, text, text, text);
 drop function if exists public.coolerco_is_workshop_case(text);
+drop function if exists public.coolerco_case_out_of_stock(text, text);
+delete from public.coolerco_case_rules where client_code = '*' and event = 'no_stock' and note like '063:%';
+update public.coolerco_event_codes set event = 'other' where code = 'NO_STOCK' and event = 'no_stock';
 drop table if exists public.coolerco_com_case_repairs;
+drop view if exists public.coolerco_com_cases;
 drop table if exists public.coolerco_user_com_portal;
 delete from public.coolerco_settings where key = 'com_auto_wpt';
-update public.coolerco_case_rules set movements = '[]'::jsonb, note = nullif(replace(replace(note, ' · 063: cooler to Ready to Work (as COM does)', ''), '063: cooler to Ready to Work (as COM does)', ''), '')
+update public.coolerco_case_rules set movements = '[]'::jsonb, note = nullif(replace(replace(note, ' - 063: cooler to Ready to Work (as COM does)', ''), '063: cooler to Ready to Work (as COM does)', ''), '')
  where client_code = '*' and case_type = 'Repair at Workshop' and event = 'completed' and movements = '[{"role": "repaired", "code": "CC-RTW"}]'::jsonb;
 delete from public.coolerco_movement_types t where t.code = 'CC-RTW' and not exists (select 1 from public.coolerco_asset_movements m where m.movement_code = 'CC-RTW');
 

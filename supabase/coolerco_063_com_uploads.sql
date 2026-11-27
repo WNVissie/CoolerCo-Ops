@@ -48,6 +48,20 @@ alter table public.coolerco_com_updates add column if not exists case_update_sta
 alter table public.coolerco_com_updates add column if not exists case_update_batch text;
 alter table public.coolerco_com_updates add column if not exists case_update_at timestamptz;
 
+-- COM (Magnum) cases as COM numbers them: the COM `cases` upload + on TEST the COM UAT test copies in coolerco_cases
+-- (case_number UAT-CAS-..., com_case_number = the real UAT number). local_case = the number routes / job cards use.
+create or replace view public.coolerco_com_cases as
+select c.case_number as com_case, c.case_number as local_case, c.case_type, c.status_reason, c.warehouse_workshop,
+       c.asset_delivered, c.asset_removed, c.asset_repaired, c.mapped_asset, c.created_on
+  from public.cases c
+union all
+select x.com_case_number, x.case_number, x.case_type, x.status_reason,
+       coalesce(x.warehouse_workshop, (select w.com_name from public.coolerco_warehouse_settings w where w.warehouse_code = x.warehouse_code)),
+       x.asset_delivered, x.asset_removed, x.asset_repaired, x.mapped_asset, x.created_on
+  from public.coolerco_cases x
+ where x.case_number like 'UAT-%' and x.com_case_number is not null and coalesce(x.client_code, 'MAGNUM') = 'MAGNUM';
+revoke all on public.coolerco_com_cases from anon, authenticated;   -- read through the functions below
+
 create or replace function public.coolerco_is_workshop_case(p_type text)
 returns boolean language sql immutable as $$
   select coalesce(p_type, '') in ('Repair at Workshop', 'Decal @WH', 'Scrap an Asset')
@@ -85,6 +99,10 @@ begin
     if v_user is null and new.source = 'job_card' then select created_by into v_user from public.coolerco_field_job_cards where id = new.source_id; end if;
     if v_user is null and new.source = 'stop_event' then select created_by into v_user from public.coolerco_field_stop_events where id = new.source_id; end if;
     new.created_by := v_user;
+    if new.warehouse is null then   -- e.g. COM UAT test cases without a warehouse: take the route's warehouse
+      select r.warehouse_group into new.warehouse from public.routing_route_stops st join public.routing_routes r on r.id = st.route_id
+       where st.case_number in (new.case_number, 'UAT-' || new.case_number) order by r.route_date desc limit 1;
+    end if;
     if new.notified_by_portal_user is null then
       new.notified_by_portal_user := public.coolerco_com_user_for(
         case when new.source in ('route', 'workshop') then null else v_user end, new.case_type, new.warehouse,
@@ -143,10 +161,11 @@ begin
   begin
     if coalesce(new.repair_details, '') = '' or coalesce(new.service_result, 'service_completed') <> 'service_completed'
        or new.case_type not in ('Repair at Workshop', 'Repair at Shopper POS') then return new; end if;
-    select case_number, case_type, warehouse_workshop, asset_repaired, mapped_asset into k from public.cases where case_number = new.case_number;
+    select com_case as case_number, case_type, warehouse_workshop, asset_repaired, mapped_asset into k from public.coolerco_com_cases
+     where new.case_number in (com_case, local_case) limit 1;
     if k.case_number is null then return new; end if;   -- COM cases only
     insert into public.coolerco_com_case_repairs (case_number, case_type, warehouse, repair_name, quantity, notes, asset_ref, source, source_id, created_by, notified_by_portal_user)
-    values (new.case_number, k.case_type, k.warehouse_workshop, left(new.repair_details, 200), 1, new.repair_details, coalesce(k.asset_repaired, k.mapped_asset),
+    values (k.case_number, k.case_type, k.warehouse_workshop, left(new.repair_details, 200), 1, new.repair_details, coalesce(k.asset_repaired, k.mapped_asset),
             'job_card', new.id, new.created_by, public.coolerco_com_user_for(new.created_by, k.case_type, k.warehouse_workshop, new.driver_username));
   exception when others then
     insert into public.coolerco_engine_log (case_number, event, source, result) values (new.case_number, 'com_repair', 'job_card', jsonb_build_object('error', sqlerrm));
@@ -163,7 +182,8 @@ declare v_id uuid := p_id; k record;
 begin
   if not public.coolerco_has_role(array['system_admin', 'administrator', 'manager', 'supervisor', 'supplier']) then raise exception 'Not allowed'; end if;
   if v_id is null then
-    select case_number, case_type, warehouse_workshop, asset_repaired, mapped_asset into k from public.cases where case_number = p_case;
+    select com_case as case_number, case_type, warehouse_workshop, asset_repaired, mapped_asset into k from public.coolerco_com_cases
+     where upper(p_case) in (upper(com_case), upper(local_case)) limit 1;
     if k.case_number is null then raise exception 'Case % is not a COM case', p_case; end if;
     insert into public.coolerco_com_case_repairs (case_number, case_type, warehouse, asset_ref, source, notified_by_portal_user)
     values (k.case_number, k.case_type, k.warehouse_workshop, coalesce(k.asset_repaired, k.mapped_asset), 'office',
@@ -253,7 +273,7 @@ begin
            exists (select 1 from public.coolerco_com_updates x where x.case_number = q.case_number and x.notification = 'WITHIN PROPOSED TIME' and x.status in ('to_send', 'exported')) wpt_open,
            exists (select 1 from public.coolerco_com_case_repairs x where x.case_number = q.case_number and x.status = 'done') rep_done,
            exists (select 1 from public.coolerco_com_case_repairs x where x.case_number = q.case_number and x.status in ('to_send', 'exported')) rep_open
-      from q left join public.cases cs on cs.case_number = q.case_number
+      from q left join lateral (select status_reason from public.coolerco_com_cases cc where cc.com_case = q.case_number limit 1) cs on true
   ),
   judged as (
     select b.*,
@@ -266,7 +286,7 @@ begin
         when b.f = 'notification' and b.notification ~ '^ASSET PICKED' and coalesce(b.case_update_status, '') <> 'done'
              then 'waits for the case update (Router To + Asset Delivered) to be Done in COM - COM refuses ASSET PICKED before the asset is on the case'
         when b.f = 'notification' and b.case_type in ('Deliver an Asset', 'Replacement of Asset') and not b.pick_done
-             and b.notification !~ '^ASSET PICKED' and b.notification <> 'WITHIN PROPOSED TIME'
+             and b.notification !~ '^ASSET PICKED' and b.notification not in ('WITHIN PROPOSED TIME', 'OUT OF STOCK')
              then 'waits for ASSET PICKED to be Done in COM (the driver loaded the cooler before reaching the store)'
         when b.com_status in ('Error', 'Further Action Required', 'Action Required', 'Waiting') then 'COM case is ' || b.com_status || ' - only Magnum can action it'
         when b.notification = 'SERVICE COMPLETE' and b.case_type in ('Repair at Workshop', 'Repair at Shopper POS') and b.rep_open then 'the repairs go first (Case Repair file)'
@@ -292,7 +312,7 @@ begin
          h.hold is null,
          h.hold
     from public.coolerco_com_case_repairs r
-    left join public.cases cs on cs.case_number = r.case_number
+    left join lateral (select status_reason from public.coolerco_com_cases cc where cc.com_case = r.case_number limit 1) cs on true
     cross join lateral (select case
         when exists (select 1 from public.coolerco_com_updates x where x.case_number = r.case_number and x.status = 'exported') then 'waits for the exported step to be Done in COM'
         when coalesce(cs.status_reason, '') not in ('In Service', 'In Progress') then 'COM case is ' || coalesce(cs.status_reason, 'not found') || ' - repairs go on In Progress / In Service cases'
@@ -360,7 +380,7 @@ begin
   for s in select distinct on (st.case_number) st.case_number
              from public.routing_route_stops st
              join public.routing_route_versions rv on rv.id = st.route_version_id and rv.is_current
-             join public.cases c on c.case_number = st.case_number           -- COM (Magnum) cases only
+             join public.coolerco_com_cases c on c.local_case = st.case_number   -- COM (Magnum) cases only
             where st.route_id = p_route and coalesce(st.outcome_status, '') <> 'removed'
               and c.status_reason in ('Open', 'In Progress')
               and not exists (select 1 from public.coolerco_com_updates u where u.case_number = st.case_number and u.notification = 'WITHIN PROPOSED TIME' and u.status <> 'skipped')
@@ -413,7 +433,7 @@ begin
   for s in select distinct on (st.case_number) st.case_number, r.id route_id
              from public.routing_route_stops st join public.routing_routes r on r.id = st.route_id
              join public.routing_route_versions rv on rv.id = st.route_version_id and rv.is_current
-             join public.cases c on c.case_number = st.case_number
+             join public.coolerco_com_cases c on c.local_case = st.case_number
             where r.status in ('finalised', 'dispatched', 'partially_completed', 'completed')
               and r.route_date >= coalesce(p_from, (now() at time zone 'Africa/Johannesburg')::date - 3)
               and c.status_reason in ('Open', 'In Progress')
@@ -432,9 +452,9 @@ grant execute on function public.coolerco_case_route_events(date) to authenticat
 create or replace function public.coolerco_com_workshop_candidates(p_warehouse text default null)
 returns table (case_number text, case_type text, status_reason text, warehouse text, asset text, created_on timestamptz, queued text)
 language sql stable security definer set search_path = public, pg_temp as $$
-  select c.case_number, c.case_type, c.status_reason, c.warehouse_workshop, coalesce(c.asset_repaired, c.mapped_asset), c.created_on,
-         (select string_agg(u.notification || ' (' || u.status || ')', ', ') from public.coolerco_com_updates u where u.case_number = c.case_number and u.status <> 'skipped')
-    from public.cases c
+  select c.local_case, c.case_type, c.status_reason, c.warehouse_workshop, coalesce(c.asset_repaired, c.mapped_asset), c.created_on,
+         (select string_agg(u.notification || ' (' || u.status || ')', ', ') from public.coolerco_com_updates u where u.case_number = c.com_case and u.status <> 'skipped')
+    from public.coolerco_com_cases c
    where public.coolerco_has_role(array['system_admin', 'administrator', 'manager', 'supervisor', 'supplier'])
      and c.case_type in ('Repair at Workshop', 'Decal @WH') and c.status_reason in ('Open', 'In Progress', 'In Service')
      and (p_warehouse is null or p_warehouse = '' or c.warehouse_workshop = coalesce((select com_name from public.coolerco_warehouse_settings where warehouse_code = p_warehouse), p_warehouse))
@@ -450,7 +470,7 @@ declare v_case text; v jsonb; v_n int := 0;
 begin
   if not public.coolerco_has_role(array['system_admin', 'administrator', 'manager', 'supervisor', 'supplier']) then raise exception 'Not allowed'; end if;
   foreach v_case in array coalesce(p_cases, '{}') loop
-    if exists (select 1 from public.cases where case_number = v_case and status_reason in ('Open', 'In Progress')) then
+    if exists (select 1 from public.coolerco_com_cases where local_case = v_case and status_reason in ('Open', 'In Progress')) then
       v := public.coolerco_case_apply_event(v_case, 'route_final', 'workshop', null, '{}'::jsonb, now(), coalesce(nullif(p_note, ''), 'Received at the workshop'));
       if v ? 'com_update' then v_n := v_n + 1; end if;
     end if;
@@ -477,8 +497,30 @@ insert into public.coolerco_movement_types (code, name, active, source, from_kin
 select 'CC-RTW', 'Repaired at the workshop - Ready to Work', true, 'CoolerCo', 'Workshop', 'Warehouse', true, 'Ready to Work'
  where not exists (select 1 from public.coolerco_movement_types where code = 'CC-RTW');
 update public.coolerco_case_rules set movements = '[{"role": "repaired", "code": "CC-RTW"}]'::jsonb,
-       note = coalesce(note || ' · ', '') || '063: cooler to Ready to Work (as COM does)', updated_at = now()
+       note = coalesce(note || ' - ', '') || '063: cooler to Ready to Work (as COM does)', updated_at = now()
  where client_code = '*' and case_type = 'Repair at Workshop' and event = 'completed' and coalesce(movements, '[]'::jsonb) = '[]'::jsonb;
+
+-- OUT OF STOCK (COM 590205, group 3 - Issue): the warehouse has no cooler for a Delivery / Replacement, so nothing is
+-- picked or loaded - the only logistics step that goes to COM without an asset (Wanda 27 Nov). Recorded at picking.
+insert into public.coolerco_case_rules (client_code, case_type, event, notification, notification_code, case_status, movements, return_loaded, allowed, needs_approval, active, note)
+select '*', t, 'no_stock', 'OUT OF STOCK', '590205', 'Action Required', '[]'::jsonb, false, true, false, true, '063: no cooler in stock at picking - nothing loaded'
+  from unnest(array['Deliver an Asset', 'Replacement of Asset']) t
+ where not exists (select 1 from public.coolerco_case_rules r where r.client_code = '*' and r.case_type = t and r.event = 'no_stock');
+update public.coolerco_event_codes set event = 'no_stock' where code = 'NO_STOCK' and event = 'other';
+
+create or replace function public.coolerco_case_out_of_stock(p_case text, p_note text default null)
+returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+declare v jsonb;
+begin
+  if not public.coolerco_has_role(array['system_admin', 'administrator', 'manager', 'supervisor', 'supplier', 'stock_controller', 'warehouse_assistant']) then raise exception 'Not allowed'; end if;
+  if exists (select 1 from public.coolerco_asset_movements where case_number = p_case and movement = 'pick' and not reversed) then
+    raise exception 'A cooler is already picked for this case - undo the pick first';
+  end if;
+  v := public.coolerco_case_apply_event(p_case, 'no_stock', 'picking', null, '{}'::jsonb, now(), coalesce(nullif(trim(p_note), ''), 'No cooler of the requested model in stock'));
+  return v;
+end $$;
+revoke all on function public.coolerco_case_out_of_stock(text, text) from public, anon;
+grant execute on function public.coolerco_case_out_of_stock(text, text) to authenticated;
 
 -- 5. Settings screen: COM users ------------------------------------------------------------------------------------
 create or replace function public.coolerco_com_users()

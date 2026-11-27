@@ -421,9 +421,34 @@ function Candidates({ line, onClose, onDone }) {
             </div>
             <button className="btn btn-primary btn-sm" onClick={() => select(c)}>Choose</button>
           </div>))}
+        {list && !line.selected_asset && <OutOfStock line={line} onDone={onDone} />}
       </>}
     </Drawer>
   )
+}
+
+// 🚫 Out of stock (script 063): no cooler for this Delivery / Replacement -> COM gets OUT OF STOCK (Magnum),
+// the case goes to Action Required; nothing is loaded, so nothing is expected back.
+function OutOfStock({ line, onDone }) {
+  const [open, setOpen] = useState(false)
+  const [note, setNote] = useState('')
+  const [err, setErr] = useState(null)
+  if (!/deliver|replacement/i.test(line.case_type || '')) return null
+  async function send() {
+    setErr(null)
+    const { data: r, error } = await supabase.rpc('coolerco_case_out_of_stock', { p_case: line.case_number, p_note: note || null })
+    if (error) return setErr(/Could not find|does not exist/i.test(error.message) ? 'Out of stock needs database script 063.' : error.message)
+    if (r?.skipped || r?.refused) return setErr(r.skipped || r.refused)
+    onDone(`🚫 ${line.case_number} marked out of stock${r?.com_update ? ' — OUT OF STOCK queued for COM' : ''}; the case is on Action required.`)
+  }
+  return <div style={{ marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+    {!open ? <button className="btn btn-ghost btn-sm" onClick={() => setOpen(true)}>🚫 Out of stock — no suitable cooler</button> : <>
+      <div style={{ fontSize: 11.5, marginBottom: 4 }}>Nothing can be picked for <b>{line.point_of_sale}</b>. COM gets <b>OUT OF STOCK</b> (Magnum) and the case goes to Action required.</div>
+      <input className="field-ctrl" value={note} onChange={e => setNote(e.target.value)} placeholder="Note, e.g. no VISIMAX III A-New in RTW" />
+      {err && <div className="form-msg error">{err}</div>}
+      <div className="modal-btns"><button className="btn btn-ghost btn-sm" onClick={() => setOpen(false)}>Back</button><button className="btn btn-primary btn-sm" onClick={send}>🚫 Confirm out of stock</button></div>
+    </>}
+  </div>
 }
 
 // 📷 Scan to pick — camera (continuous) or hand scanner / typing. The scan finds its own stop.
